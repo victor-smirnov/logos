@@ -32,12 +32,12 @@ use logos.lang.writ.wstring;       // WString
 use logos.lang.str;                // str_byte_at, str_eq, str_from_raw
 use logos.lcm.canon.vocab;         // the shared fact vocabulary (no bare strings)
 
-pub unsafe fn cf_sub(s: str, a: i64, b: i64) -> str {
+pub unsafe fn cf_sub(s: &str, a: i64, b: i64) -> &str {
     let l: i64 = if b > a { b - a } else { 0i64 };
     return str_from_raw((s.as_ptr() as i64 + a) as *const u8, l);
 }
 
-pub fn cf_find(s: str, from: i64, c: u8) -> i64 {
+pub fn cf_find(s: &str, from: i64, c: u8) -> i64 {
     let n: i64 = s.len();
     let mut i: i64 = from;
     while i < n {
@@ -51,7 +51,7 @@ pub fn cf_find(s: str, from: i64, c: u8) -> i64 {
 
 // Index of the next TOP-LEVEL `,` in s[from, end) — commas nested in
 // `<…>` / `(…)` / `[…]` (generic args in a column type) don't split.
-pub fn cf_next_comma(s: str, from: i64, end: i64) -> i64 {
+pub fn cf_next_comma(s: &str, from: i64, end: i64) -> i64 {
     let mut i: i64 = from;
     let mut depth: i64 = 0i64;
     while i < end {
@@ -95,7 +95,7 @@ pub fn container_spec_new() -> ContainerSpec {
 
 /// Parses the compiler's spec line. Returns false on any shape violation
 /// (unknown key, missing segment, empty kind/entry) — the caller diagnoses.
-pub fn parse_container_spec(spec: str, out: &mut ContainerSpec) -> bool {
+pub fn parse_container_spec(spec: &str, out: &mut ContainerSpec) -> bool {
     let n: i64 = spec.len();
     let mut pos: i64 = 0i64;
     let mut seen: i64 = 0i64;
@@ -108,8 +108,8 @@ pub fn parse_container_spec(spec: str, out: &mut ContainerSpec) -> bool {
         if eq < 0i64 || eq >= end {
             return false;
         }
-        let key: str = unsafe { cf_sub(spec, pos, eq) };
-        let val: str = unsafe { cf_sub(spec, eq + 1i64, end) };
+        let key: &str = unsafe { cf_sub(spec, pos, eq) };
+        let val: &str = unsafe { cf_sub(spec, eq + 1i64, end) };
         if str_eq(key, "pub") {
             out.is_pub = str_eq(val, "1");
         }
@@ -159,7 +159,7 @@ pub fn parse_container_spec(spec: str, out: &mut ContainerSpec) -> bool {
 // Index of the '.' splitting a stream-qualified name in s[from, to), or -1
 // (BTFL 8b: `keys.key` / `keys.max` / `keys.seek` spec segments; a BTSS-sugar
 // segment has no qualifier and belongs to the anonymous stream "").
-pub fn cf_dot(s: str, from: i64, to: i64) -> i64 {
+pub fn cf_dot(s: &str, from: i64, to: i64) -> i64 {
     let mut i: i64 = from;
     while i < to {
         if str_byte_at(s, i) == 46u8 {
@@ -184,7 +184,7 @@ pub fn cf_dot(s: str, from: i64, to: i64) -> i64 {
 /// deem-over-&Writ graph source: top-level WMap, arrays of FLAT maps, scalar
 /// leaves only. A malformed spec yields a doc with a NULL root — the caller
 /// diagnoses.
-pub fn container_facts(name: str, spec: str) -> Writ {
+pub fn container_facts(name: &str, spec: &str) -> Writ {
     let doc: Writ = writ_new(65536i64);
     let mut cs: ContainerSpec = container_spec_new();
     if !parse_container_spec(spec, &mut cs) {

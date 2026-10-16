@@ -374,7 +374,7 @@ deem canon_multi_entry(w: CanonFacts) {
     select x.ctr : str
 }
 
-fn cv_push_cap(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, cap: str, col: str) {
+fn cv_push_cap(doc: &Writ, arr: &mut WArray<WAny>, ctr: &str, cap: &str, col: &str) {
     let m: &mut WMap<WString, WAny> = doc.map(4i64);
     m.set(K_CTR, ctr);
     m.set(K_CAP, cap);
@@ -382,7 +382,7 @@ fn cv_push_cap(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, cap: str, col: str)
     arr.push(WAny::from(&*m));
 }
 
-fn cv_push_mode(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, col: str, mode: str) {
+fn cv_push_mode(doc: &Writ, arr: &mut WArray<WAny>, ctr: &str, col: &str, mode: &str) {
     let m: &mut WMap<WString, WAny> = doc.map(4i64);
     m.set(K_CTR, ctr);
     m.set(K_COL, col);
@@ -390,7 +390,7 @@ fn cv_push_mode(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, col: str, mode: st
     arr.push(WAny::from(&*m));
 }
 
-fn cv_push_split(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, policy: str) {
+fn cv_push_split(doc: &Writ, arr: &mut WArray<WAny>, ctr: &str, policy: &str) {
     let m: &mut WMap<WString, WAny> = doc.map(4i64);
     m.set(K_CTR, ctr);
     m.set(K_POLICY, policy);
@@ -398,7 +398,7 @@ fn cv_push_split(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, policy: str) {
 }
 
 // One container_shape node row (aspect=node): role leaf|branch (+ leaf policy).
-fn cv_push_shape_node(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, role: str, policy: str) {
+fn cv_push_shape_node(doc: &Writ, arr: &mut WArray<WAny>, ctr: &str, role: &str, policy: &str) {
     let m: &mut WMap<WString, WAny> = doc.map(4i64);
     m.set(K_CTR, ctr);
     m.set(K_ASPECT, ASPECT_NODE);
@@ -407,7 +407,7 @@ fn cv_push_shape_node(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, role: str, p
     arr.push(WAny::from(&*m));
 }
 // One container_shape scalar-aspect row (assembly | versioning | measure).
-fn cv_push_shape_aspect(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, aspect: str, value: str) {
+fn cv_push_shape_aspect(doc: &Writ, arr: &mut WArray<WAny>, ctr: &str, aspect: &str, value: &str) {
     let m: &mut WMap<WString, WAny> = doc.map(4i64);
     m.set(K_CTR, ctr);
     m.set(K_ASPECT, aspect);
@@ -418,7 +418,7 @@ fn cv_push_shape_aspect(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, aspect: st
 // branch, a tree assembly, CoW versioning, and the subtree_size rank measure.
 // FIXED shape today; the point is the DECISION lives in Canon — richer rules
 // (Index/AM2, non-versioned maps, extra measures) extend HERE, not the handler.
-fn cv_push_map_shape(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, leaf_policy: str) {
+fn cv_push_map_shape(doc: &Writ, arr: &mut WArray<WAny>, ctr: &str, leaf_policy: &str) {
     cv_push_shape_node(doc, arr, ctr, ROLE_LEAF, leaf_policy);
     cv_push_shape_node(doc, arr, ctr, ROLE_BRANCH, "");
     cv_push_shape_aspect(doc, arr, ctr, ASPECT_ASSEMBLY, ASM_TREE);
@@ -432,50 +432,50 @@ fn cv_push_map_shape(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, leaf_policy: 
 pub fn canon_verdicts(facts: &Writ) -> Writ {
     let doc: Writ = writ_new(65536i64);
 
-    let scan: Vec<str> = match canon_can_scan(facts)
+    let scan: Vec<&str> = match canon_can_scan(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let rank: Vec<str> = match canon_can_rank(facts)
+    let rank: Vec<&str> = match canon_can_rank(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let seek: Vec<(str, str)> = match canon_can_seek(facts)
+    let seek: Vec<(&str, &str)> = match canon_can_seek(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let mval: Vec<(str, str)> = match canon_mode_value(facts)
+    let mval: Vec<(&str, &str)> = match canon_mode_value(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let mview: Vec<(str, str)> = match canon_mode_view(facts)
+    let mview: Vec<(&str, &str)> = match canon_mode_view(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let missing: Vec<(str, str)> = match canon_missing_max(facts)
+    let missing: Vec<(&str, &str)> = match canon_missing_max(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let pdir: Vec<(str, str, str)> = match canon_proj_direct(facts)
+    let pdir: Vec<(&str, &str, &str)> = match canon_proj_direct(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let pcol: Vec<(str, str)> = match canon_proj_canoncol(facts)
+    let pcol: Vec<(&str, &str)> = match canon_proj_canoncol(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let unpr: Vec<(str, str, str)> = match canon_unprojectable(facts)
+    let unpr: Vec<(&str, &str, &str)> = match canon_unprojectable(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let multi: Vec<str> = match canon_multi_entry(facts)
+    let multi: Vec<&str> = match canon_multi_entry(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let svol: Vec<str> = match canon_split_volume(facts)
+    let svol: Vec<&str> = match canon_split_volume(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let sfast: Vec<str> = match canon_split_fast(facts)
+    let sfast: Vec<&str> = match canon_split_fast(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let mvol: Vec<str> = match canon_map_volume(facts)
+    let mvol: Vec<&str> = match canon_map_volume(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let mfast: Vec<str> = match canon_map_fast(facts)
+    let mfast: Vec<&str> = match canon_map_fast(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
     // BTFL 8b: ops-vocabulary + multimap structural verdicts.
-    let opunk: Vec<(str, str, str)> = match canon_op_unknown(facts)
+    let opunk: Vec<(&str, &str, &str)> = match canon_op_unknown(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let opbad: Vec<(str, str, str)> = match canon_op_bad_arg(facts)
+    let opbad: Vec<(&str, &str, &str)> = match canon_op_bad_arg(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let opmref: Vec<(str, str, str, str, str)> = match canon_op_measure_missing(facts)
+    let opmref: Vec<(&str, &str, &str, &str, &str)> = match canon_op_measure_missing(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let opcref: Vec<(str, str, str)> = match canon_op_scan_missing(facts)
+    let opcref: Vec<(&str, &str, &str)> = match canon_op_scan_missing(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let mmstr: Vec<str> = match canon_mm_streams(facts)
+    let mmstr: Vec<&str> = match canon_mm_streams(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let mmseek: Vec<(str, str)> = match canon_mm_seek(facts)
+    let mmseek: Vec<(&str, &str)> = match canon_mm_seek(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let sdom: Vec<(str, str)> = match canon_streams(facts)
+    let sdom: Vec<(&str, &str)> = match canon_streams(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
-    let sscan: Vec<(str, str)> = match canon_stream_scan(facts)
+    let sscan: Vec<(&str, &str)> = match canon_stream_scan(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
 
     let root: &mut WMap<WString, WAny> = doc.map(8i64);
@@ -487,7 +487,7 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     while i < rank.len()  { cv_push_cap(&doc, caps, rank.get(i), CAP_RANK, ""); i = i + 1i64; }
     i = 0i64;
     while i < seek.len() {
-        let s: (str, str) = seek.get(i);
+        let s: (&str, &str) = seek.get(i);
         cv_push_cap(&doc, caps, s.0, CAP_SEEK, s.1);
         i = i + 1i64;
     }
@@ -496,13 +496,13 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     let modes: &mut WArray<WAny> = doc.array(mval.len() + mview.len());
     i = 0i64;
     while i < mval.len() {
-        let r: (str, str) = mval.get(i);
+        let r: (&str, &str) = mval.get(i);
         cv_push_mode(&doc, modes, r.0, r.1, MODE_BY_VALUE);
         i = i + 1i64;
     }
     i = 0i64;
     while i < mview.len() {
-        let r: (str, str) = mview.get(i);
+        let r: (&str, &str) = mview.get(i);
         cv_push_mode(&doc, modes, r.0, r.1, MODE_BY_VIEW);
         i = i + 1i64;
     }
@@ -533,7 +533,7 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     let projs: &mut WArray<WAny> = doc.array(pdir.len() + pcol.len());
     i = 0i64;
     while i < pdir.len() {
-        let r: (str, str, str) = pdir.get(i);
+        let r: (&str, &str, &str) = pdir.get(i);
         let m: &mut WMap<WString, WAny> = doc.map(4i64);
         m.set(K_CTR, r.0);
         m.set(K_COL, r.1);
@@ -544,7 +544,7 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     }
     i = 0i64;
     while i < pcol.len() {
-        let r: (str, str) = pcol.get(i);
+        let r: (&str, &str) = pcol.get(i);
         let m: &mut WMap<WString, WAny> = doc.map(4i64);
         m.set(K_CTR, r.0);
         m.set(K_COL, r.1);
@@ -565,11 +565,11 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     let lays: &mut WArray<WAny> = doc.array(sdom.len() + 1i64);
     i = 0i64;
     while i < sdom.len() {
-        let r: (str, str) = sdom.get(i);
-        let mut l: str = LAYOUT_ROW;
+        let r: (&str, &str) = sdom.get(i);
+        let mut l: &str = LAYOUT_ROW;
         let mut q: i64 = 0i64;
         while q < sscan.len() {
-            let sc: (str, str) = sscan.get(q);
+            let sc: (&str, &str) = sscan.get(q);
             if str_eq(sc.0, r.0) && str_eq(sc.1, r.1) {
                 l = LAYOUT_COL;
             }
@@ -589,7 +589,7 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
         + mmstr.len() + mmseek.len());
     i = 0i64;
     while i < missing.len() {
-        let r: (str, str) = missing.get(i);
+        let r: (&str, &str) = missing.get(i);
         let mut detail: String = String::new();
         detail.push_str("max(");
         detail.push_str(r.1);
@@ -608,7 +608,7 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     }
     i = 0i64;
     while i < unpr.len() {
-        let r: (str, str, str) = unpr.get(i);
+        let r: (&str, &str, &str) = unpr.get(i);
         let mut detail: String = String::new();
         detail.push_str(r.1);
         detail.push_str(": ");
@@ -640,7 +640,7 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     // ── BTFL 8b decl-time ops/multimap error rows ───────────────────────────
     i = 0i64;
     while i < opunk.len() {
-        let r: (str, str, str) = opunk.get(i);
+        let r: (&str, &str, &str) = opunk.get(i);
         let mut detail: String = String::new();
         detail.push_str(r.1);
         detail.push_str(".");
@@ -661,7 +661,7 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     }
     i = 0i64;
     while i < opbad.len() {
-        let r: (str, str, str) = opbad.get(i);
+        let r: (&str, &str, &str) = opbad.get(i);
         let mut detail: String = String::new();
         detail.push_str(r.1);
         detail.push_str(".");
@@ -682,7 +682,7 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     }
     i = 0i64;
     while i < opmref.len() {
-        let r: (str, str, str, str, str) = opmref.get(i);
+        let r: (&str, &str, &str, &str, &str) = opmref.get(i);
         let mut detail: String = String::new();
         detail.push_str(r.3);
         if r.4.len() > 0i64 {
@@ -708,7 +708,7 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     }
     i = 0i64;
     while i < opcref.len() {
-        let r: (str, str, str) = opcref.get(i);
+        let r: (&str, &str, &str) = opcref.get(i);
         let mut reason: String = String::new();
         reason.push_str("op `scan(");
         reason.push_str(r.2);
@@ -735,7 +735,7 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     }
     i = 0i64;
     while i < mmseek.len() {
-        let r: (str, str) = mmseek.get(i);
+        let r: (&str, &str) = mmseek.get(i);
         let mut reason: String = String::new();
         reason.push_str("kind=multimap requires an orderable measure on its first stream '");
         reason.push_str(r.1);

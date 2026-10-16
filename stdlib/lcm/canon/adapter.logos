@@ -44,7 +44,7 @@ fn ad_is_int(t: &SView) -> bool {
     return false;
 }
 
-fn sview_eq_str(v: &SView, s: str) -> bool {
+fn sview_eq_str(v: &SView, s: &str) -> bool {
     if v.len != s.len() as u64 {
         return false;
     }
@@ -58,7 +58,7 @@ fn sview_eq_str(v: &SView, s: str) -> bool {
     return true;
 }
 
-fn ad_err(prefix: str, nm: &SView, field: &SView, detail: str) {
+fn ad_err(prefix: &str, nm: &SView, field: &SView, detail: &str) {
     let mut msg: String = String::new();
     msg.push_str("batch_entry: struct '");
     msg.push_bytes(nm.ptr, nm.len as i64);
@@ -133,7 +133,7 @@ fn batch_entry_hook(target_offset: u32) -> () {
                 fn key_cell(self: &#nm) -> u64 {
                     return self.#kf as u64;
                 }
-                fn val_str(self: &#nm) -> str {
+                fn val_str(self: &#nm) -> &str {
                     return self.#vf;
                 }
             }

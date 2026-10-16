@@ -84,7 +84,7 @@ use logos.mem.bt.btfl;            // NOT used here — the MODULE-GRAPH edge for
 // carrying Canon's reason verbatim. Helpers return scalars (bool / i64
 // codes), not borrowed strs — WAny steps bind to locals (borrowck contract).
 
-fn cv_has_cap(vroot: &WMap<WString, WAny>, ctr: str, cap: str) -> bool {
+fn cv_has_cap(vroot: &WMap<WString, WAny>, ctr: &str, cap: &str) -> bool {
     let av: WAny = vroot.get(V_CAPS);
     if !av.is_array() {
         return false;
@@ -112,7 +112,7 @@ fn cv_has_cap(vroot: &WMap<WString, WAny>, ctr: str, cap: str) -> bool {
 // 0 = no verdict row; 1 = direct (rel-native column, relty = declared type);
 // 2 = canon_col (project to i64 through CanonCol). Any OTHER proj string is a
 // Canon/handler vocabulary skew and fails LOUDLY — no silent degradation.
-fn cv_col_proj(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> i64 {
+fn cv_col_proj(vroot: &WMap<WString, WAny>, ctr: &str, col: &str) -> i64 {
     let av: WAny = vroot.get(V_COL_PROJS);
     if !av.is_array() {
         error("container item: verdict doc missing its col_projs array (Canon seam regression?)");
@@ -148,7 +148,7 @@ fn cv_col_proj(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> i64 {
 // The split-policy verdict for a kind=node ctr: "fast" | "volume" | "" (absent).
 // The leaf's split_into body is a FUNCTION of this — Canon decides, the emitter
 // reproduces the matching hand-written template.
-fn cv_split_policy<'a>(vroot: &'a WMap<WString, WAny>, ctr: str) -> &'a str {
+fn cv_split_policy<'a>(vroot: &'a WMap<WString, WAny>, ctr: &str) -> &'a str {
     let av: WAny = vroot.get(V_SPLIT);
     if !av.is_array() {
         return "";
@@ -171,7 +171,7 @@ fn cv_split_policy<'a>(vroot: &'a WMap<WString, WAny>, ctr: str) -> &'a str {
 }
 
 // BTFL 8b: the (ctr, stream) layout verdict from V_LAYOUTS; "" when absent.
-fn cv_stream_layout<'a>(vroot: &'a WMap<WString, WAny>, ctr: str, stream: str) -> &'a str {
+fn cv_stream_layout<'a>(vroot: &'a WMap<WString, WAny>, ctr: &str, stream: &str) -> &'a str {
     let av: WAny = vroot.get(V_LAYOUTS);
     if !av.is_array() {
         return "";
@@ -197,7 +197,7 @@ fn cv_stream_layout<'a>(vroot: &'a WMap<WString, WAny>, ctr: str, stream: str) -
 }
 
 // relty of the (ctr, col) col_proj verdict row; "" when absent.
-fn cv_col_relty<'a>(vroot: &'a WMap<WString, WAny>, ctr: str, col: str) -> &'a str {
+fn cv_col_relty<'a>(vroot: &'a WMap<WString, WAny>, ctr: &str, col: &str) -> &'a str {
     let av: WAny = vroot.get(V_COL_PROJS);
     if !av.is_array() {
         return "";
@@ -225,7 +225,7 @@ fn cv_col_relty<'a>(vroot: &'a WMap<WString, WAny>, ctr: str, col: str) -> &'a s
 // Reports every Canon error row as a compile diagnostic:
 //   container <ctr>: <code>: <reason>
 // Returns the number of rows reported (0 = clean verdict).
-fn cv_report_errors(vroot: &WMap<WString, WAny>, name: str) -> i64 {
+fn cv_report_errors(vroot: &WMap<WString, WAny>, name: &str) -> i64 {
     let av: WAny = vroot.get(V_ERRORS);
     if !av.is_array() {
         error("container item: verdict doc missing its errors array (Canon seam regression?)");
@@ -268,12 +268,12 @@ fn cv_report_errors(vroot: &WMap<WString, WAny>, name: str) -> i64 {
 // when bounded); bound_param = "" renders the list verbatim; empty generics → "".
 // The string is fed to parse_type_params, which reifies it into a spliceable
 // type_param_list AST (empty string → an empty list that renders no `<...>`).
-fn build_generics(generics: str, bound_param: str) -> String {
+fn build_generics(generics: &str, bound_param: &str) -> String {
     let mut out: String = String::new();
     if generics.len() == 0i64 {
         return out;
     }
-    let inner: str = unsafe { cf_sub(generics, 1i64, generics.len() - 1i64) };
+    let inner: &str = unsafe { cf_sub(generics, 1i64, generics.len() - 1i64) };
     out.push_str("<");
     let n: i64 = inner.len();
     let mut a: i64 = 0i64;
@@ -288,7 +288,7 @@ fn build_generics(generics: str, bound_param: str) -> String {
         while e2 > s && str_byte_at(inner, e2 - 1i64) == 32u8 {
             e2 = e2 - 1i64;
         }
-        let seg: str = unsafe { cf_sub(inner, s, e2) };
+        let seg: &str = unsafe { cf_sub(inner, s, e2) };
         if !first {
             out.push_str(", ");
         }
@@ -300,7 +300,7 @@ fn build_generics(generics: str, bound_param: str) -> String {
             while ne > 0i64 && str_byte_at(seg, ne - 1i64) == 32u8 {
                 ne = ne - 1i64;
             }
-            let nm: str = unsafe { cf_sub(seg, 0i64, ne) };
+            let nm: &str = unsafe { cf_sub(seg, 0i64, ne) };
             if str_eq(nm, bound_param) {
                 if c >= 0i64 {
                     out.push_str(" + CanonCol");
@@ -346,7 +346,7 @@ fn build_generics(generics: str, bound_param: str) -> String {
 /// surface gets it by calling this instead of by remembering.
 ///
 /// `raw` names the u64 in scope at the splice site (every caller binds `__raw`).
-fn cell_to_value_expr(raw: str, vty: str) -> ExprBlob {
+fn cell_to_value_expr(raw: &str, vty: &str) -> ExprBlob {
     let mut s: String = String::new();
     s.push_str(raw);
     if str_eq(vty, "bool") {
@@ -358,7 +358,7 @@ fn cell_to_value_expr(raw: str, vty: str) -> ExprBlob {
     return parse_expr(s.as_str());
 }
 
-fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
+fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
     let vol: bool = str_eq(policy, SPLIT_VOLUME);
     // Each quote blob carries its own `use` imports (no side Emitter pass). CoW
     // flavor carries the 16-byte node header via logos.mem.bt.node; plain uses
@@ -431,7 +431,7 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     let mut aname: String = String::new();
     aname.push_str(name);
     aname.push_str("Alg");
-    let spec: str = if vol { "fse8o,vle" } else { "fse8o,fse8" };
+    let spec: &str = if vol { "fse8o,vle" } else { "fse8o,fse8" };
     let mut kl: ItemList = alg_kernel_with_entry(aname.as_str(), spec,
                                                  "if hit { ET_SET } else { ET_INS }");
     loop {
@@ -691,7 +691,7 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                         let mut i: u32 = 0u32;
                         while i < n {
                             let v: &[u8] = self.val_at(i);
-                            let vs: str = unsafe { str_from_raw(v.as_ptr(), v.len()) };
+                            let vs: &str = unsafe { str_from_raw(v.as_ptr(), v.len()) };
                             let _ = c.try_insert(self.key_at(i), vs);
                             i = i + 1u32;
                         }
@@ -755,7 +755,7 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
 // type in scope), so the child-descent operations (rank, get_or) take a descent
 // HOOK fn-pointer — the caller binds it to the concrete leaf type; free_children
 // releases child blocks by raw dealloc (block-id lifecycle, no typed handle).
-fn emit_branch_node(name: str, kty: str, cow: bool) {
+fn emit_branch_node(name: &str, kty: &str, cow: bool) {
     // The type name (`#nm`) and the key type (`#(kid)`) are `#ident` antiquot
     // placeholders; `name`/`kty` borrow the spec, which outlives this synchronous
     // emission, so the Idents need no separate backing. Each blob carries its own
@@ -1009,7 +1009,7 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
 // Delegation resolves to the INHERENT method (inherent wins over the trait
 // method being defined — verified empirically; same rule as Rust), so the
 // one-line bodies below do not self-recurse.
-fn emit_bt_leaf_impl(lname: str, kty: str, vty: str, vol: bool) {
+fn emit_bt_leaf_impl(lname: &str, kty: &str, vty: &str, vol: bool) {
     let nm:  Ident = Ident::new(lname);
     let kid: Ident = Ident::new(kty);
     // VIn = declared value type verbatim (volume declares `val: str`); VOut is
@@ -1038,7 +1038,7 @@ fn emit_bt_leaf_impl(lname: str, kty: str, vty: str, vol: bool) {
 }
 
 // The branch analog — value-agnostic, so only K threads through.
-fn emit_bt_branch_impl(bname: str, kty: str) {
+fn emit_bt_branch_impl(bname: &str, kty: &str) {
     let nm:  Ident = Ident::new(bname);
     let kid: Ident = Ident::new(kty);
     let b: QuoteItemBlob = quote_item! {
@@ -1082,7 +1082,7 @@ fn emit_bt_branch_impl(bname: str, kty: str) {
 // value by value (`get_or(key, sentinel: vty) -> vty`); a volume (VLE) leaf
 // returns it by view (`get_or(key) -> &[u8]`, borrowing the tree; MISS = an
 // empty slice, materialized here as the generic's sentinel argument).
-fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str, vol: bool) {
+fn emit_tree(tname: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol: bool) {
     // The tree items are quote blobs; each carries its own `use` imports. All
     // names are plain (no composite {N}IR/{N}_ins/{N}_free free-items anymore —
     // the recursion lives in logos.mem.bt.ops) and borrow the spec, which
@@ -1186,8 +1186,8 @@ fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str, vol: bool) 
 // `kind == ordered_map` up in the factory, `pass/metaclass_str_generic` (a
 // str-valued, i.e. VLE/volume, ordered_map) reds with
 // `error [impl CtrLeafFamily for CtrClass$…]: unknown type 'Hs…LeafBatch'`.
-fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool,
-                mexpr: ExprBlob, cfg_src: str) {
+fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol: bool,
+                mexpr: ExprBlob, cfg_src: &str) {
     // The map items are quote blobs; each carries its own `use` imports. No
     // composite free-item names remain — all plain names borrow the spec,
     // which outlives this synchronous emit.
@@ -1480,7 +1480,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             use logos.lang.slice;
             use logos.lang.panic;
             impl #bufid {
-                pub fn push(self: &mut #bufid, key: #(kid), val: str) {
+                pub fn push(self: &mut #bufid, key: #(kid), val: &str) {
                     // the staging-boundary entry bound (1/4 of the block)
                     assert(8i64 + val.len() <= 1024i64,
                            "batch: value exceeds the entry bound (1/4 block)");
@@ -1491,7 +1491,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 }
                 /// One adapter-implementing application entry.
                 pub fn push_from<T: BatchMapEntryVol>(self: &mut #bufid, e: &T) {
-                    let v: str = e.val_str();
+                    let v: &str = e.val_str();
                     assert(8i64 + v.len() <= 1024i64,
                            "batch: value exceeds the entry bound (1/4 block)");
                     unsafe {
@@ -2344,7 +2344,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
 // Returns false after diagnosing a shape violation loudly (the decl path has
 // no other emission left — a silent skip would surface as "unknown type"
 // at every consumer instead of the real error).
-fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
+fn emit_cfg_doc(name: &str, cs: &ContainerSpec) -> bool {
     // The POSITIONAL container's config: kind + the single value column. The
     // factory has generated b+tree-backed vector families (emit_btvec_family)
     // since 8b — what was missing is a way to ASK for one, because a family is
@@ -2365,7 +2365,7 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
             error("container item: malformed vector entry column (compiler seam regression?)");
             return false;
         }
-        let vty0: str = unsafe { cf_sub(cs.entry, c1 + 1i64, c2) };
+        let vty0: &str = unsafe { cf_sub(cs.entry, c1 + 1i64, c2) };
         let mut cfgnm0_s: String = String::new();
         cfgnm0_s.push_str(name);
         cfgnm0_s.push_str("Cfg");
@@ -2406,7 +2406,7 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
         error("container item: malformed key column (compiler seam regression?)");
         return false;
     }
-    let kty: str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
+    let kty: &str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
     let v1: i64 = cf_find(cs.entry, nb0 + 1i64, 58u8);  // ':' of val col
     let mut v2: i64 = nb1 - 1i64;
     while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 {
@@ -2416,7 +2416,7 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
         error("container item: malformed val column (compiler seam regression?)");
         return false;
     }
-    let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
+    let vty: &str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
 
     // The CFG const via quote_item! (retires the last hand-formatted text
     // emission on the container decl path — the fragment lands in the declaring
@@ -2471,7 +2471,7 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
 // The variable-shape doc cannot ride one static @{…} quote template — the
 // SOURCE is composed and reified through parse_wstatic (the same primitive
 // the factory's CtrFamily impl splices), then spliced into the quoted const.
-fn emit_cfg_doc_multimap(name: str, cs: &ContainerSpec,
+fn emit_cfg_doc_multimap(name: &str, cs: &ContainerSpec,
                          vm: &WMap<WString, WAny>) -> bool {
     if cs.pkg.len() == 0i64 {
         error("container item: multimap spec carries no `pkg=` segment (compiler seam regression?)");
@@ -2485,8 +2485,8 @@ fn emit_cfg_doc_multimap(name: str, cs: &ContainerSpec,
         let mut first: bool = true;
         while a < cn {
             let b: i64 = cf_next_comma(cs.streams, a, cn);
-            let sname: str = unsafe { cf_sub(cs.streams, a, b) };
-            let l: str = cv_stream_layout(vm, name, sname);
+            let sname: &str = unsafe { cf_sub(cs.streams, a, b) };
+            let l: &str = cv_stream_layout(vm, name, sname);
             if l.len() == 0i64 {
                 error("container item: Canon produced no layout verdict for a declared stream (Canon seam regression?)");
                 return false;
@@ -2573,7 +2573,7 @@ fn emit_cfg_doc_multimap(name: str, cs: &ContainerSpec,
 // The handle mirrors the CoW map's `{snap, ctr_id}` shape and finds its tree
 // through the snapshot directory; node sizing is per-handle (create_with) —
 // splits allocate siblings of the handle's size.
-fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
+fn emit_btfl_family(name: &str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
                     mexpr: ExprBlob) {
     // ── v0 shape validation ─────────────────────────────────────────────────
     let sn: i64 = cs.streams.len();
@@ -2587,8 +2587,8 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
         error("container factory: BTFL v0 generates exactly TWO-stream multimaps — wider families land with 8c");
         return;
     }
-    let s0: str = unsafe { cf_sub(cs.streams, 0i64, s0e) };
-    let s1: str = unsafe { cf_sub(cs.streams, s0e + 1i64, sn) };
+    let s0: &str = unsafe { cf_sub(cs.streams, 0i64, s0e) };
+    let s1: &str = unsafe { cf_sub(cs.streams, s0e + 1i64, sn) };
     // 8c: the layout verdict (scan→column default) is ACCEPTED and recorded
     // in the generated cfg. For single-column entries — everything the v0
     // factory generates — row and col coincide physically; the runtime is
@@ -2629,8 +2629,8 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
                 if dot < 0i64 {
                     ok_cols = false;
                 } else {
-                    let strm: str = unsafe { cf_sub(cs.entry, a, dot) };
-                    let want: str = if which == 0i64 { s0 } else { s1 };
+                    let strm: &str = unsafe { cf_sub(cs.entry, a, dot) };
+                    let want: &str = if which == 0i64 { s0 } else { s1 };
                     if !str_eq(strm, want) {
                         ok_cols = false;
                     }
@@ -2986,7 +2986,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
 // So a `container … { kind vector; entry { elem: i64 } }` gets an i64 surface
 // without btvec knowing anything about it: the family is generated per CONFIG,
 // and the config carries the type, so nothing here is generic.
-fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
+fn emit_btvec_family(name: &str, vty: &str, mexpr: ExprBlob, cfg_src: &str) {
     let nm: Ident = Ident::new(name);
     let vt: ExprBlob = parse_type(vty);
     // ONE conversion blob for every surface this family emits — an ExprBlob is
@@ -3784,7 +3784,7 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
 // same quote-coverage debt tracked for the wave-0 handler.
 
 // Naive substring search — the CFG doc is one short line, no need for BMH.
-fn cf_find_sub(s: str, from: i64, pat: str) -> i64 {
+fn cf_find_sub(s: &str, from: i64, pat: &str) -> i64 {
     let n: i64 = s.len();
     let m: i64 = pat.len();
     let mut i: i64 = from;
@@ -3801,7 +3801,7 @@ fn cf_find_sub(s: str, from: i64, pat: str) -> i64 {
     return -1i64;
 }
 
-fn cf_skip_ws(s: str, from: i64) -> i64 {
+fn cf_skip_ws(s: &str, from: i64) -> i64 {
     let n: i64 = s.len();
     let mut i: i64 = from;
     while i < n {
@@ -3817,7 +3817,7 @@ fn cf_skip_ws(s: str, from: i64) -> i64 {
 // Position of the VALUE for `"<key>":` in the CFG doc source at/after
 // `from`, or -1. `key` arrives QUOTED (`"kind"`) so a slot name can never
 // match inside a type.
-fn cfg_value_pos_from(src: str, from: i64, key: str) -> i64 {
+fn cfg_value_pos_from(src: &str, from: i64, key: &str) -> i64 {
     let k: i64 = cf_find_sub(src, from, key);
     if k < 0i64 {
         return -1i64;
@@ -3829,13 +3829,13 @@ fn cfg_value_pos_from(src: str, from: i64, key: str) -> i64 {
     return cf_skip_ws(src, i + 1i64);
 }
 
-fn cfg_value_pos(src: str, key: str) -> i64 {
+fn cfg_value_pos(src: &str, key: &str) -> i64 {
     return cfg_value_pos_from(src, 0i64, key);
 }
 
 // The quoted string starting at `at` (must be '"'); "" = shape violation
 // (an empty slot value never occurs in a well-formed CFG doc).
-fn cfg_read_quoted(src: str, at: i64) -> str {
+fn cfg_read_quoted(src: &str, at: i64) -> &str {
     if at < 0i64 || at >= src.len() || str_byte_at(src, at) != 34u8 {
         return "";
     }
@@ -3848,7 +3848,7 @@ fn cfg_read_quoted(src: str, at: i64) -> str {
 
 // The `<type:T>` slot starting at `at`; returns T ("" = not a type slot).
 // Depth-aware `>` matching so a generic T (`Vec<u8>`) reads whole.
-fn cfg_read_type_slot(src: str, at: i64) -> str {
+fn cfg_read_type_slot(src: &str, at: i64) -> &str {
     if at < 0i64 || at + 6i64 > src.len() {
         return "";
     }
@@ -3876,7 +3876,7 @@ fn cfg_read_type_slot(src: str, at: i64) -> str {
 
 
 
-pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
+pub fn __container_factory(hash_hex: &str, cfg_src: &str) -> ItemList {
     let out: ItemList = item_list_new();
     if hash_hex.len() == 0i64 {
         error("container factory: empty CFG hash (driver drain regression?)");
@@ -3888,7 +3888,7 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
     }
 
     // ── parse the CFG doc (the co-located emit_cfg_doc format, hand-parsed) ──
-    let kind: str = cfg_read_quoted(cfg_src, cfg_value_pos(cfg_src, "\"kind\""));
+    let kind: &str = cfg_read_quoted(cfg_src, cfg_value_pos(cfg_src, "\"kind\""));
     if kind.len() == 0i64 {
         error("container factory: CFG document has no readable kind (emit_cfg_doc format skew?)");
         return out;
@@ -3905,13 +3905,13 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
     fam.push_str(hash_hex);
     let mut sp: String = String::new();
     if str_eq(kind, KIND_ORDERED_MAP) {
-        let kty: str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"key\""));
+        let kty: &str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"key\""));
         if kty.len() == 0i64 {
             error("container factory: CFG document has no readable `key` type slot (emit_cfg_doc format skew?)");
             return out;
         }
         let vp: i64 = cfg_value_pos(cfg_src, "\"value\"");
-        let mut vty: str = cfg_read_type_slot(cfg_src, vp);
+        let mut vty: &str = cfg_read_type_slot(cfg_src, vp);
         if vty.len() == 0i64 {
             // Not a type slot — must be the `"str"` VLE tag (str is unsized).
             vty = cfg_read_quoted(cfg_src, vp);
@@ -3928,7 +3928,7 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
     } else if str_eq(kind, KIND_VECTOR) {
         // The positional container: one value column, no key, no measures —
         // the branch information is the subtree entry count alone (btvec).
-        let vty: str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"value\""));
+        let vty: &str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"value\""));
         if vty.len() == 0i64 {
             error("container factory: vector CFG document has no readable `value` type slot (emit_cfg_doc format skew?)");
             return out;
@@ -3941,13 +3941,13 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
         // compact strings the spec carries — read back verbatim; cols
         // (stream, name, <type:T>) re-parse by forward scan (they sit LAST
         // in the doc by construction, emit_cfg_doc_multimap).
-        let streams: str = cfg_read_quoted(cfg_src, cfg_value_pos(cfg_src, "\"streams\""));
+        let streams: &str = cfg_read_quoted(cfg_src, cfg_value_pos(cfg_src, "\"streams\""));
         if streams.len() == 0i64 {
             error("container factory: multimap CFG document has no readable streams list (emit_cfg_doc format skew?)");
             return out;
         }
-        let measures: str = cfg_read_quoted(cfg_src, cfg_value_pos(cfg_src, "\"measures\""));
-        let mmops: str = cfg_read_quoted(cfg_src, cfg_value_pos(cfg_src, "\"ops\""));
+        let measures: &str = cfg_read_quoted(cfg_src, cfg_value_pos(cfg_src, "\"measures\""));
+        let mmops: &str = cfg_read_quoted(cfg_src, cfg_value_pos(cfg_src, "\"ops\""));
         let cp: i64 = cfg_value_pos(cfg_src, "\"cols\"");
         if cp < 0i64 {
             error("container factory: multimap CFG document has no cols array (emit_cfg_doc format skew?)");
@@ -3962,11 +3962,11 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
             if spos < 0i64 {
                 done = true;
             } else {
-                let sname: str = cfg_read_quoted(cfg_src, spos);
+                let sname: &str = cfg_read_quoted(cfg_src, spos);
                 let npos: i64 = cfg_value_pos_from(cfg_src, spos, "\"name\"");
-                let colnm: str = cfg_read_quoted(cfg_src, npos);
+                let colnm: &str = cfg_read_quoted(cfg_src, npos);
                 let tpos: i64 = cfg_value_pos_from(cfg_src, npos, "\"ty\"");
-                let tty: str = cfg_read_type_slot(cfg_src, tpos);
+                let tty: &str = cfg_read_type_slot(cfg_src, tpos);
                 if sname.len() == 0i64 || colnm.len() == 0i64 || tty.len() == 0i64 {
                     error("container factory: malformed multimap cols row (emit_cfg_doc format skew?)");
                     return out;
@@ -4068,7 +4068,7 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
 /// the COMPILER (sema lower_container_def) through the token-macro item seam
 /// with the serialized spec line. Not a user-facing macro.
 #[token_macro]
-pub fn __container_item(name: str, spec: str) -> ItemList {
+pub fn __container_item(name: &str, spec: &str) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
         error("container item: empty container name (compiler seam regression?)");
@@ -4093,7 +4093,7 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
 // (__container_factory, emit_cfg=false — the factory's input IS the CFG doc,
 // re-emitting it would be circular). facts → Canon verdicts → capability-
 // gated emission; diagnostics ride error() (nothing to thread back).
-fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
+fn container_item_run(name: &str, spec: &str, emit_cfg: bool, cfg_src: &str) {
     let facts: Writ = container_facts(name, spec);
     // Shape gate on the fact mirror — a malformed spec (or a fact-builder
     // regression) must fail the COMPILE, not silently drop the declaration.
@@ -4176,7 +4176,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
     // split body chosen by Canon's fast|volume verdict — `fast` = all-FSE,
     // count-balanced; `volume` = VLE value column, volume-balanced split.
     if str_eq(cs.kind, KIND_NODE) {
-        let policy: str = cv_split_policy(vm, name);
+        let policy: &str = cv_split_policy(vm, name);
         if policy.len() == 0i64 {
             error("container item: Canon produced no split_policy verdict for a node (Canon seam regression?)");
             return;
@@ -4205,7 +4205,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
             error("container item: malformed key column (compiler seam regression?)");
             return;
         }
-        let kty: str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
+        let kty: &str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
         let v1: i64 = cf_find(cs.entry, nb0 + 1i64, 58u8);      // ':' of val col
         let mut v2: i64 = ce2 - 1i64;
         while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 {
@@ -4215,7 +4215,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
             error("container item: malformed val column (compiler seam regression?)");
             return;
         }
-        let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
+        let vty: &str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
         // A standalone storage node is PLAIN pkd (no CoW header) — the header is a
         // property of a versioned map's stack, not a bare `kind node`.
         emit_leaf_node(name, kty, vty, policy, false);
@@ -4240,7 +4240,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
             error("container item: malformed key column (compiler seam regression?)");
             return;
         }
-        let bkty: str = unsafe { cf_sub(cs.entry, bk1 + 1i64, bk2) };
+        let bkty: &str = unsafe { cf_sub(cs.entry, bk1 + 1i64, bk2) };
         emit_branch_node(name, bkty, false);   // standalone branch = plain pkd
         return;
     }
@@ -4293,7 +4293,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
             error("container item: malformed key column (compiler seam regression?)");
             return;
         }
-        let kty: str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
+        let kty: &str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
         let v1: i64 = cf_find(cs.entry, nb0 + 1i64, 58u8);
         let mut v2: i64 = ce2 - 1i64;
         while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 {
@@ -4303,7 +4303,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
             error("container item: malformed val column (compiler seam regression?)");
             return;
         }
-        let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
+        let vty: &str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
 
         // Walk the plan rows to COLLECT the aspects, then realize them — the node
         // FLAVOR (plain vs CoW-header) depends on the leaf policy AND the
@@ -4331,7 +4331,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
                         let role: WAny = em.get(K_ROLE);
                         if role.is_string() && str_eq(role.as_wstr(), ROLE_LEAF) {
                             let pol: WAny = em.get(K_POLICY);
-                            let ps: str = if pol.is_string() { pol.as_wstr() } else { SPLIT_FAST };
+                            let ps: &str = if pol.is_string() { pol.as_wstr() } else { SPLIT_FAST };
                             leaf_fast = str_eq(ps, SPLIT_FAST);
                             saw_leaf = true;
                         } else if role.is_string() && str_eq(role.as_wstr(), ROLE_BRANCH) {
@@ -4364,7 +4364,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
         // emit_cow_map (the branch routes by key only — value-agnostic).
         let vol: bool = !leaf_fast;
         let node_cow: bool = saw_cow;
-        let leaf_policy: str = if leaf_fast { SPLIT_FAST } else { SPLIT_VOLUME };
+        let leaf_policy: &str = if leaf_fast { SPLIT_FAST } else { SPLIT_VOLUME };
         let mut ln: String = String::new(); ln.push_str(name); ln.push_str("Leaf");
         let mut bn: String = String::new(); bn.push_str(name); bn.push_str("Branch");
         emit_leaf_node(ln.as_str(), kty, vty, leaf_policy, node_cow);

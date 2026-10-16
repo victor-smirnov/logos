@@ -44,7 +44,7 @@ struct AkStream {
     kind: u32,
 }
 
-fn ak_next_comma(s: str, from: i64, end: i64) -> i64 {
+fn ak_next_comma(s: &str, from: i64, end: i64) -> i64 {
     let mut i: i64 = from;
     while i < end {
         if str_byte_at(s, i) == 44u8 {
@@ -58,7 +58,7 @@ fn ak_next_comma(s: str, from: i64, end: i64) -> i64 {
 /// Parse the compact spelling. Returns false (with a reported error) on an
 /// unknown token. "child" lowers to FSE (fixed 8-byte cells) — the branch
 /// child column is FSE mechanics under a distinct semantic name.
-fn ak_parse(spec: str, out: &mut Vec<AkStream>) -> bool {
+fn ak_parse(spec: &str, out: &mut Vec<AkStream>) -> bool {
     let n: i64 = spec.len();
     let mut a: i64 = 0i64;
     while a < n {
@@ -97,7 +97,7 @@ fn ak_sseq_at(sts: &Vec<AkStream>) -> i64 {
 }
 
 // literal splices: "<n>u32" / "<n>u64" / "<n>i64" as expr fragments
-fn ak_lit(n: i64, suffix: str) -> ExprBlob {
+fn ak_lit(n: i64, suffix: &str) -> ExprBlob {
     let mut s: String = fmt_display_to_string(&n);
     s.push_str(suffix);
     return parse_expr(s.as_str());
@@ -117,7 +117,7 @@ unsafe fn ak_leak_ident(s: &String) -> Ident {
     return Ident { ptr: p as *const u8, len: n as u64 };
 }
 
-fn ak_name(base: str, tag: str) -> Ident {
+fn ak_name(base: &str, tag: &str) -> Ident {
     let mut s: String = String::new();
     s.push_str(base);
     s.push_str(tag);
@@ -466,7 +466,7 @@ const AK_OP_INS: u32 = 0u32;
 const AK_OP_DEL: u32 = 1u32;
 const AK_OP_SET: u32 = 2u32;
 
-fn ak_emit_op(out: &mut ItemList, name: str, tag: str, op: u32, sts: &Vec<AkStream>) {
+fn ak_emit_op(out: &mut ItemList, name: &str, tag: &str, op: u32, sts: &Vec<AkStream>) {
     let ss: i64 = ak_sseq_at(sts);
     let rowexprs: Vec<ExprBlob> = ak_row_exprs(sts, ss);
     let mut pfrags: Vec<ExprBlob> = vec_new::<ExprBlob>();
@@ -507,7 +507,7 @@ fn ak_emit_op(out: &mut ItemList, name: str, tag: str, op: u32, sts: &Vec<AkStre
 // ── public metafunctions ────────────────────────────────────────────────────
 
 /// `metacall alg_kernel_entry_ins("Name", "fse8o,vle,ssrle2");`
-pub fn alg_kernel_entry_ins(name: str, spec: str) -> ItemList {
+pub fn alg_kernel_entry_ins(name: &str, spec: &str) -> ItemList {
     let mut out: ItemList = item_list_new();
     let mut sts: Vec<AkStream> = vec_new::<AkStream>();
     if !ak_parse(spec, &mut sts) {
@@ -518,7 +518,7 @@ pub fn alg_kernel_entry_ins(name: str, spec: str) -> ItemList {
 }
 
 /// The full entry family: <name>_entry_ins / _entry_del / _entry_set.
-pub fn alg_kernel_family(name: str, spec: str) -> ItemList {
+pub fn alg_kernel_family(name: &str, spec: &str) -> ItemList {
     let mut out: ItemList = item_list_new();
     let mut sts: Vec<AkStream> = vec_new::<AkStream>();
     if !ak_parse(spec, &mut sts) {
@@ -538,7 +538,7 @@ pub fn alg_kernel_family(name: str, spec: str) -> ItemList {
 /// entry through it, write the replacement rows into it) and yields the
 /// transition (ET_NOOP/ET_INS/ET_SET/ET_DEL). UPSERT is the special case
 /// `if hit { ET_SET } else { ET_INS }`.
-pub fn alg_kernel_with_entry(name: str, spec: str, decide_src: str) -> ItemList {
+pub fn alg_kernel_with_entry(name: &str, spec: &str, decide_src: &str) -> ItemList {
     let mut out: ItemList = alg_kernel_family(name, spec);
     let decide: ExprBlob = parse_expr(decide_src);
     let we: Ident = ak_name(name, "_with_entry");

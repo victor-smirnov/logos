@@ -15,70 +15,70 @@
 package logos.lcm.canon.vocab;
 
 // ── Fact-doc sections (top-level arrays) ─────────────────────────────────
-pub const SEC_CONTAINERS: str = "containers";
-pub const SEC_COLS:       str = "cols";
-pub const SEC_MEASURES:   str = "measures";
-pub const SEC_STREAMS:    str = "streams";   // BTFL 8b: one row per declared stream {ctr, idx, name}
-pub const SEC_OPS:        str = "ops";       // BTFL 8b: one row per ops entry {ctr, stream, verb, ahead, ainner}
+pub const SEC_CONTAINERS: &str = "containers";
+pub const SEC_COLS:       &str = "cols";
+pub const SEC_MEASURES:   &str = "measures";
+pub const SEC_STREAMS:    &str = "streams";   // BTFL 8b: one row per declared stream {ctr, idx, name}
+pub const SEC_OPS:        &str = "ops";       // BTFL 8b: one row per ops entry {ctr, stream, verb, ahead, ainner}
 
 // ── Fact-row attribute keys ──────────────────────────────────────────────
-pub const K_NAME:  str = "name";
-pub const K_KIND:  str = "kind";
-pub const K_CTR:   str = "ctr";
-pub const K_IDX:   str = "idx";
-pub const K_TY:    str = "ty";
-pub const K_PARAM: str = "param";
-pub const K_MFN:   str = "mfn";
-pub const K_ARG:   str = "arg";
-pub const K_STREAM: str = "stream";  // BTFL 8b: owning stream of a col/measure/ops row ("" = the anonymous BTSS stream)
-pub const K_VERB:   str = "verb";    // BTFL 8b: ops-row operation verb
-pub const K_AHEAD:  str = "ahead";   // BTFL 8b: ops-row arg head (`max` in seek(max(key)); `count`; scan's column)
-pub const K_AINNER: str = "ainner";  // BTFL 8b: ops-row inner ident (`key` in seek(max(key)); "" otherwise)
+pub const K_NAME:  &str = "name";
+pub const K_KIND:  &str = "kind";
+pub const K_CTR:   &str = "ctr";
+pub const K_IDX:   &str = "idx";
+pub const K_TY:    &str = "ty";
+pub const K_PARAM: &str = "param";
+pub const K_MFN:   &str = "mfn";
+pub const K_ARG:   &str = "arg";
+pub const K_STREAM: &str = "stream";  // BTFL 8b: owning stream of a col/measure/ops row ("" = the anonymous BTSS stream)
+pub const K_VERB:   &str = "verb";    // BTFL 8b: ops-row operation verb
+pub const K_AHEAD:  &str = "ahead";   // BTFL 8b: ops-row arg head (`max` in seek(max(key)); `count`; scan's column)
+pub const K_AINNER: &str = "ainner";  // BTFL 8b: ops-row inner ident (`key` in seek(max(key)); "" otherwise)
 
 // ── Verdict-doc sections + row keys ──────────────────────────────────────
-pub const V_CAPS:      str = "caps";
-pub const V_COL_MODES: str = "col_modes";
-pub const V_COL_PROJS: str = "col_projs";
-pub const V_ERRORS:    str = "errors";
-pub const K_CAP:    str = "cap";
-pub const K_COL:    str = "col";
-pub const K_MODE:   str = "mode";
-pub const K_RELTY:  str = "relty";
-pub const K_PROJ:   str = "proj";
-pub const K_CODE:   str = "code";
-pub const K_DETAIL: str = "detail";
-pub const K_REASON: str = "reason";
+pub const V_CAPS:      &str = "caps";
+pub const V_COL_MODES: &str = "col_modes";
+pub const V_COL_PROJS: &str = "col_projs";
+pub const V_ERRORS:    &str = "errors";
+pub const K_CAP:    &str = "cap";
+pub const K_COL:    &str = "col";
+pub const K_MODE:   &str = "mode";
+pub const K_RELTY:  &str = "relty";
+pub const K_PROJ:   &str = "proj";
+pub const K_CODE:   &str = "code";
+pub const K_DETAIL: &str = "detail";
+pub const K_REASON: &str = "reason";
 
 // ── Kinds ────────────────────────────────────────────────────────────────
-pub const KIND_VECTOR:      str = "vector";
-pub const KIND_ORDERED_MAP: str = "ordered_map";
-pub const KIND_NODE:        str = "node";   // a storage node (b+tree leaf)
-pub const KIND_BRANCH:      str = "branch"; // a b+tree BRANCH (routing node over children)
-pub const KIND_MULTIMAP:    str = "multimap"; // BTFL 8b: the multistream (BTFL) family — key stream + value stream + derived SSRLE structure stream
+pub const KIND_VECTOR:      &str = "vector";
+pub const KIND_ORDERED_MAP: &str = "ordered_map";
+pub const KIND_NODE:        &str = "node";   // a storage node (b+tree leaf)
+pub const KIND_BRANCH:      &str = "branch"; // a b+tree BRANCH (routing node over children)
+pub const KIND_MULTIMAP:    &str = "multimap"; // BTFL 8b: the multistream (BTFL) family — key stream + value stream + derived SSRLE structure stream
 
 // ── Measure functions ────────────────────────────────────────────────────
-pub const MFN_COUNT: str = "count";
-pub const MFN_MAX:   str = "max";
+pub const MFN_COUNT: &str = "count";
+pub const MFN_MAX:   &str = "max";
 
 // ── Capabilities ─────────────────────────────────────────────────────────
-pub const CAP_SCAN: str = "can_scan";
-pub const CAP_RANK: str = "can_rank";
-pub const CAP_SEEK: str = "can_seek";
+pub const CAP_SCAN: &str = "can_scan";
+pub const CAP_RANK: &str = "can_rank";
+pub const CAP_SEEK: &str = "can_seek";
 
 // ── Column materialization modes + scan projections ──────────────────────
-pub const MODE_BY_VALUE: str = "by_value";
-pub const MODE_BY_VIEW:  str = "by_view";
-pub const PROJ_DIRECT:    str = "direct";
-pub const PROJ_CANON_COL: str = "canon_col";
+pub const MODE_BY_VALUE: &str = "by_value";
+pub const MODE_BY_VIEW:  &str = "by_view";
+pub const PROJ_DIRECT:    &str = "direct";
+pub const PROJ_CANON_COL: &str = "canon_col";
 
 // ── Split policy (kind=node): the verdict that drives leaf split codegen ──
 // A node whose columns are all fixed-size (by_value/FSE) splits count-balanced
 // (`fast`); any variable-length (by_view/VLE) column forces a volume-balanced
 // binary search over the columns' cumulative byte volume (`volume`).
-pub const V_SPLIT:      str = "split_policy";
-pub const K_POLICY:     str = "policy";
-pub const SPLIT_FAST:   str = "fast";
-pub const SPLIT_VOLUME: str = "volume";
+pub const V_SPLIT:      &str = "split_policy";
+pub const K_POLICY:     &str = "policy";
+pub const SPLIT_FAST:   &str = "fast";
+pub const SPLIT_VOLUME: &str = "volume";
 
 // ── container_shape (ADR 0020 §5): the whole-stack PLAN Canon derives for an
 // ordered_map. The handler realizes exactly these rows — structure is a
@@ -87,56 +87,56 @@ pub const SPLIT_VOLUME: str = "volume";
 //   { ctr, aspect:assembly,  value:tree }
 //   { ctr, aspect:versioning,value:cow }
 //   { ctr, aspect:measure,   value:subtree_size }
-pub const V_SHAPE:  str = "container_shape";
-pub const K_ASPECT: str = "aspect";
-pub const K_ROLE:   str = "role";
-pub const K_VALUE:  str = "value";
-pub const ASPECT_NODE:     str = "node";
-pub const ASPECT_ASSEMBLY: str = "assembly";
-pub const ASPECT_VERSION:  str = "versioning";
-pub const ASPECT_MEASURE:  str = "measure";
-pub const ROLE_LEAF:   str = "leaf";
-pub const ROLE_BRANCH: str = "branch";
-pub const ASM_TREE:    str = "tree";
-pub const VER_COW:     str = "cow";
-pub const MEAS_SUBTREE_SIZE: str = "subtree_size";
+pub const V_SHAPE:  &str = "container_shape";
+pub const K_ASPECT: &str = "aspect";
+pub const K_ROLE:   &str = "role";
+pub const K_VALUE:  &str = "value";
+pub const ASPECT_NODE:     &str = "node";
+pub const ASPECT_ASSEMBLY: &str = "assembly";
+pub const ASPECT_VERSION:  &str = "versioning";
+pub const ASPECT_MEASURE:  &str = "measure";
+pub const ROLE_LEAF:   &str = "leaf";
+pub const ROLE_BRANCH: &str = "branch";
+pub const ASM_TREE:    &str = "tree";
+pub const VER_COW:     &str = "cow";
+pub const MEAS_SUBTREE_SIZE: &str = "subtree_size";
 
 // ── Rel-native column types (carried verbatim; everything else projects to
 // i64 through CanonCol) ──────────────────────────────────────────────────
-pub const TY_STR:  str = "str";
-pub const TY_BOOL: str = "bool";
+pub const TY_STR:  &str = "str";
+pub const TY_BOOL: &str = "bool";
 
 // ── Ops vocabulary (BTFL 8b): the CLOSED, measure-bound operation set a
 // stream may declare. seek/rank/select/range take a measure REFERENCE of the
 // SAME stream (`seek(max(key))`, `select(count)`); scan takes an entry COLUMN
 // of the same stream; the rest take no argument. Unknown verbs / bad
 // references are decl-time Canon errors (the template moment).
-pub const OP_SEEK:        str = "seek";
-pub const OP_RANK:        str = "rank";
-pub const OP_SELECT:      str = "select";
-pub const OP_RANGE:       str = "range";
-pub const OP_SCAN:        str = "scan";
-pub const OP_ITERATE:     str = "iterate";
-pub const OP_INSERT:      str = "insert";
-pub const OP_REMOVE:      str = "remove";
-pub const OP_UPDATE:      str = "update";
-pub const OP_BULK_APPEND: str = "bulk_append";
+pub const OP_SEEK:        &str = "seek";
+pub const OP_RANK:        &str = "rank";
+pub const OP_SELECT:      &str = "select";
+pub const OP_RANGE:       &str = "range";
+pub const OP_SCAN:        &str = "scan";
+pub const OP_ITERATE:     &str = "iterate";
+pub const OP_INSERT:      &str = "insert";
+pub const OP_REMOVE:      &str = "remove";
+pub const OP_UPDATE:      &str = "update";
+pub const OP_BULK_APPEND: &str = "bulk_append";
 
 // ── Per-stream layout verdicts (BTFL 8c): Canon's row/col decision from the
 // stream's OPS facts. Rule (the PAIR default): a stream with a well-formed
 // scan op → col; else row. Specialized rules layer on later.
-pub const V_LAYOUTS:  str = "stream_layouts";
-pub const K_LAYOUT:   str = "layout";
-pub const LAYOUT_ROW: str = "row";
-pub const LAYOUT_COL: str = "col";
+pub const V_LAYOUTS:  &str = "stream_layouts";
+pub const K_LAYOUT:   &str = "layout";
+pub const LAYOUT_ROW: &str = "row";
+pub const LAYOUT_COL: &str = "col";
 
 // ── Error codes ──────────────────────────────────────────────────────────
-pub const ERR_MISSING_MEASURE:      str = "missing_measure";
-pub const ERR_WAVE0_MULTI_ENTRY:    str = "wave0_vector_multi_entry";
-pub const ERR_WAVE0_BY_VIEW_UNPROJ: str = "wave0_by_view_unprojectable";
-pub const ERR_UNKNOWN_OP:           str = "unknown_op";           // verb outside the closed vocabulary
-pub const ERR_OP_BAD_ARG:           str = "op_bad_arg";           // arg shape wrong for the verb class
-pub const ERR_OP_MEASURE_REF:      str = "op_measure_ref";        // measure-bound verb references no declared measure of its stream
-pub const ERR_OP_COLUMN_REF:       str = "op_column_ref";         // scan references no declared entry column of its stream
-pub const ERR_MULTIMAP_STREAMS:    str = "multimap_streams";      // kind=multimap needs ≥ 2 stream blocks
-pub const ERR_MULTIMAP_SEEK:       str = "multimap_seek_measure"; // first stream of a multimap needs an orderable (max) measure
+pub const ERR_MISSING_MEASURE:      &str = "missing_measure";
+pub const ERR_WAVE0_MULTI_ENTRY:    &str = "wave0_vector_multi_entry";
+pub const ERR_WAVE0_BY_VIEW_UNPROJ: &str = "wave0_by_view_unprojectable";
+pub const ERR_UNKNOWN_OP:           &str = "unknown_op";           // verb outside the closed vocabulary
+pub const ERR_OP_BAD_ARG:           &str = "op_bad_arg";           // arg shape wrong for the verb class
+pub const ERR_OP_MEASURE_REF:      &str = "op_measure_ref";        // measure-bound verb references no declared measure of its stream
+pub const ERR_OP_COLUMN_REF:       &str = "op_column_ref";         // scan references no declared entry column of its stream
+pub const ERR_MULTIMAP_STREAMS:    &str = "multimap_streams";      // kind=multimap needs ≥ 2 stream blocks
+pub const ERR_MULTIMAP_SEEK:       &str = "multimap_seek_measure"; // first stream of a multimap needs an orderable (max) measure
