@@ -1595,10 +1595,12 @@ private:
             }
             if (auto ip = inv_pick.find(lp); ip != inv_pick.end()) { out[lp] = ip->second; continue; }
             // A covariant `'static` candidate (a string literal in `&'d str`) only says
-            // `'static: 'd` — it outlives anything, so it determines nothing. Without
-            // another candidate the binder stays an inference region (elided), as in
-            // rustc; `Rel { name: "lit", cols }` no longer pins `'d` to 'static.
-            {
+            // `'static: 'd`; `Rel { name: "lit", cols }` no longer pins `'d` to 'static.
+            // Only where the binder ALSO meets an elided slot (a bare `Vec<Col>` for
+            // `Col<'d>`): there the region is inferred, and 'static would pin it. A
+            // binder met only by 'static keeps 'static (`let foo: Foo<'static> =
+            // Foo { field: &SX }`); an empty binder means "a local region" here.
+            if (bare.count(lp)) {
                 std::vector<std::string> rest;
                 for (auto& c : it->second) if (!outlives_is_static(c)) rest.push_back(c);
                 if (rest.size() != it->second.size()) {
