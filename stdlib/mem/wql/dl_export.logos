@@ -553,11 +553,11 @@ fn dx_alias_add(cl: &mut DxClause, nm: &str, var: &str, ty: &str, kind: &str) {
 // A tuple group key's component `i`: its alias name (`key.i` is looked up
 // by the index's digits) and its Datalog variable. Static spellings: a rel row
 // holds at most 12 columns, so a key has at most 12 components.
-fn dx_kdig(i: i64) -> &str {
+fn dx_kdig(i: i64) -> &'static str {
     let d: [str; 12] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"];
     return d[i];
 }
-fn dx_kvar(i: i64) -> &str {
+fn dx_kvar(i: i64) -> &'static str {
     let v: [str; 12] = ["gk0", "gk1", "gk2", "gk3", "gk4", "gk5", "gk6", "gk7", "gk8", "gk9", "gk10", "gk11"];
     return v[i];
 }

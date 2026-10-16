@@ -600,7 +600,7 @@ pub fn el_ty_of_name(name: &str) -> i32 {
 // is exactly how column widths were lost before `infer_ty_name` existed.
 // THE definition: `el` sits below `codegen`, and a second copy up there is
 // what this replaced.
-pub fn el_class_repr(ty: i32) -> &str {
+pub fn el_class_repr(ty: i32) -> &'static str {
     if ty == EL_TY_STR()  { return "str"; }
     if ty == EL_TY_BOOL() { return "bool"; }
     if ty == EL_TY_FLT()  { return "f64"; }
@@ -1417,7 +1417,7 @@ pub fn EL_WHY_SORT() -> i32 { return 1i32; }   // a key collected into a vector 
 /// normalization position ever reaches one of them, the sentence it gets is the
 /// sort's and will read wrong; that is the same defect one row over, and the
 /// derivation above is what makes it visible instead of silent.
-pub fn el_ord_why_code(f: i32, q: i32) -> &str {
+pub fn el_ord_why_code(f: i32, q: i32) -> &'static str {
     if f == EL_ORD_PARTIAL() {
         return "an f64/f32 key is only PARTIALLY ordered — a NaN compares false against every value including itself, so on a NaN row BOTH disjuncts of `prev > cur || (prev == cur && tiebreak)` are false and the tiebreak is never reached. The remedy is a key whose comparison is total: an integer within the i64 range, a `str`, or a `bool`";
     }
@@ -1628,7 +1628,7 @@ pub fn el_arith_tower(name: &str) -> i32 {
 
 /// The type the tower's operations take and return — what the emitter prints for
 /// an arithmetic node computing in it, and what its operands are normalized to.
-pub fn el_tower_repr(tw: i32) -> &str {
+pub fn el_tower_repr(tw: i32) -> &'static str {
     if tw == EL_TOW_U64()  { return "u64"; }
     if tw == EL_TOW_I128() { return "i128"; }
     if tw == EL_TOW_U128() { return "u128"; }

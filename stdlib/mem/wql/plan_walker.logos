@@ -1829,7 +1829,7 @@ fn pw_bare_name(e: SExpr) -> &str {
 
 /// The comparison class name for an EL operator, read FROM the column's point
 /// of view. `col_left = false` mirrors it: `42 > e.key` is `key < 42`.
-fn pw_cmp_name(op: i32, col_left: bool) -> &str {
+fn pw_cmp_name(op: i32, col_left: bool) -> &'static str {
     let mut o: i32 = op;
     if !col_left {
         if o == OP_LT() { o = OP_GT(); }

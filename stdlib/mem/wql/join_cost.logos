@@ -105,7 +105,7 @@ pub fn JC_CAP() -> i64      { return 1000000000i64; }
 /// One prose statement of the model, for the trace and for `explain()`. The
 /// weights are read from the same functions the arithmetic reads, so a reader who
 /// is told the ratio is told the ratio the code used.
-pub fn jc_model_words() -> &str {
+pub fn jc_model_words() -> &'static str {
     return "cost = row events: a base SCAN weighs 2 per row, an index BUILD 4 per row, a PROBE 1 per row reaching the step, a RESCAN 2 per row read, a PINNED step (anti, traversal) 1 per row reaching it; an equi-step emits |L|·|R| / max(V(L.k), V(R.k)) over the distinct counts its two columns declare (`distinct <rel>.<col> = <fn>;`, measured by `prepare`), and one tenth of the cross product where they declare none (the selectivity assumption), and a pinned step to pass its input through (no fact reports its fraction)";
 }
 

@@ -631,7 +631,7 @@ pub fn core_verify(p: &CProgram) {
 
 // ── dump: `LOGOS_DEEM_DUMP=core` ────────────────────────────────────────────
 
-fn op_sym(op: i32) -> &str {
+fn op_sym(op: i32) -> &'static str {
     if op == OP_OR()  { return "||"; }
     if op == OP_AND() { return "&&"; }
     if op == OP_EQ()  { return "=="; }

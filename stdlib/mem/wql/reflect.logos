@@ -648,7 +648,7 @@ fn column_type_text(view: &OView, ty: WAny) -> String {
 /// vocabulary, with a remedy. ONE antecedent per ground: prose that names two
 /// ways to fail and leaves the reader to pick is a report composed at report
 /// time.
-fn column_decl_why(v: i32) -> &str {
+fn column_decl_why(v: i32) -> &'static str {
     if v == CD_TUPLE() {
         return "a TUPLE has no scalar reading at all — the EL's key and projection vectors are `Vec<i64>`, and `el_ty_of_name` spells every type outside its lattice `i64`, so the eight bytes this column contributes to a comparison are the tuple's ADDRESS. MEASURED: `where` over such a column emitted `arith.cmpi` on an `!llvm.ptr` and was refused by the MLIR verifier, which names nothing you wrote. The remedy is one column per component";
     }

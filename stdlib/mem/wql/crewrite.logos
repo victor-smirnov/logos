@@ -1320,7 +1320,7 @@ pub fn core_magic(pc: &mut CProgram, h: &Writ, prm: &MacroParams, out: &mut MsDe
 // — Soufflé's MST for `reach^bf`: one magic rule per site, its sideways
 // information the path prefix to its left.
 
-fn gp_var(i: i64) -> &str {
+fn gp_var(i: i64) -> &'static str {
     if i == 0i64 { return "__g0"; }
     if i == 1i64 { return "__g1"; }
     if i == 2i64 { return "__g2"; }
@@ -1331,7 +1331,7 @@ fn gp_var(i: i64) -> &str {
     return "__g7";
 }
 
-fn gp_rvar(i: i64) -> &str {
+fn gp_rvar(i: i64) -> &'static str {
     if i == 0i64 { return "__r0"; }
     if i == 1i64 { return "__r1"; }
     if i == 2i64 { return "__r2"; }

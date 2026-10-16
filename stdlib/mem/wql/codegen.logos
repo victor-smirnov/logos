@@ -1314,7 +1314,7 @@ fn bare_unknown(e: SExpr, t: &ElTypes) -> bool {
     }
 }
 
-fn lit_class_name(c: i32) -> &str {
+fn lit_class_name(c: i32) -> &'static str {
     if c == EL_TY_FLT() { return "a float literal"; }
     if c == EL_TY_STR() { return "a string literal"; }
     if c == EL_TY_BOOL() { return "a bool literal"; }
@@ -1340,10 +1340,10 @@ fn lit_kind(e: SExpr) -> i32 {
 // facts; every operation on it is a trait question. Here rather than in
 // `join_sel` because the operand checks below need it and `join_sel` imports
 // this module.
-fn TRAIT_PEQ()  -> &str { return "logos.lang.cmp::PartialEq"; }
-fn TRAIT_EQ()   -> &str { return "logos.lang.cmp::Eq"; }
-fn TRAIT_ORD()  -> &str { return "logos.lang.cmp::Ord"; }
-fn TRAIT_COPY() -> &str { return "logos.lang.clone::Copy"; }
+fn TRAIT_PEQ()  -> &'static str { return "logos.lang.cmp::PartialEq"; }
+fn TRAIT_EQ()   -> &'static str { return "logos.lang.cmp::Eq"; }
+fn TRAIT_ORD()  -> &'static str { return "logos.lang.cmp::Ord"; }
+fn TRAIT_COPY() -> &'static str { return "logos.lang.clone::Copy"; }
 
 /// `==` exists when the type implements `PartialEq` or `Eq` — in Logos each
 /// declares its own `eq`, and deriving both is refused today (squeue #682).
@@ -2721,7 +2721,7 @@ fn is_pos_int_lit(e: SExpr) -> bool {
 // `el_remu` did not exist at all. A separate `el_uint_op_fn` beside this one is
 // two places for "which ops does the EL have", which is how the unsigned set came
 // to be missing two of five in the first place.
-pub fn el_int_op_fn(op: i32, tw: i32) -> &str {
+pub fn el_int_op_fn(op: i32, tw: i32) -> &'static str {
     if tw == EL_TOW_I128() {
         if op == OP_ADD() { return "el_addq"; }
         if op == OP_SUB() { return "el_subq"; }
@@ -2751,7 +2751,7 @@ pub fn el_int_op_fn(op: i32, tw: i32) -> &str {
 }
 
 // SBin op id (el.logos CEL canon) → Logos infix operator text (spaces padded).
-pub fn emit_binop(op: i32) -> &str {
+pub fn emit_binop(op: i32) -> &'static str {
     if op == OP_OR()  { return " || "; }
     if op == OP_AND() { return " && "; }
     if op == OP_EQ()  { return " == "; }

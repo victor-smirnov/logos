@@ -662,7 +662,7 @@ fn chk_fail(c: &mut Chk, a: &str, b: &str, d: &str, e: &str, f: &str) {
 }
 
 // The human name of an SBin/SUn operator (diagnostics).
-fn bin_op_name(op: i32) -> &str {
+fn bin_op_name(op: i32) -> &'static str {
     if op == OP_OR()  { return "||"; }
     if op == OP_AND() { return "&&"; }
     if op == OP_EQ()  { return "=="; }

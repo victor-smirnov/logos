@@ -98,4 +98,4 @@ pub fn make_ident_sel(h: &Writ, name: &str) -> WRef<SExpr> {
 // row, no filter loop).
 
 /// The natspec entry that registers `__unit` (see `crewrite::core_desugar_facts`).
-pub fn UNIT_NATSPEC() -> &str { return "__unit=wql_unit_rows@logos.std.wql.unit:(u i64);"; }
+pub fn UNIT_NATSPEC() -> &'static str { return "__unit=wql_unit_rows@logos.std.wql.unit:(u i64);"; }

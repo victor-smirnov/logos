@@ -377,7 +377,7 @@ pub fn check_warded(p: &WardProg) -> WardResult {
 
 // A human-readable reason string for a WardResult reason code (the seam a
 // metaprog handler would splice into an `error(...)` diagnostic).
-pub fn ward_reason_str(reason: i32) -> &str {
+pub fn ward_reason_str(reason: i32) -> &'static str {
     if reason == 1i32 {
         return "not warded: the rule's dangerous variables are split across more than one body atom (no single ward atom contains them all) — a dangerous variable may carry an invented null into an unbounded join";
     }

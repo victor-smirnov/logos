@@ -513,7 +513,7 @@ pub fn group_ty_new() -> GroupTy {
                      acc: Vec::<&str>::new(), act: Vec::<&str>::new() };
 }
 
-fn str_vec_n(n: i64) -> Vec<&str> {
+fn str_vec_n(n: i64) -> Vec<&'static str> {
     let mut v: Vec<&str> = Vec::<&str>::new();
     let mut i: i64 = 0i64;
     while i < n { v.push(""); i = i + 1i64; }
