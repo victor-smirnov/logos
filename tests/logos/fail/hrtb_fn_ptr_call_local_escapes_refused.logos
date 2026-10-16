@@ -1,0 +1,14 @@
+// The twin: the instantiated region still ends with the borrowed local (rustc E0597).
+package hrtb_fn_ptr_call_local_escapes_refused;
+use logos.std.fmt;
+use logos.mem.string;
+enum V<'s> { S(&'s str), N }
+impl Copy for V<'_> {}
+type F = for<'x, 's> fn(&'x [V<'s>]) -> V<'s>;
+fn first<'s>(a: &[V<'s>]) -> V<'s> { return a[0]; }
+fn call(f: F) -> i64 {
+    let r: V;
+    { let s2: String = String::from("xy"); let a: [V; 1] = [V::S(s2.as_str())]; r = f(&a); }
+    match r { V::S(x) => { return x.len() as i64; } V::N => { return 0; } }
+}
+fn main() { println!("{}", call(first)); }
