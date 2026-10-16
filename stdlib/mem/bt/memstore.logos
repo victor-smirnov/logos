@@ -44,6 +44,7 @@ use logos.mem.bt.check;          // invariant checker — localize violations at
 use logos.mem.bt.meta;           // the container SCHEMA document in the root block
 use logos.lang.writ.wstatic;     // WritStatic — the family's compile-time schema blob
 use logos.lang.writ.static_view; // WView2 — the reader handed to Deem/user code
+use logos.lang.any;              // downcast_ref — memory_snapshot_of
 
 // tree_release (generic node lifecycle + the directory's value-ref cascade)
 // lives in logos.mem.bt.node — pure node_* + column walk — so both this store
@@ -51,11 +52,7 @@ use logos.lang.writ.static_view; // WView2 — the reader handed to Deem/user co
 
 // ── directory: ctr_id → (root, level), the snapshot's container registry ─────
 
-/// One container's root, as `root_of` reports it to a generated handle. The
-/// directory now STORES only `ctr_id → root` (a pure `Map<CtrID, BlockID>`,
-/// logos.mem.bt.dirmap); `level` is recovered from the root node's own header
-/// (`node_level`) and surfaced here so handles keep their `(root, level)` shape.
-pub struct DirEntry { pub ctr_id: u64, pub root: *mut u8, pub level: u32 }
+// `DirEntry` lives with `NodeStore` in logos.mem.bt.map.
 
 // The snapshot's container registry is a CoW container itself — a dirmap
 // `Map<CtrID, root>` whose leaf VALUES are container roots (reference cells).
@@ -554,6 +551,30 @@ impl Snapshot for MemorySnapshot {
 
     pub fn status(self: &MemorySnapshot) -> u32 {
         return unsafe { (*self.d()).status };
+    }
+
+    pub fn node_store(self: &MemorySnapshot) -> Option<&dyn NodeStore> {
+        return Option::Some(self as &dyn NodeStore);
+    }
+}
+
+impl NodeStore for MemorySnapshot {
+    fn assert_writable(self: &MemorySnapshot) { MemorySnapshot::assert_writable(self); }
+    fn root_of(self: &MemorySnapshot, ctr_id: u64) -> DirEntry { return MemorySnapshot::root_of(self, ctr_id); }
+    fn root_of_mut(self: &MemorySnapshot, ctr_id: u64) -> DirEntry { return MemorySnapshot::root_of_mut(self, ctr_id); }
+    fn set_root(self: &MemorySnapshot, ctr_id: u64, root: *mut u8, level: u32) {
+        MemorySnapshot::set_root(self, ctr_id, root, level);
+    }
+    fn as_any(self: &MemorySnapshot) -> &dyn Any { return self as &dyn Any; }
+}
+
+/// The in-memory model's snapshot behind `s` — for the engines written against
+/// this model (btss/btvec/btfl take `&MemorySnapshot`) and its tools (checkers,
+/// dumps). Checked: panics when `s` belongs to another model.
+pub fn memory_snapshot_of(s: &dyn Snapshot) -> &MemorySnapshot {
+    match downcast_ref::<MemorySnapshot>(node_store_of(s).as_any()) {
+        Option::Some(m) => { return m; }
+        Option::None => { panic("memoria: not a MemoryStore snapshot"); }
     }
 }
 

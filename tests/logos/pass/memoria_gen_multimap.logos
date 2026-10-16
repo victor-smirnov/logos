@@ -183,7 +183,7 @@ fn model_insert(md: &mut Model, k: u64, vals: &Vec<u64>) {
 // read paths resolve ids through (the same dyn_data downcast the generated
 // family uses internally).
 fn ms_of(s: &Arc<dyn Snapshot>) -> &MemorySnapshot {
-    return unsafe { &*(dyn_data(&**s) as *const MemorySnapshot) };
+    return memory_snapshot_of(&**s);
 }
 
 fn check_full(snap: &MemorySnapshot, t: &Btfl<2, CowProfile>, md: &Model) -> i32 {
@@ -697,7 +697,7 @@ fn run_all() -> i32 {
     // reports 0 violations; on a violation the report (naming the node) prints,
     // and you `dump_ctr_path` it to look.
     {
-        let ms: &MemorySnapshot = unsafe { &*(dyn_data(&*snap) as *const MemorySnapshot) };
+        let ms: &MemorySnapshot = memory_snapshot_of(&*snap);
         if ms.check_ctr_count(3u64) != 0u64 { eprintln_string(&ms.check_ctr(3u64)); return 90i32; }
         if ms.check_ctr_count(4u64) != 0u64 { eprintln_string(&ms.check_ctr(4u64)); return 91i32; }
         if ms.check_ctr_count(5u64) != 0u64 { eprintln_string(&ms.check_ctr(5u64)); return 92i32; }

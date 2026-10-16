@@ -44,6 +44,7 @@ use logos.mem.bt.batch;
 use logos.mem.collections.vec;   // Vec — the Multimap boundary signatures
 use logos.lang.option;           // Option — the WITH_ENTRY quad signature
 use logos.lang.panic;            // assert — the with_entry default
+use logos.lang.any;              // Any — NodeStore::as_any, the checked model recovery
 
 /// Owns blocks and the snapshot lifecycle. The concrete factory methods
 /// (`fork`, `commit`, …) live on the implementor — stores are FEW and very
@@ -60,15 +61,9 @@ pub trait Store {}
 /// `store_fork_arc` hands out `Arc<dyn Snapshot>`, so this vtable IS the user's
 /// whole surface.
 ///
-/// The PRIVILEGED tier — node allocation, refcounting, `u64` child-ref
-/// resolution, directory root_of/set_root — stays as INHERENT methods on each
-/// concrete snapshot (`logos.mem.bt.memstore::MemorySnapshot`). It is NOT in
-/// this vtable, so a `dyn Snapshot` holder cannot reach it; the Canon-generated
-/// container recovers the concrete (an explicit `dyn_data` downcast — the
-/// moral equivalent of Memoria's cast to the internal interface) and calls the
-/// capability there. Reaching the privileged tier is thus a deliberate act, not
-/// the default surface. When a second store lands (SWMR/OLTP) the privileged
-/// tier can graduate to a `trait NodeStore: Snapshot` refined per store.
+/// The PRIVILEGED tier — node placement and the directory of a cut — is
+/// `NodeStore` (ADR 0039 D7), reached by `node_store()`: an explicit step, the
+/// Memoria cast to the internal interface, checked rather than assumed.
 pub trait Snapshot {
     fn snapshot_id(self: &Self) -> u64;
     /// The BOUNDARY form of the snapshot id (S3): the opaque 256-bit POD the
@@ -101,6 +96,9 @@ pub trait Snapshot {
     /// Rebinds this snapshot to the default branch `master` (Memoria
     /// `set_as_master`).
     fn set_as_master(self: &Self) { self.set_as_branch("master"); }
+    /// The privileged tier of this snapshot (ADR 0039 D7); `None` for a
+    /// snapshot with no node plane.
+    fn node_store(self: &Self) -> Option<&dyn NodeStore> { return Option::None; }
 
     // ── The two-part pin contract (ADR 0025 §7) — store-invariant ────────
     //
@@ -132,6 +130,33 @@ pub trait Snapshot {
     fn leaf_pin(self: &Self, leaf: *const u8) { }
     /// Releases a `leaf_pin` — the batch's Drop/advance.
     fn leaf_unpin(self: &Self, leaf: *const u8) { }
+}
+
+/// One container's root, as `root_of` reports it to a generated handle. The
+/// directory STORES only `ctr_id → root` (a pure `Map<CtrID, BlockID>`,
+/// logos.mem.bt.dirmap); `level` is recovered from the root node's own header
+/// (`node_level`) and surfaced here so handles keep their `(root, level)` shape.
+pub struct DirEntry { pub ctr_id: u64, pub root: *mut u8, pub level: u32 }
+
+/// ADR 0039 D7: node placement and the directory of a cut, implemented by each
+/// memory model. Every directory write goes through `root_of_mut` / `set_root`,
+/// which refuse a committed snapshot (law 1). `as_any` recovers the model's
+/// concrete snapshot for engines and tools written against one model, checked
+/// by type id (`logos.mem.bt.memstore::memory_snapshot_of`).
+pub trait NodeStore: Snapshot {
+    fn assert_writable(self: &Self);
+    fn root_of(self: &Self, ctr_id: u64) -> DirEntry;
+    fn root_of_mut(self: &Self, ctr_id: u64) -> DirEntry;
+    fn set_root(self: &Self, ctr_id: u64, root: *mut u8, level: u32);
+    fn as_any(self: &Self) -> &dyn Any;
+}
+
+/// The privileged tier of `s`; panics when the snapshot has none.
+pub fn node_store_of(s: &dyn Snapshot) -> &dyn NodeStore {
+    match s.node_store() {
+        Option::Some(n) => { return n; }
+        Option::None => { panic("memoria: this snapshot has no node plane (NodeStore, ADR 0039 D7)"); }
+    }
 }
 
 /// A container handle bound to a snapshot's storage (Map/Vector/Queue/…).

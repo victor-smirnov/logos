@@ -86,7 +86,7 @@ pub deem big_vals_by_class(led: Ledger) {
 }
 
 fn ms_of(s: &Arc<dyn Snapshot>) -> &MemorySnapshot {
-    return unsafe { &*(dyn_data(&**s) as *const MemorySnapshot) };
+    return memory_snapshot_of(&**s);
 }
 
 // §3's whole point: ask a container what it is, holding only the store and an

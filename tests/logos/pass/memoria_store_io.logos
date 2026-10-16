@@ -37,7 +37,7 @@ const N_CTRS: u64 = 40u64;
 const N_KEYS: u64 = 60u64;
 
 fn ms_of(s: &Arc<dyn Snapshot>) -> &MemorySnapshot {
-    return unsafe { &*(dyn_data(&**s) as *const MemorySnapshot) };
+    return memory_snapshot_of(&**s);
 }
 
 // Build the fixture: v1 fills N_CTRS containers on master; v2 branches

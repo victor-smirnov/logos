@@ -57,7 +57,7 @@ fn run_all() -> i32 {
     }
     // the directory registered exactly N containers
     {
-        let msr: &MemorySnapshot = unsafe { &*(dyn_data(&*s1) as *const MemorySnapshot) };
+        let msr: &MemorySnapshot = memory_snapshot_of(&*s1);
         if msr.container_ids().len() != (N as i64) { return 4i32; }
     }
 
@@ -97,7 +97,7 @@ fn run_all() -> i32 {
     // the DIRECTORY tree is well-formed after all the churn (check() at scale —
     // separators, ordering, levels, snap monotonicity across 2000 entries)
     {
-        let msr: &MemorySnapshot = unsafe { &*(dyn_data(&*s3) as *const MemorySnapshot) };
+        let msr: &MemorySnapshot = memory_snapshot_of(&*s3);
         if msr.check_dir_count() != 0u64 {
             eprintln_string(&msr.check_dir());
             return 13i32;

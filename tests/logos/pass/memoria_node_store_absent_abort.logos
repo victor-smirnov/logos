@@ -1,0 +1,43 @@
+// ADR 0039 D7 (row M3): a Canon family reaches its snapshot's node plane
+// through `Snapshot::node_store`, checked. A snapshot of another model (here
+// one with no node plane at all) is refused at the first directory access
+// instead of being reinterpreted as a MemorySnapshot, which the former
+// unchecked `dyn_data` downcast did. The line printed first shows the abort is
+// the family's, not the setup's.
+// Twin: every memoria_* fixture (a MemoryStore snapshot is admitted).
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.pkd;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.str;
+use logos.mem.string;
+use logos.std.io;
+
+container Ledger {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+
+struct Bare { id: u64 }
+
+impl Snapshot for Bare {
+    fn snapshot_id(self: &Bare) -> u64 { return self.id; }
+    fn commit(self: &Bare) { }
+    fn remove(self: &Bare) { }
+    fn status(self: &Bare) -> u32 { return 0u32; }
+    fn snapshot_parent(self: &Bare) -> u64 { return 0u64; }
+    fn set_as_branch(self: &Bare, name: &str) { }
+}
+
+fn main() -> i32 {
+    let s: Arc<dyn Snapshot> = arc_new::<Bare>(Bare { id: 7u64 }) as Arc<dyn Snapshot>;
+    { let mut m: String = String::new(); m.push_str("bare snapshot"); println_string(&m); }
+    let mut l = create_ctr::<typeof(Ledger)>(&s, 1u64);
+    l.insert(1u64, 10u64);
+    return 0i32;
+}

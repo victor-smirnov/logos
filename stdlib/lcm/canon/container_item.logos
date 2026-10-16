@@ -1219,16 +1219,13 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
             ctr_id: u64,
         }
         impl #nm {
-            // PRIVILEGED tier: recover the concrete MemorySnapshot from the
-            // erased `Arc<dyn Snapshot>` hold. Sound by construction — this
-            // family is generated for MemoryStore, so its snap is always a
-            // MemorySnapshot (the moral equivalent of Memoria's cast to the
-            // internal interface; `dyn_data` = the fat-pointer data half).
+            // PRIVILEGED tier (ADR 0039 D7): this family's engines are written
+            // against the in-memory model; recover it, checked.
             fn ms(self: &#nm) -> &MemorySnapshot {
-                return unsafe { &*(dyn_data(&*self.snap) as *const MemorySnapshot) };
+                return memory_snapshot_of(&*self.snap);
             }
             pub static fn create(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
-                let msr: &MemorySnapshot = unsafe { &*(dyn_data(&**snap) as *const MemorySnapshot) };
+                let msr: &MemorySnapshot = memory_snapshot_of(&**snap);
                 let lf: #lid = #lid::new_in(snap.snapshot_id());
                 {
                     let __mroot: *mut u8 = ctr_publish_meta_static(lf.block(), #(mexpr));
@@ -2681,18 +2678,17 @@ fn emit_btfl_family(name: &str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
             branch_bytes: u32,
         }
         impl #nm {
-            // PRIVILEGED tier: recover the concrete MemorySnapshot from the
-            // erased `Arc<dyn Snapshot>` hold (this family is generated for
-            // MemoryStore, so its snap is always a MemorySnapshot).
+            // PRIVILEGED tier (ADR 0039 D7): this family's engines are written
+            // against the in-memory model; recover it, checked.
             fn ms(self: &#nm) -> &MemorySnapshot {
-                return unsafe { &*(dyn_data(&*self.snap) as *const MemorySnapshot) };
+                return memory_snapshot_of(&*self.snap);
             }
             pub static fn create(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
                 return #nm::create_with(snap, ctr_id, #(lbs), #(bbs));
             }
             pub static fn create_with(snap: &Arc<dyn Snapshot>, ctr_id: u64,
                                       leaf_bytes: u32, branch_bytes: u32) -> #nm {
-                let msr: &MemorySnapshot = unsafe { &*(dyn_data(&**snap) as *const MemorySnapshot) };
+                let msr: &MemorySnapshot = memory_snapshot_of(&**snap);
                 let t: Btfl<2, #nd> = btfl_create::<2, #nd>(msr, leaf_bytes, branch_bytes);
                 {
                     let __mroot: *mut u8 = ctr_publish_meta_static(t.root, #(mexpr));
@@ -3048,18 +3044,17 @@ fn emit_btvec_family(name: &str, vty: &str, mexpr: ExprBlob, cfg_src: &str) {
             pub fn leaf_idx(self: &#cid) -> u32 { return self.idx; }
         }
         impl #nm {
-            // PRIVILEGED tier: recover the concrete MemorySnapshot from the
-            // erased `Arc<dyn Snapshot>` hold (this family is generated for
-            // MemoryStore, so its snap is always a MemorySnapshot).
+            // PRIVILEGED tier (ADR 0039 D7): this family's engines are written
+            // against the in-memory model; recover it, checked.
             fn ms(self: &#nm) -> &MemorySnapshot {
-                return unsafe { &*(dyn_data(&*self.snap) as *const MemorySnapshot) };
+                return memory_snapshot_of(&*self.snap);
             }
             pub static fn create(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
                 return #nm::create_with(snap, ctr_id, #(lbs), #(bbs));
             }
             pub static fn create_with(snap: &Arc<dyn Snapshot>, ctr_id: u64,
                                       leaf_bytes: u32, branch_bytes: u32) -> #nm {
-                let msr: &MemorySnapshot = unsafe { &*(dyn_data(&**snap) as *const MemorySnapshot) };
+                let msr: &MemorySnapshot = memory_snapshot_of(&**snap);
                 let t: Btvec<#nd> = btvec_create::<#nd>(msr, leaf_bytes, branch_bytes);
                 {
                     let __mroot: *mut u8 = ctr_publish_meta_static(t.root, #(mexpr));

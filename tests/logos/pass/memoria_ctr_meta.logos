@@ -51,7 +51,7 @@ container Ledger {
 }
 
 fn ms_of(s: &Arc<dyn Snapshot>) -> &MemorySnapshot {
-    return unsafe { &*(dyn_data(&**s) as *const MemorySnapshot) };
+    return memory_snapshot_of(&**s);
 }
 
 // The one read the whole test is about: ask a container what it is, holding
