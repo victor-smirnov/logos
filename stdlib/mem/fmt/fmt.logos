@@ -700,7 +700,7 @@ impl Debug for CStr {
 impl Debug for str {
     /// Writes `self` in `"` quotes, escaping `"`, `\`, and control chars (Rust `escape_debug`).
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        return debug_write_escaped(*self, f);
+        return debug_write_escaped(self, f);
     }
 }
 

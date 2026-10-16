@@ -486,7 +486,7 @@ impl AddAssign<&str> for String {
 // ── The allocating half of Rust's `impl str` ──────────────────────────────
 impl str {
     /// An owned copy (Rust `str::to_owned`).
-    pub fn to_owned(&self) -> String { return String::from(*self); }
+    pub fn to_owned(&self) -> String { return String::from(self); }
 
     /// A copy with every non-overlapping match of `from` replaced by `to` (Rust `str::replace`).
     /// An empty pattern matches before every char and at the end.
