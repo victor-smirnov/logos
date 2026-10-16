@@ -568,14 +568,15 @@ impl NodeStore for MemorySnapshot {
     fn as_any(self: &MemorySnapshot) -> &dyn Any { return self as &dyn Any; }
 }
 
-/// The in-memory model's snapshot behind `s` — for the engines written against
-/// this model (btss/btvec/btfl take `&MemorySnapshot`) and its tools (checkers,
-/// dumps). Checked: panics when `s` belongs to another model.
+/// The in-memory model's profile: CoW nodes over MemorySnapshot.
+impl StoreProfile for CowProfile {
+    type Store = MemorySnapshot;
+}
+
+/// The in-memory model's snapshot behind `s`, for this model's own tools
+/// (checkers, dumps, the tests that drive an engine directly).
 pub fn memory_snapshot_of(s: &dyn Snapshot) -> &MemorySnapshot {
-    match downcast_ref::<MemorySnapshot>(node_store_of(s).as_any()) {
-        Option::Some(m) => { return m; }
-        Option::None => { panic("memoria: not a MemoryStore snapshot"); }
-    }
+    return store_of::<MemorySnapshot>(s);
 }
 
 // ── MemoryStore: the snapshot DAG + named branches ──────────────────────────

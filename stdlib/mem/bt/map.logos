@@ -20,6 +20,7 @@ package logos.mem.bt.map;
 // `use logos.mem.bt.map;` transitively brings logos.mem.bt.node into the
 // generated unit's module graph.
 use logos.mem.bt.node;
+use logos.mem.bt.blockptr;        // BlockStore — StoreProfile::Store's block plane
 // S2b/B: the generated leaves call the btss single-stream substrate
 // (btss_fmt_slot / btss_split_col / btss_count). Same hub rule as node above —
 // a metaprog-emitted `use` cannot itself load a module, so this import
@@ -151,11 +152,29 @@ pub trait NodeStore: Snapshot {
     fn as_any(self: &Self) -> &dyn Any;
 }
 
+/// A node profile bound to its memory model (ADR 0039 D7; Memoria's profile
+/// carries its store types the same way). The engines (btvec, btfl, the map
+/// splice in pack) take `&P::Store` — block resolution and the CoW stamp —
+/// and the Canon families reach the directory through it (`store_of`): a
+/// second model is a second profile.
+pub trait StoreProfile: NodeProfile {
+    type Store: BlockStore + NodeStore;
+}
+
 /// The privileged tier of `s`; panics when the snapshot has none.
 pub fn node_store_of(s: &dyn Snapshot) -> &dyn NodeStore {
     match s.node_store() {
         Option::Some(n) => { return n; }
         Option::None => { panic("memoria: this snapshot has no node plane (NodeStore, ADR 0039 D7)"); }
+    }
+}
+
+/// The store of model `S` behind `s` — checked by type id; panics when `s`
+/// belongs to another model than the profile a container was built for.
+pub fn store_of<S>(s: &dyn Snapshot) -> &S {
+    match downcast_ref::<S>(node_store_of(s).as_any()) {
+        Option::Some(m) => { return m; }
+        Option::None => { panic("memoria: the snapshot belongs to another memory model than the container's profile"); }
     }
 }
 

@@ -91,6 +91,7 @@ use logos.mem.bt.view;           // NodeView / ColRef — the borrow-checked col
 use logos.mem.bt.memstore;       // MemorySnapshot (allocation capability), tree_release
 use logos.mem.bt.ops;            // BtInsRet / bt_ins_rec — THE bottom-up insert skeleton
 use logos.mem.bt.map;            // BtBranch — the N-ary branch contract
+use logos.mem.bt.blockptr;       // BlockStore — resolve on `P::Store`
 use logos.mem.bt.node;           // NodeProfile — the node-form seam (Btfl<N, P>)
 use logos.lang.panic;
 use logos.lang.mem;              // alloc/dealloc — the batch staging heap blocks
@@ -234,7 +235,7 @@ unsafe fn pdt_lower_bound_max(b: &PdtBuf, key: u64) -> u32 {
 /// PkdAlloc's PkdAllocatable back-ref, healed when earlier slots shift) and
 /// wired to the leaf's allocator, so the sequence grows through the parent
 /// chain exactly like the C++ nested PackedAllocator.
-fn btfl_leaf_new<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes: u32) -> *mut u8 {
+fn btfl_leaf_new<const N: u32, P: StoreProfile>(snap: &P::Store, leaf_bytes: u32) -> *mut u8 {
     unsafe {
         let node: *mut u8 = P::alloc(leaf_bytes, N + 1u32, snap.snapshot_id());
         let a: *mut PkdAlloc = P::pkd(node);
@@ -269,7 +270,7 @@ fn btfl_leaf_new<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes
 // Fresh empty leaf with per-stream KIND CODES (stream 0 is always FSE64-MAX;
 // codes[s-1] shapes stream s). The codes are the family's design constants —
 // they exist only at creation; thereafter every block SELF-DESCRIBES.
-fn btfl_leaf_new_shaped<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes: u32,
+fn btfl_leaf_new_shaped<const N: u32, P: StoreProfile>(snap: &P::Store, leaf_bytes: u32,
                                       codes: &Vec<u64>) -> *mut u8 {
     unsafe {
         let node: *mut u8 = P::alloc(leaf_bytes, N + 1u32, snap.snapshot_id());
@@ -356,7 +357,7 @@ fn btfl_leaf_new_like<const N: u32, P: NodeProfile>(snp: u64, leaf_bytes: u32,
 /// ref column. The PdtBuf block is wired to the node's allocator so its
 /// growth rides the parent chain — the same nested-block discipline as the
 /// leaf's SSRLE stream.
-fn btfl_branch_new<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, branch_bytes: u32) -> *mut u8 {
+fn btfl_branch_new<const N: u32, P: StoreProfile>(snap: &P::Store, branch_bytes: u32) -> *mut u8 {
     return btfl_branch_new_raw::<N, P>(snap.snapshot_id(), branch_bytes);
 }
 
@@ -404,7 +405,7 @@ pub struct Btfl<const N: u32, P: NodeProfile> {
 /// Creates an empty N-stream tree (a single empty leaf). Call sites spell the
 /// stream count: `btfl_create::<2, P>(…)` (const-generic N is not inferable from
 /// the value arguments).
-pub fn btfl_create<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes: u32, branch_bytes: u32) -> Btfl<N, P> {
+pub fn btfl_create<const N: u32, P: StoreProfile>(snap: &P::Store, leaf_bytes: u32, branch_bytes: u32) -> Btfl<N, P> {
     let root: *mut u8 = btfl_leaf_new::<N, P>(snap, leaf_bytes);
     return Btfl::<N, P> {
         root: root,
@@ -417,7 +418,7 @@ pub fn btfl_create<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, leaf_byt
 /// Creates an empty N-stream tree with per-stream KIND CODES (stream 0 is
 /// always the FSE64 ordered stream; `codes[s-1]` shapes stream s —
 /// BTFL_KIND_FSE64 or BTFL_KIND_VLE).
-pub fn btfl_create_shaped<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes: u32,
+pub fn btfl_create_shaped<const N: u32, P: StoreProfile>(snap: &P::Store, leaf_bytes: u32,
                                         branch_bytes: u32, codes: &Vec<u64>) -> Btfl<N, P> {
     let root: *mut u8 = btfl_leaf_new_shaped::<N, P>(snap, leaf_bytes, codes);
     return Btfl::<N, P> {
@@ -467,7 +468,7 @@ pub struct BtflLoc {
 /// (bt_select_shuttle.hpp:71-90 branch step, :106-137 leaf finish): each
 /// branch consumes the rank remainder against its per-symbol count column
 /// and the leaf finishes with select_fw_eq.
-pub fn btfl_select<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &Btfl<N, P>, sym: u64, rank: u64) -> BtflLoc {
+pub fn btfl_select<const N: u32, P: StoreProfile>(snap: &P::Store, t: &Btfl<N, P>, sym: u64, rank: u64) -> BtflLoc {
     unsafe {
         let mut node: *mut u8 = t.root;
         let mut lvl: u32 = t.level;
@@ -525,7 +526,7 @@ pub fn btfl_select<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &Btfl
 
 /// Symbol at GLOBAL position `pos` — descent by the summed count columns,
 /// finished with the sequence access.
-pub fn btfl_access<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &Btfl<N, P>, pos: u64) -> u64 {
+pub fn btfl_access<const N: u32, P: StoreProfile>(snap: &P::Store, t: &Btfl<N, P>, pos: u64) -> u64 {
     unsafe {
         let mut node: *mut u8 = t.root;
         let mut lvl: u32 = t.level;
@@ -584,7 +585,7 @@ unsafe fn btfl_find_child(a: &NodeView, key: u64) -> u32 {
 
 /// Descend to `key`'s leaf position by the stream-0 max-key measure,
 /// accumulating the global key rank from the CNT0 column prefixes.
-pub fn btfl_seek<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &Btfl<N, P>, key: u64) -> BtflSeek {
+pub fn btfl_seek<const N: u32, P: StoreProfile>(snap: &P::Store, t: &Btfl<N, P>, key: u64) -> BtflSeek {
     unsafe {
         let mut node: *mut u8 = t.root;
         let mut lvl: u32 = t.level;
@@ -688,7 +689,7 @@ pub fn btfl_leaf_rank<const N: u32, P: NodeProfile>(leaf: *mut u8, upto: u64, sy
 // bt_fl PROTOTYPE op — generic over N and the stream index; the multimap
 // container's `find(k)` is exactly this with stream = 1. (For a VLE stream use
 // the span introspection instead — this yields u64 cells.)
-pub fn btfl_key_stream<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &Btfl<N, P>, key: u64, stream: u32, out: &mut Vec<u64>) -> bool {
+pub fn btfl_key_stream<const N: u32, P: StoreProfile>(snap: &P::Store, t: &Btfl<N, P>, key: u64, stream: u32, out: &mut Vec<u64>) -> bool {
     let sk: BtflSeek = btfl_seek::<N, P>(snap, t, key);
     if !sk.found {
         return false;
@@ -747,7 +748,7 @@ pub struct BtflValCur {
 }
 
 /// `ctr.seek(n)`: cursor at the n-th KEY (symbol-0 entry) in symbol order.
-pub fn btfl_seek_nth<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &Btfl<N, P>, n: u64) -> BtflEntryCur {
+pub fn btfl_seek_nth<const N: u32, P: StoreProfile>(snap: &P::Store, t: &Btfl<N, P>, n: u64) -> BtflEntryCur {
     unsafe {
         let mut node: *mut u8 = t.root;
         let mut lvl: u32 = t.level;
@@ -1353,7 +1354,7 @@ impl<const N: u32, P: NodeProfile> BtBranch<u64, N> for BtflBranchRef<N, P> {
 // Own the root-to-leaf path that `key` descends (find_child — the same walk
 // the insert, splice and remove take), repointing each parent row at its
 // child's clone. Nodes another snapshot holds are cloned, never written.
-fn bf_own_path<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<N, P>, key: u64) {
+fn bf_own_path<const N: u32, P: StoreProfile>(snap: &P::Store, t: &mut Btfl<N, P>, key: u64) {
     let snp: u64 = snap.snapshot_id();
     unsafe {
         t.root = node_privatize(t.root, t.level, snp);
@@ -1382,7 +1383,7 @@ fn bf_own_path<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl
 /// `flat` (stream-major), VLE streams take their rows from `spans`
 /// (stream-major across the VLE streams). Which is which comes from the
 /// COLUMNS THEMSELVES — blocks self-describe their kind.
-pub fn btfl_insert_entry<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<N, P>, key: u64,
+pub fn btfl_insert_entry<const N: u32, P: StoreProfile>(snap: &P::Store, t: &mut Btfl<N, P>, key: u64,
                                        flat: &Vec<u64>, lens: &Vec<u64>,
                                        spans: &PdtVals) -> bool {
     if btfl_seek::<N, P>(snap, t, key).found {
@@ -1417,7 +1418,7 @@ pub fn btfl_insert_entry<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t:
 
 /// The all-FSE entry form — every stream's rows ride `flat` (compat surface;
 /// forwards with an empty span carrier).
-pub fn btfl_insert_n<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<N, P>, key: u64,
+pub fn btfl_insert_n<const N: u32, P: StoreProfile>(snap: &P::Store, t: &mut Btfl<N, P>, key: u64,
                                    flat: &Vec<u64>, lens: &Vec<u64>) -> bool {
     let ev: PdtVals = pdt_vals_new();
     return btfl_insert_entry::<N, P>(snap, t, key, flat, lens, &ev);
@@ -1715,7 +1716,7 @@ unsafe fn btfl_fill_leaf<P: NodeProfile>(st: &BtflStage, from: u64, leaf: *mut u
 /// remains. Every leaf but the last is filled to capacity — which is what a
 /// bulk build is FOR: the single-insert path leaves nodes half full after each
 /// split, and replaying a batch through it would too.
-pub fn btfl_bulk_build<P: NodeProfile>(snap: &MemorySnapshot, st: &BtflStage,
+pub fn btfl_bulk_build<P: StoreProfile>(snap: &P::Store, st: &BtflStage,
                        leaf_bytes: u32, branch_bytes: u32) -> Btfl<2, P> {
     unsafe {
         if st.size() == 0u64 {
@@ -1789,7 +1790,7 @@ struct ChkRes<const N: u32> {
 // counts agree between the columns and the structure stream (per symbol);
 // stream-0 keys strictly increase globally; every non-empty leaf starts with
 // a symbol-0 entry (the v0 invariant).
-unsafe fn btfl_chk_rec<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32,
+unsafe fn btfl_chk_rec<const N: u32, P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32,
                                      prev: &mut u64, any: &mut bool) -> ChkRes<N> {
     if level == 0u32 {
         let mut a: NodeView = node_view_at(node);
@@ -1885,7 +1886,7 @@ pub unsafe fn br_pdt_size_for_test<P: NodeProfile>(root: *mut u8) -> u64 {
     return br_pdt(&node_view_at(root)).size();
 }
 
-pub fn btfl_check<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &Btfl<N, P>) -> bool {
+pub fn btfl_check<const N: u32, P: StoreProfile>(snap: &P::Store, t: &Btfl<N, P>) -> bool {
     unsafe {
         let mut prev: u64 = 0u64;
         let mut any: bool = false;
@@ -2454,7 +2455,7 @@ unsafe fn bf_leaf_try_batch<P: NodeProfile>(node: *mut u8, i0: u64, buf: &BtflBu
 }
 
 // The recursive splice (in-place tree — the btfl v0 restriction).
-fn bf_splice_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, first: u64,
+fn bf_splice_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, first: u64,
                                  buf: &BtflBuf, bvoff: &Vec<u64>, snp: u64,
                                  leaf_bytes: u32, branch_bytes: u32) -> Vec<BfRow> {
     unsafe {
@@ -2612,7 +2613,7 @@ fn bf_splice_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u3
 /// WHOLE between two adjacent existing keys (the sorted-run contract).
 /// False = rejected (unsorted or interleaving), tree untouched — validation
 /// is read-only and precedes any mutation.
-pub fn btfl_batch_insert<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, P>,
+pub fn btfl_batch_insert<P: StoreProfile>(snap: &P::Store, t: &mut Btfl<2, P>,
                                          buf: &BtflBuf) -> bool {
     let m: u64 = buf.len();
     if m == 0u64 {
@@ -2824,7 +2825,7 @@ fn bf_branches_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
     }
 }
 
-fn bf_branch_absorb<P: NodeProfile>(snap: &MemorySnapshot, dst: *mut u8, src: *mut u8, at_front: bool) {
+fn bf_branch_absorb<P: StoreProfile>(snap: &P::Store, dst: *mut u8, src: *mut u8, at_front: bool) {
     unsafe {
         let mut da: NodeView = node_view_at(dst);
         let mut sa: NodeView = node_view_at(src);
@@ -2889,7 +2890,7 @@ fn bf_branch_remove_row<P: NodeProfile>(a: &mut NodeView, i: u64) {
            "btfl: branch child remove failed to prepare");
 }
 
-fn bf_try_merge<P: NodeProfile>(snap: &MemorySnapshot, a: &mut NodeView, ci: u64, child: *mut u8,
+fn bf_try_merge<P: StoreProfile>(snap: &P::Store, a: &mut NodeView, ci: u64, child: *mut u8,
                                 child_level: u32) {
     unsafe {
         let n: u64 = br_pdt(a).size();   // read ends here
@@ -2965,7 +2966,7 @@ struct BfRemRet {
     cnt1: u64,
 }
 
-fn bf_remove_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, key: u64) -> BfRemRet {
+fn bf_remove_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, key: u64) -> BfRemRet {
     unsafe {
         if level == 0u32 {
             let mut a: NodeView = node_view_at(node);
@@ -3049,7 +3050,7 @@ fn bf_remove_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u3
 /// computed on the concatenated seam-merged run list); the root collapses
 /// while it is a one-child branch; an emptied container becomes a fresh
 /// empty leaf.
-pub fn btfl_remove<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, P>, key: u64) -> bool {
+pub fn btfl_remove<P: StoreProfile>(snap: &P::Store, t: &mut Btfl<2, P>, key: u64) -> bool {
     let sk: BtflSeek = btfl_seek::<2, P>(snap, t, key);
     if !sk.found {
         return false;

@@ -25,6 +25,7 @@ package logos.mem.bt.btvec;
 use logos.mem.bt.node;       // NodeProfile — the node-form seam
 use logos.mem.bt.btss;       // the shared single-stream column mechanics
 use logos.mem.bt.map;            // trait Snapshot — `snapshot_id` is its method
+use logos.mem.bt.blockptr;       // BlockStore — resolve on `P::Store`
 use logos.mem.bt.memstore;   // MemorySnapshot (creation stamp) + tree_release
 use logos.mem.bt.pack;       // the weight calculus (pack_node_weight)
 use logos.mem.bt.meta;       // the container SCHEMA document — follows the root
@@ -67,7 +68,7 @@ fn bv_own(node: *mut u8, level: u32, snp: u64) -> *mut u8 {
 }
 
 // Own child row `ci` of the OWNED branch `a`, repointing the row at the clone.
-fn bv_own_child(snap: &MemorySnapshot, a: &mut NodeView, ci: u64, child_level: u32, snp: u64) -> *mut u8 {
+fn bv_own_child<P: StoreProfile>(snap: &P::Store, a: &mut NodeView, ci: u64, child_level: u32, snp: u64) -> *mut u8 {
     let c: *mut u8 = snap.resolve(bv_child(a).get(0u32, ci)).ptr();
     let o: *mut u8 = bv_own(c, child_level, snp);
     if o != c {
@@ -88,7 +89,7 @@ pub struct Btvec<P: NodeProfile> {
 }
 
 /// Creates an empty vector (a single empty leaf).
-pub fn btvec_create<P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes: u32, branch_bytes: u32) -> Btvec<P> {
+pub fn btvec_create<P: StoreProfile>(snap: &P::Store, leaf_bytes: u32, branch_bytes: u32) -> Btvec<P> {
     return Btvec::<P> {
         root: bv_leaf_new::<P>(snap.snapshot_id(), leaf_bytes),
         level: 0u32,
@@ -141,7 +142,7 @@ pub struct BtvecCur {
 }
 
 /// Cursor at the `pos`-th entry (0-based) — the count descent.
-pub fn btvec_seek<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, pos: u64) -> BtvecCur {
+pub fn btvec_seek<P: StoreProfile>(snap: &P::Store, t: &Btvec<P>, pos: u64) -> BtvecCur {
     let mut node: *mut u8 = t.root;
     let mut lvl: u32 = t.level;
     let mut rem: u64 = pos;
@@ -182,7 +183,7 @@ pub fn btvec_seek<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, pos: u64)
 
 /// Step to the NEXT entry — an index bump inside the leaf, one descent at a
 /// leaf boundary. Stepping off the end stays off the end and costs nothing.
-pub fn btvec_cur_next<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, cur: BtvecCur) -> BtvecCur {
+pub fn btvec_cur_next<P: StoreProfile>(snap: &P::Store, t: &Btvec<P>, cur: BtvecCur) -> BtvecCur {
     if !cur.found { return cur; }
     let cnt: u64 = bv_vals(&node_view_at(cur.leaf)).size();
     if (cur.idx as u64) + 1u64 < cnt {
@@ -194,7 +195,7 @@ pub fn btvec_cur_next<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, cur: 
 /// Step to the PREVIOUS entry. From a past-the-end cursor this lands on the
 /// last entry; before the start there is none, and the cursor comes back
 /// invalid rather than clamping to zero.
-pub fn btvec_cur_prev<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, cur: BtvecCur) -> BtvecCur {
+pub fn btvec_cur_prev<P: StoreProfile>(snap: &P::Store, t: &Btvec<P>, cur: BtvecCur) -> BtvecCur {
     if cur.pos == 0u64 {
         return BtvecCur { found: false, leaf: cur.leaf, idx: 0u32, pos: 0u64 };
     }
@@ -206,7 +207,7 @@ pub fn btvec_cur_prev<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, cur: 
 
 /// Jump `n` entries forward: a bump while the destination stays in this leaf,
 /// otherwise ONE descent to it rather than `n` steps.
-pub fn btvec_cur_skip<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, cur: BtvecCur, n: u64) -> BtvecCur {
+pub fn btvec_cur_skip<P: StoreProfile>(snap: &P::Store, t: &Btvec<P>, cur: BtvecCur, n: u64) -> BtvecCur {
     if n == 0u64 { return cur; }
     if cur.found {
         let cnt: u64 = bv_vals(&node_view_at(cur.leaf)).size();
@@ -220,7 +221,7 @@ pub fn btvec_cur_skip<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, cur: 
 
 /// The `pos`-th entry's cell (traps past the end — use btvec_seek for the
 /// checked form).
-pub fn btvec_get<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, pos: u64) -> u64 {
+pub fn btvec_get<P: StoreProfile>(snap: &P::Store, t: &Btvec<P>, pos: u64) -> u64 {
     let c: BtvecCur = btvec_seek::<P>(snap, t, pos);
     assert(c.found, "btvec_get: position beyond the vector");
     unsafe {
@@ -238,7 +239,7 @@ pub fn btvec_cur_value<P: NodeProfile>(c: &BtvecCur) -> u64 {
 
 /// Overwrite the `pos`-th entry (no structural change; the path is owned
 /// first, so the root may change).
-pub fn btvec_set<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, pos: u64, v: u64) {
+pub fn btvec_set<P: StoreProfile>(snap: &P::Store, t: &mut Btvec<P>, pos: u64, v: u64) {
     assert(pos < btvec_size::<P>(t), "btvec_set: position beyond the vector");
     let snp: u64 = snap.snapshot_id();
     t.root = bv_own(t.root, t.level, snp);
@@ -255,7 +256,7 @@ pub fn btvec_set<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, pos: u
                 ci = ci + 1u64;
             }
         }
-        node = bv_own_child(snap, &mut a, ci, lvl - 1u32, snp);
+        node = bv_own_child::<P>(snap, &mut a, ci, lvl - 1u32, snp);
         lvl = lvl - 1u32;
     }
     unsafe {
@@ -279,7 +280,7 @@ struct BvIns {
 // positional: child i absorbs an insertion position within [0, cnt_i]
 // (rem == cnt_i inserts at the child's end — append prefers the LEFT child,
 // keeping the rightmost path for genuine appends past every subtree).
-fn bv_ins_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, pos: u64, v: u64, snp: u64,
+fn bv_ins_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, pos: u64, v: u64, snp: u64,
                               leaf_bytes: u32, branch_bytes: u32) -> BvIns {
     if level == 0u32 {
         let mut a: NodeView = node_view_at(node);
@@ -318,7 +319,7 @@ fn bv_ins_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, 
         rem = rem - cb.get(0u32, ci);
         ci = ci + 1u64;
     }
-    let child: *mut u8 = bv_own_child(snap, &mut a, ci, level - 1u32, snp);
+    let child: *mut u8 = bv_own_child::<P>(snap, &mut a, ci, level - 1u32, snp);
     let r: BvIns = bv_ins_rec::<P>(snap, child, level - 1u32, rem, v, snp, leaf_bytes, branch_bytes);
     a.col_mut(BV_CNT).set(0u32, ci, r.lcnt);
     if !r.split {
@@ -369,7 +370,7 @@ fn btvec_node_total<P: NodeProfile>(node: *mut u8) -> u64 {
 
 /// Insert `v` at position `pos` (0-based; `pos == size()` appends). Splits
 /// propagate bottom-up; a root split grows the tree by one level here.
-pub fn btvec_insert_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, pos: u64, v: u64) {
+pub fn btvec_insert_at<P: StoreProfile>(snap: &P::Store, t: &mut Btvec<P>, pos: u64, v: u64) {
     let sz: u64 = btvec_size::<P>(t);
     assert(pos <= sz, "btvec_insert_at: position beyond the vector");
     let snp: u64 = snap.snapshot_id();
@@ -394,7 +395,7 @@ pub fn btvec_insert_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, 
 }
 
 /// Append `v` (insert at size()).
-pub fn btvec_append<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, v: u64) {
+pub fn btvec_append<P: StoreProfile>(snap: &P::Store, t: &mut Btvec<P>, v: u64) {
     btvec_insert_at::<P>(snap, t, btvec_size::<P>(t), v);
 }
 
@@ -703,7 +704,7 @@ fn bv_pack_branches<P: NodeProfile>(rows: &Vec<BvRow>, snp: u64, branch_bytes: u
 // The recursive splice: insert the staging at LOCAL position `pos` under
 // `(node, level)`; returns the (count, child) rows replacing this node in
 // its parent (one row = no structural growth at this level).
-fn bv_splice_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, pos: u64, buf: &BtvecBuf,
+fn bv_splice_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, pos: u64, buf: &BtvecBuf,
                                  snp: u64, leaf_bytes: u32, branch_bytes: u32) -> Vec<BvRow> {
     if level == 0u32 {
         let mut a: NodeView = node_view_at(node);
@@ -750,7 +751,7 @@ fn bv_splice_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u3
             ci = ci + 1u64;
         }
     }
-    let child: *mut u8 = bv_own_child(snap, &mut a, ci, level - 1u32, snp);
+    let child: *mut u8 = bv_own_child::<P>(snap, &mut a, ci, level - 1u32, snp);
     let sub: Vec<BvRow> = bv_splice_rec::<P>(snap, child, level - 1u32, rem, buf,
                                              snp, leaf_bytes, branch_bytes);
     if sub.length() == 1i64 {
@@ -835,7 +836,7 @@ fn bv_splice_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u3
 /// Batch insert: splice the staging buffer's rows at position `pos`
 /// (0-based; `pos == size()` appends). The tree grows however many levels
 /// the top row list needs.
-pub fn btvec_insert_buf<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>,
+pub fn btvec_insert_buf<P: StoreProfile>(snap: &P::Store, t: &mut Btvec<P>,
                                         pos: u64, buf: &BtvecBuf) {
     if buf.len() == 0u64 {
         return;
@@ -891,7 +892,7 @@ fn bv_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8, slots: u32) -> bool {
 }
 
 // append every cell of `src` column `s` to `dst` (front or back)
-fn bv_absorb_col<P: NodeProfile>(snap: &MemorySnapshot, dst: *mut u8, src: *mut u8, s: u32,
+fn bv_absorb_col<P: StoreProfile>(snap: &P::Store, dst: *mut u8, src: *mut u8, s: u32,
                                  at_front: bool, bump_rc: bool) {
     let mut da: NodeView = node_view_at(dst);
     let sa: NodeView = node_view_at(src);
@@ -920,7 +921,7 @@ fn bv_absorb_col<P: NodeProfile>(snap: &MemorySnapshot, dst: *mut u8, src: *mut 
 }
 
 // try to merge the child at row `ci` with a neighbor (right, then left)
-fn bv_try_merge<P: NodeProfile>(snap: &MemorySnapshot, a: &mut NodeView, ci: u64, child: *mut u8,
+fn bv_try_merge<P: StoreProfile>(snap: &P::Store, a: &mut NodeView, ci: u64, child: *mut u8,
                                 child_level: u32) {
     let n: u64 = bv_cnt(a).size();
     let slots: u32 = if child_level == 0u32 { 1u32 } else { 2u32 };
@@ -958,7 +959,7 @@ fn bv_try_merge<P: NodeProfile>(snap: &MemorySnapshot, a: &mut NodeView, ci: u64
 
 // remove one cell at LOCAL position `pos`; returns the node's new count, or
 // u64::MAX when the node vanished (freed — the parent drops the row)
-fn bv_remove_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, pos: u64) -> u64 {
+fn bv_remove_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, pos: u64) -> u64 {
     if level == 0u32 {
         let mut a: NodeView = node_view_at(node);
         assert(a.col_mut(0u32).remove_rows(pos, pos + 1u64, PDT_CAP_EXACT),
@@ -979,7 +980,7 @@ fn bv_remove_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u3
         rem = rem - cb.get(0u32, ci);
         ci = ci + 1u64;
     }
-    let child: *mut u8 = bv_own_child(snap, &mut a, ci, level - 1u32, snap.snapshot_id());
+    let child: *mut u8 = bv_own_child::<P>(snap, &mut a, ci, level - 1u32, snap.snapshot_id());
     let sub: u64 = bv_remove_rec::<P>(snap, child, level - 1u32, rem);
     if sub == 0xFFFFFFFFFFFFFFFFu64 {
         bv_branch_remove_row(&mut a, ci);
@@ -999,7 +1000,7 @@ fn bv_remove_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u3
 /// node merges with a neighbor when the combined weight fits; the root
 /// collapses while it is a one-child branch; an emptied vector becomes a
 /// fresh empty leaf.
-pub fn btvec_remove_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, pos: u64) {
+pub fn btvec_remove_at<P: StoreProfile>(snap: &P::Store, t: &mut Btvec<P>, pos: u64) {
     let sz: u64 = btvec_size::<P>(t);
     assert(pos < sz, "btvec_remove_at: position beyond the vector");
     t.root = bv_own(t.root, t.level, snap.snapshot_id());
@@ -1015,7 +1016,7 @@ pub fn btvec_remove_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, 
             let mut a: NodeView = node_view_at(t.root);
             if bv_cnt(&a).size() == 1u64 {
                 // owned before the documents are written into it
-                let child: *mut u8 = bv_own_child(snap, &mut a, 0u64, t.level - 1u32, snap.snapshot_id());
+                let child: *mut u8 = bv_own_child::<P>(snap, &mut a, 0u64, t.level - 1u32, snap.snapshot_id());
                 // Root DEMOTION: the documents follow the root into the child
                 // (Memoria ctr_node_to_root); the child GROWS if it must, so the
                 // collapse is never blocked and nothing is lost.
@@ -1035,12 +1036,12 @@ pub fn btvec_remove_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, 
 
 /// Verifies every branch row's count against a recursive recount of its
 /// subtree — the stream-size invariant the inserts must maintain.
-pub fn btvec_check<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>) -> bool {
+pub fn btvec_check<P: StoreProfile>(snap: &P::Store, t: &Btvec<P>) -> bool {
     return bv_check_rec::<P>(snap, t.root, t.level) != 0xFFFFFFFFFFFFFFFFu64;
 }
 
 // Returns the subtree's entry count, or u64::MAX on a count mismatch.
-fn bv_check_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32) -> u64 {
+fn bv_check_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32) -> u64 {
     if level == 0u32 {
         return bv_vals(&node_view_at(node)).size();
     }

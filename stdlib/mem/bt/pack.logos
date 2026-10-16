@@ -40,6 +40,7 @@ use logos.mem.bt.node;           // NodeProfile — the map splice's node seam
 use logos.mem.bt.meta;       // the container SCHEMA document — follows the root
 use logos.mem.bt.view;           // NodeView / ColRef — the borrow-checked column skin
 use logos.mem.bt.map;            // trait Snapshot — `snapshot_id` is its method
+use logos.mem.bt.blockptr;       // BlockStore — resolve on `P::Store`
 use logos.mem.bt.memstore;       // MemorySnapshot + tree_release (CoW discipline)
 use logos.mem.collections.vec;
 use logos.lang.mem;              // alloc/dealloc/copy_bytes — staging + privatize
@@ -544,7 +545,7 @@ fn pk_branch_new<P: NodeProfile>(snp: u64, branch_bytes: u32) -> *mut u8 {
 // (the packed family's region is position-independent — the CoW-clone-unit
 // law), child_slot restored, children rc-bumped for a branch. The fresh
 // header (rc = 1, snap = cur) comes from P::alloc.
-fn pk_private<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, cur: u64, is_branch: bool) -> *mut u8 {
+fn pk_private<P: StoreProfile>(snap: &P::Store, node: *mut u8, cur: u64, is_branch: bool) -> *mut u8 {
     unsafe {
         if P::snapshot(node) == cur {
             return node;
@@ -851,7 +852,7 @@ fn pk_lower_bound(b: &ColRef, key: u64, signed: bool) -> u64 {
 // `node`; returns rows owning their ptrs. When the returned set does not
 // contain `node`, the original ref was released inside (tree_release — the
 // old block may still be shared with a frozen snapshot).
-fn pk_splice_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, first: u64, signed: bool,
+fn pk_splice_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, first: u64, signed: bool,
                                  buf: &BtssBuf, cur: u64, branch_bytes: u32) -> Vec<PkRow> {
     if level == 0u32 {
         let work: *mut u8 = pk_private::<P>(snap, node, cur, false);
@@ -1243,7 +1244,7 @@ fn pk_branches_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
 // Append every (sep, cnt, child) row of branch `src` to branch `dst`
 // (private). The copied child refs are NEW references: rc-bump each — the
 // release of `src` afterwards nets the transfer for shared and owned alike.
-fn pk_branch_absorb<P: NodeProfile>(snap: &MemorySnapshot, dst: *mut u8, src: *mut u8, at_front: bool) {
+fn pk_branch_absorb<P: StoreProfile>(snap: &P::Store, dst: *mut u8, src: *mut u8, at_front: bool) {
     let mut da: NodeView = node_view_at(dst);
     let mut sa: NodeView = node_view_at(src);
     let sn: u64 = pk_slot(&sa, PKB_SEP).size();
@@ -1280,7 +1281,7 @@ fn pk_branch_absorb<P: NodeProfile>(snap: &MemorySnapshot, dst: *mut u8, src: *m
 // (right first, then left). Mutates only the path child (`work_child`,
 // already private); the sibling is read + released. Refreshes the branch
 // rows. Children are leaves when `child_level == 0`.
-fn pk_try_merge<P: NodeProfile>(snap: &MemorySnapshot, a: &mut NodeView, ci: u64, work_child: *mut u8,
+fn pk_try_merge<P: StoreProfile>(snap: &P::Store, a: &mut NodeView, ci: u64, work_child: *mut u8,
                                 child_level: u32) {
     let n: u64 = pk_slot(a, PKB_SEP).size();
     // right neighbor: absorb it at the child's BACK
@@ -1338,7 +1339,7 @@ fn pk_try_merge<P: NodeProfile>(snap: &MemorySnapshot, a: &mut NodeView, ci: u64
 // the parent's one ref to `node`; when the returned rows do not contain
 // `node`, the original ref was released inside. ZERO rows = the subtree
 // vanished (the parent removes its row).
-fn pk_remove_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, key: u64, signed: bool,
+fn pk_remove_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, key: u64, signed: bool,
                                  cur: u64) -> Vec<PkRow> {
     if level == 0u32 {
         let work: *mut u8 = pk_private::<P>(snap, node, cur, false);
@@ -1414,7 +1415,7 @@ pub struct BtssRemRet {
 /// absent key mutates nothing); the mutating walk is CoW; merges follow the
 /// C++ step-4 discipline under weight admission; the root collapses while it
 /// is a one-child branch. An emptied container becomes a fresh empty leaf.
-pub fn btss_remove<P: NodeProfile>(snap: &MemorySnapshot, root: *mut u8, level: u32,
+pub fn btss_remove<P: StoreProfile>(snap: &P::Store, root: *mut u8, level: u32,
                                    key: u64, signed: bool) -> BtssRemRet {
     // read-only existence check + leaf-shape capture (the fresh-empty-root donor)
     let mut kd: PdtDescr = pk_key_descr();
@@ -1494,7 +1495,7 @@ pub struct BtssBatchRet {
 /// READ-ONLY and precedes any mutation — a rejected batch leaves the tree
 /// untouched. The mutating walk is CoW: every touched node is privatized
 /// to `cur` first.
-pub fn btss_batch_insert<P: NodeProfile>(snap: &MemorySnapshot, root: *mut u8, level: u32,
+pub fn btss_batch_insert<P: StoreProfile>(snap: &P::Store, root: *mut u8, level: u32,
                                          buf: &BtssBuf, signed: bool,
                                          branch_bytes: u32) -> BtssBatchRet {
     let m: u64 = buf.len();
