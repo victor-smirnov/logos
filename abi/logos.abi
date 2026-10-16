@@ -20163,6 +20163,7 @@ sym	logos_mem.logos.mem.bt.interp$alg_fmt_node__f__pmut_PkdAlloc$M19266910bb066e
 sym	logos_mem.logos.mem.bt.interp$alg_price__f__pmut_PkdAlloc$M19266910bb066e1b__ref_NodeSchema$M02e8fbcca2caa4f2__ref_NodeBatch$M02e8fbcca2caa4f2__ref_LeafBatchDatum$M02e8fbcca2caa4f2
 sym	logos_mem.logos.mem.bt.interp$alg_runs_from_rows__f__u32__ref_Vec$M4edea24aa4768b45$G1$u64
 sym	logos_mem.logos.mem.bt.map$node_store_of__f__&dyn Snapshot
+sym	logos_mem.logos.mem.bt.map$store_of__g__&dyn Snapshot__MemorySnapshot$M56fcb7879b553d46
 sym	logos_mem.logos.mem.bt.map$uid256_eq__f__ref_Uid256$M9a0c24cc67227db2__ref_Uid256$M9a0c24cc67227db2
 sym	logos_mem.logos.mem.bt.map$uid256_from_u64__f__u64
 sym	logos_mem.logos.mem.bt.map$uid256_zero__f__void
@@ -21539,6 +21540,7 @@ vtable	logos.mem.bt.map.Multimap	slots=[size,find,insert]
 vtable	logos.mem.bt.map.NodeStore	slots=[snapshot_id,snapshot_uid,commit,remove,status,snapshot_parent,has_parent,set_as_branch,set_as_master,node_store,snap_pin,snap_unpin,leaf_pin,leaf_unpin,assert_writable,root_of,root_of_mut,set_root,as_any]
 vtable	logos.mem.bt.map.Snapshot	slots=[snapshot_id,snapshot_uid,commit,remove,status,snapshot_parent,has_parent,set_as_branch,set_as_master,node_store,snap_pin,snap_unpin,leaf_pin,leaf_unpin]
 vtable	logos.mem.bt.map.Store	slots=[]
+vtable	logos.mem.bt.map.StoreProfile	slots=[alloc,pkd,ncols,snapshot,set_snapshot,rc,inc_rc,dec_rc,child_slot,set_child_slot,free,no_children,block_size]
 vtable	logos.mem.bt.node.NodeProfile	slots=[alloc,pkd,ncols,snapshot,set_snapshot,rc,inc_rc,dec_rc,child_slot,set_child_slot,free,no_children,block_size]
 vtable	logos.mem.bt.stream.InStream	slots=[read_all,read_u8,read_u32,read_u64]
 vtable	logos.mem.bt.stream.OutStream	slots=[write_all,write_u8,write_u32,write_u64]

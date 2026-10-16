@@ -1,20 +1,23 @@
 # ADR 0039 M1 — store API census. Regenerate: tests/logos/store_api_census.py . tests/logos/store_api.ledger --write
 # symbol	stack	area	uses	files	target
-MemoryStore	mem.bt	stdlib/mem/bt	87	1	VersionStore (in-memory model, D10)
+MemoryStore	mem.bt	stdlib/mem/bt	86	1	VersionStore (in-memory model, D10)
 MemoryStore	mem.bt	tests/logos/fail	12	12	VersionStore (in-memory model, D10)
 MemoryStore	mem.bt	tests/logos/pass	94	79	VersionStore (in-memory model, D10)
-MemorySnapshot	mem.bt	stdlib/lcm/canon	6	1	Snapshot + Workspace instance; NodeStore (D7)
-MemorySnapshot	mem.bt	stdlib/mem/bt	124	4	Snapshot + Workspace instance; NodeStore (D7)
+MemorySnapshot	mem.bt	stdlib/mem/bt	77	1	Snapshot + Workspace instance; NodeStore (D7)
 MemorySnapshot	mem.bt	tests/logos/pass	35	9	Snapshot + Workspace instance; NodeStore (D7)
 dyn Snapshot	mem.bt	stdlib/lcm/canon	19	2	Snapshot (read) / Workspace (write) — split at M2
-dyn Snapshot	mem.bt	stdlib/mem/bt	13	2	Snapshot (read) / Workspace (write) — split at M2
+dyn Snapshot	mem.bt	stdlib/mem/bt	14	2	Snapshot (read) / Workspace (write) — split at M2
 dyn Snapshot	mem.bt	tests/logos/fail	11	11	Snapshot (read) / Workspace (write) — split at M2
-dyn Snapshot	mem.bt	tests/logos/pass	128	79	Snapshot (read) / Workspace (write) — split at M2
-NodeStore	mem.bt	stdlib/mem/bt	7	2	NodeStore (D7): node placement + the directory
-node_store_of	mem.bt	stdlib/mem/bt	2	2	NodeStore (D7): the checked step to the privileged tier
-memory_snapshot_of	mem.bt	stdlib/lcm/canon	6	1	M3b: engines generic over NodeStore, then delete
-memory_snapshot_of	mem.bt	stdlib/mem/bt	1	1	M3b: engines generic over NodeStore, then delete
-memory_snapshot_of	mem.bt	tests/logos/pass	7	5	M3b: engines generic over NodeStore, then delete
+dyn Snapshot	mem.bt	tests/logos/pass	130	80	Snapshot (read) / Workspace (write) — split at M2
+NodeStore	mem.bt	stdlib/mem/bt	8	2	NodeStore (D7): node placement + the directory
+NodeStore	mem.bt	tests/logos/pass	3	1	NodeStore (D7): node placement + the directory
+node_store_of	mem.bt	stdlib/mem/bt	2	1	NodeStore (D7): the checked step to the privileged tier
+StoreProfile	mem.bt	stdlib/lcm/canon	12	1	NodeStore (D7): a node profile bound to its model
+StoreProfile	mem.bt	stdlib/mem/bt	50	5	NodeStore (D7): a node profile bound to its model
+store_of	mem.bt	stdlib/lcm/canon	6	1	NodeStore (D7): the profile store, checked
+store_of	mem.bt	stdlib/mem/bt	2	2	NodeStore (D7): the profile store, checked
+memory_snapshot_of	mem.bt	stdlib/mem/bt	1	1	the in-memory model's tools and engine tests only
+memory_snapshot_of	mem.bt	tests/logos/pass	7	5	the in-memory model's tools and engine tests only
 store_new	mem.bt	stdlib/mem/bt	3	1	VersionStore construction (model)
 store_new	mem.bt	tests/logos/fail	12	12	VersionStore construction (model)
 store_new	mem.bt	tests/logos/pass	89	79	VersionStore construction (model)
@@ -73,7 +76,7 @@ create_ctr	deem.data	tests/logos/fail	1	1	Ctr: create in a Workspace
 create_ctr	deem.data	tests/logos/pass	33	24	Ctr: create in a Workspace
 create_ctr	mem.bt	stdlib/lcm/canon	1	1	Ctr: create in a Workspace
 create_ctr	mem.bt	tests/logos/fail	11	11	Ctr: create in a Workspace
-create_ctr	mem.bt	tests/logos/pass	114	76	Ctr: create in a Workspace
+create_ctr	mem.bt	tests/logos/pass	115	77	Ctr: create in a Workspace
 open_ctr	deem.data	stdlib/lcm/deem	1	1	Ctr: open in a Snapshot / Workspace
 open_ctr	deem.data	tests/logos/pass	35	11	Ctr: open in a Snapshot / Workspace
 open_ctr	mem.bt	stdlib/lcm/canon	1	1	Ctr: open in a Snapshot / Workspace
@@ -100,4 +103,4 @@ InsertError	deem.data	stdlib/lcm/deem	4	1	M4: delete
 InsertError	deem.data	tests/logos/pass	2	1	M4: delete
 # not counted (file is outside the stack)	Snap	?	stdlib/mem/version	16
 # not counted (file is outside the stack)	Snap	?	tests/logos/pass	21
-# totals	compiler=1	deem.data=219	mem.bt=1076
+# totals	compiler=1	deem.data=219	mem.bt=1094
