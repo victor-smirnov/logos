@@ -713,7 +713,7 @@ ADR 0033 (PROPOSED) replaces this handle with a DBSP translator over DPlan, whos
 
 ### `deem.exec.rtval` — the RtVal runtime scalar
 
-The runtime scalar is `RtVal { I(i64) | F(f64) | B(bool) | S(str) | Node(WAny) | Null | Error }`: the EL lattice maps INT/FLT/BOOL/STR onto it, `Node` carries object/row handles, `Null` is a miss (an unset `WAny`-typed field or a null edge read at run time; it propagates CEL-style through EL operators, `deem.exec.lenient-null`), `Error` is a math error (overflow, division or remainder by zero) that aborts the render as a `QError`. It is the value type of the template evaluator and of the UDF registry signature. Equality is `rt_eq` over `rt_kind` codes. `QRows` and the query-side ordering/hashing (`rt_cmp`, `rt_key_hash`) were deleted at P5 with the executor.
+The runtime scalar is `RtVal<'d> { I(i64) | F(f64) | B(bool) | S(&'d str) | Node(WAny) | Null | Error }`: the EL lattice maps INT/FLT/BOOL/STR onto it, `Node` carries object/row handles, `Null` is a miss (an unset `WAny`-typed field or a null edge read at run time; it propagates CEL-style through EL operators, `deem.exec.lenient-null`), `Error` is a math error (overflow, division or remainder by zero) that aborts the render as a `QError`. It is the value type of the template evaluator and of the UDF registry signature. Equality is `rt_eq` over `rt_kind` codes. `QRows` and the query-side ordering/hashing (`rt_cmp`, `rt_key_hash`) were deleted at P5 with the executor.
 
 *Divergence:* EXTENSION — the dynamic value model; tag dispatch on `RtVal` is strong-typing-as-selector, runtime edition.
 

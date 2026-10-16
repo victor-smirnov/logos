@@ -21,7 +21,7 @@ pub schema Emp : code(0x0B14_0000_0000_0001) {
 
 resource cat = schema_catalog!{ Emp };
 
-fn twice(args: &[RtVal]) -> RtVal {
+fn twice<'s>(args: &[RtVal<'s>]) -> RtVal<'s> {
     match args[0i64] {
         RtVal::I(x) => { return RtVal::I(x * 2i64); }
         _ => { return RtVal::Null; }
@@ -29,7 +29,7 @@ fn twice(args: &[RtVal]) -> RtVal {
 }
 
 // A UDF SHADOWING a builtin name — the builtin must still win.
-fn upper(args: &[RtVal]) -> RtVal {
+fn upper<'s>(args: &[RtVal<'s>]) -> RtVal<'s> {
     let _x: RtVal = args[0i64];
     return RtVal::I(-1i64);
 }
