@@ -111,14 +111,14 @@ pub fn law_fork_cost_declared<VS: VersionStore>(vs: &VS) -> bool {
     return c == FORK_COST_CONSTANT() || c == FORK_COST_STATE();
 }
 
-fn law_line(m: &mut String, name: str, ok: bool) {
+fn law_line(m: &mut String, name: &str, ok: bool) {
     m.push_str("  ");
     m.push_str(name);
     m.push_str(if ok { " ok\n" } else { " VIOLATED\n" });
 }
 
 /// Runs every law against `vs`, one line per law.
-pub fn run_laws<VS: VersionStore>(vs: &mut VS, label: str) -> String
+pub fn run_laws<VS: VersionStore>(vs: &mut VS, label: &str) -> String
     where VS::Snap: MapRead, VS::Ws: MapRead + MapWrite {
     let r = vs.root();
     let mut w = vs.fork(&r);
