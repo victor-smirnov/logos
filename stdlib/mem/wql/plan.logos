@@ -46,8 +46,8 @@ use logos.std.wql.ir;      // SExpr, WRef<S>, the embedded-EL edges
 // bound column name the projection references; `arg` is the WRef<SExpr> inner
 // expression (absent / unused for `count()`, flagged by `has_arg`).
 pub schema RQAgg : code(0x0012_0000_0000_0010) {
-    name:    str          = 0,
-    fn_name: str          = 1,
+    name:    &str          = 0,
+    fn_name: &str          = 1,
     arg:     WRef<SExpr>  = 2,
     has_arg: bool         = 3,
 }
@@ -102,15 +102,15 @@ impl RQAggArr {
 // Option<ElemTy> (the first projected value, honoring `order by`); excludes
 // distinct/limit (walker diagnoses the combination).
 pub schema RQSimple : code(0x0012_0000_0000_0000) {
-    fn_name:       str            = 0,
-    src_name:      str            = 1,
-    row_ty:        str            = 2,
-    var_name:      str            = 3,
+    fn_name:       &str            = 0,
+    src_name:      &str            = 1,
+    row_ty:        &str            = 2,
+    var_name:      &str            = 3,
     has_where:     bool           = 4,
     where_pred:         WRef<SExpr>    = 5,
     select:        WRef<SExpr>    = 6,
     has_result_ty: bool           = 7,
-    result_ty:     str            = 8,
+    result_ty:     &str            = 8,
     distinct:       bool          = 9,
     has_order:      bool          = 10,
     order_key:      WRef<SExpr>   = 11,
@@ -118,7 +118,7 @@ pub schema RQSimple : code(0x0012_0000_0000_0000) {
     has_limit:      bool          = 13,
     limit_n:        i64           = 14,
     limit_is_param: bool          = 15,
-    limit_param:    str           = 16,
+    limit_param:    &str           = 16,
     sel_first:      bool          = 17,
     // graph-path head (ADR 0016 M2a): `from g <step>* v` — steps over a
     // graph source; when present, var_name is the LAST step's binder
@@ -147,14 +147,14 @@ pub schema RQSimple : code(0x0012_0000_0000_0000) {
 // reference ALL vars bound so far (base + earlier non-anti steps) + scalar
 // params.
 pub schema RQJoinStep : code(0x0012_0000_0000_0012) {
-    src_name: str          = 0,
-    var_name: str          = 1,
-    row_ty:   str          = 2,
+    src_name: &str          = 0,
+    var_name: &str          = 1,
+    row_ty:   &str          = 2,
     is_anti:  bool         = 3,
     on:       WRef<SExpr>  = 4,
     is_edge:  bool         = 5,
     has_on:   bool         = 6,
-    base_var: str          = 7,
+    base_var: &str          = 7,
     path:     WRef<RQPathSegArr> = 8,
     // An OUTER join: 0 inner, 1 `left join`, 2 `full join`. (Keys 9–12 once
     // held the plan's decision for the step; it lives on the planned core's
@@ -170,7 +170,7 @@ impl RQJoinStep {
 
 // ── RQPathSeg — one `.field` segment of a traversal step's field path ─────────
 pub schema RQPathSeg : code(0x0012_0000_0000_001A) {
-    name: str = 0,
+    name: &str = 0,
 }
 
 impl RQPathSeg {
@@ -221,9 +221,9 @@ pub schema RQGStep : code(0x0012_0000_0000_001C) {
     is_any:     bool = 3,
     is_desc:    bool = 4,
     is_kind:    bool = 5,
-    key:        str  = 6,
+    key:        &str  = 6,
     idx:        i64  = 7,
-    binder:     str  = 8,
+    binder:     &str  = 8,
     has_binder: bool = 9,
 }
 
@@ -300,16 +300,16 @@ impl RQJoinStepArr {
 // ⇒ INFER the result element type from `select` (every bound source schema is
 // reflected, so projections over any row var type).
 pub schema RQJoin : code(0x0012_0000_0000_0001) {
-    fn_name:    str             = 0,
-    a_name:     str             = 1,
-    a_ty:       str             = 2,
-    x_var:      str             = 3,
+    fn_name:    &str             = 0,
+    a_name:     &str             = 1,
+    a_ty:       &str             = 2,
+    x_var:      &str             = 3,
     steps:      WRef<RQJoinStepArr> = 4,
     has_where:  bool            = 5,
     where_pred:      WRef<SExpr>     = 6,
     select:     WRef<SExpr>     = 7,
     has_result_ty: bool         = 8,
-    result_ty:  str             = 9,
+    result_ty:  &str             = 9,
     distinct:       bool        = 10,
     has_order:      bool        = 11,
     order_key:      WRef<SExpr> = 12,
@@ -317,7 +317,7 @@ pub schema RQJoin : code(0x0012_0000_0000_0001) {
     has_limit:      bool        = 14,
     limit_n:        i64         = 15,
     limit_is_param: bool        = 16,
-    limit_param:    str         = 17,
+    limit_param:    &str         = 17,
     sel_first:      bool        = 18,
     has_gpath:      bool        = 19,   // graph-path head (ADR 0016 M2a)
     gpath:          WRef<RQGStepArr> = 20,
@@ -334,17 +334,17 @@ pub schema RQJoin : code(0x0012_0000_0000_0001) {
 // aggregate then ranges over the JOINED row stream (group key / where /
 // aggregate args may reference every bound row var).
 pub schema RQAggr : code(0x0012_0000_0000_0002) {
-    fn_name:    str             = 0,
-    a_name:     str             = 1,
-    a_ty:       str             = 2,
-    x_var:      str             = 3,
+    fn_name:    &str             = 0,
+    a_name:     &str             = 1,
+    a_ty:       &str             = 2,
+    x_var:      &str             = 3,
     has_where:  bool            = 4,
     where_pred:      WRef<SExpr>     = 5,
     key:        WRef<SExpr>     = 6,
     aggs:       WRef<RQAggArr>  = 7,
     select:     WRef<SExpr>     = 8,
     has_result_ty: bool         = 9,
-    result_ty:  str             = 10,
+    result_ty:  &str             = 10,
     distinct:       bool        = 11,
     has_order:      bool        = 12,
     order_key:      WRef<SExpr> = 13,
@@ -352,7 +352,7 @@ pub schema RQAggr : code(0x0012_0000_0000_0002) {
     has_limit:      bool        = 15,
     limit_n:        i64         = 16,
     limit_is_param: bool        = 17,
-    limit_param:    str         = 18,
+    limit_param:    &str         = 18,
     has_having:     bool        = 19,
     having_pred:    WRef<SExpr> = 20,
     sel_first:      bool        = 21,
@@ -368,10 +368,10 @@ pub schema RQAggr : code(0x0012_0000_0000_0002) {
 // matches. NO other clause (select/order/limit/distinct) exists on this
 // shape — the grammar admits only the predicate. `row_ty` — handler-stamped.
 pub schema RQFind : code(0x0012_0000_0000_0003) {
-    fn_name:  str         = 0,
-    src_name: str         = 1,
-    row_ty:   str         = 2,
-    var_name: str         = 3,
+    fn_name:  &str         = 0,
+    src_name: &str         = 1,
+    row_ty:   &str         = 2,
+    var_name: &str         = 3,
     pred:     WRef<SExpr> = 4,
 }
 
@@ -399,14 +399,14 @@ pub schema enum RQuery : category(0x0012_0000_0000_0000) {
 
 // One declared column: `name: ty`.
 pub schema RQRelCol : code(0x0012_0000_0000_0014) {
-    name:    str = 0,
-    ty_name: str = 1,
+    name:    &str = 0,
+    ty_name: &str = 1,
     ty:      WRef<RQTy> = 2,   // when the type is not one identifier (#744)
 }
 
 // A column type beyond one identifier (#744): `Head<A, …>` or a tuple.
 pub schema RQTy : code(0x0012_0000_0000_0020) {
-    name:  str = 0,
+    name:  &str = 0,
     args:  WRef<RQTyArr> = 1,
     tuple: bool = 2,
 }
@@ -493,7 +493,7 @@ impl RQBodyArr {
 
 // One rel block: name + declared columns + producing bodies.
 pub schema RQRel : code(0x0012_0000_0000_0016) {
-    name:   str                = 0,
+    name:   &str                = 0,
     cols:   WRef<RQRelColArr>  = 1,
     bodies: WRef<RQBodyArr>    = 2,
     eqrel:  bool               = 3,
@@ -503,8 +503,8 @@ pub schema RQRel : code(0x0012_0000_0000_0016) {
 // `subsume a by b where P;` — row `a` is dropped when another row `b` of the
 // rel satisfies `P`.
 pub schema RQSubsume : code(0x0012_0000_0000_0022) {
-    a:    str          = 0,
-    b:    str          = 1,
+    a:    &str          = 0,
+    b:    &str          = 1,
     pred: WRef<SExpr>  = 2,
 }
 
@@ -567,7 +567,7 @@ pub schema RQProgram : code(0x0012_0000_0000_0019) {
     // the ROOT rather than through the handler's argument slots because it is a
     // property OF THIS DOCUMENT, and the document is already what gets handed
     // over. A new site-level fact must not cost a new slot in a flat tuple.
-    src_file: str            = 2,   // the file the query was written in
+    src_file: &str            = 2,   // the file the query was written in
     src_line: i64            = 3,   // line of the item's head; body line 1 IS this line
     segs:     WRef<RQSrcSegArr> = 4,   // fusion provenance; null when nothing was spliced
     // The TEXT that was parsed. A source is text plus a name: without the text
@@ -575,7 +575,7 @@ pub schema RQProgram : code(0x0012_0000_0000_0019) {
     // parsed IR only. Carrying it here is what makes the query a source in its
     // own right rather than a fragment whose position only the compiler can
     // interpret.
-    src_text: str            = 5,
+    src_text: &str            = 5,
 }
 
 // One PREPENDED segment of the fused query text. `enrich_deem_params` splices
@@ -586,7 +586,7 @@ pub schema RQProgram : code(0x0012_0000_0000_0019) {
 // splice order, and everything at or past the last `end` is the written query.
 pub schema RQSrcSeg : code(0x0012_0000_0000_001E) {
     end:    i64 = 0,
-    origin: str = 1,        // the mapping's name
+    origin: &str = 1,        // the mapping's name
 }
 
 pub schema RQSrcSegArr : code(0x0012_0000_0000_001F) {

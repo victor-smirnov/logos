@@ -59,7 +59,7 @@ pub struct TrMemoCell { pub res: *const u8, pub endpos: i64, pub endline: i64 }
 pub struct TrTokCell { pub tk: i32, pub tstart: i64, pub tlen: i64, pub tline: i64, pub endpos: i64, pub endline: i64, pub intag_after: bool }
 impl Copy for TrTokCell {}
 
-pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, TrMemoCell>, pub tbuf: Vec<TrTokCell>, pub far: Token, pub base: i64 }
+pub struct Lexer<'s> { pub src: &'s str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, TrMemoCell>, pub tbuf: Vec<TrTokCell>, pub far: Token, pub base: i64 }
 
 pub fn lexer_new(src: &str) -> Lexer {
     let mut tb: Vec<TrTokCell> = vec_new::<TrTokCell>();
@@ -76,8 +76,8 @@ fn lx_is_alpha(c: u8) -> bool { return (c >= 65u8 && c <= 90u8) || (c >= 97u8 &&
 fn lx_is_alnum(c: u8) -> bool { return lx_is_alpha(c) || lx_is_digit(c); }
 fn lx_is_hex(c: u8) -> bool { return lx_is_digit(c) || (c >= 65u8 && c <= 70u8) || (c >= 97u8 && c <= 102u8); }
 
-impl Lexer {
-    fn cur(self: &Lexer, off: i64) -> u8 {
+impl Lexer<'_> {
+    fn cur(self: &Self, off: i64) -> u8 {
         let p: i64 = self.pos + off;
         if p < 0i64 || p >= self.src.len() { return 0u8; }
         return unsafe { self.src.as_ptr()[p] };
@@ -86,7 +86,7 @@ impl Lexer {
     // consumed one (max over backtracking) for error reporting —
     // the mirror of the C++ backend's furthest_. After a failed
     // parse, `far.line`/far.start/far.len name where it died.
-    pub fn next(self: &mut Lexer) -> Token {
+    pub fn next(self: &mut Self) -> Token {
         let t: Token = if self.have_la { self.have_la = false; self.la } else { self.lex_one() };
         if t.kind != TrTK_EOF && (t.line > self.far.line || (t.line == self.far.line && t.start >= self.far.start)) {
             self.far = t;
@@ -94,40 +94,40 @@ impl Lexer {
         return t;
     }
     // Look at the next token without consuming.
-    pub fn peek(self: &mut Lexer) -> Token {
+    pub fn peek(self: &mut Self) -> Token {
         if !self.have_la { self.la = self.lex_one(); self.have_la = true; }
         return self.la;
     }
-    pub fn at_eof(self: &mut Lexer) -> bool { return self.peek().kind == TrTK_EOF; }
+    pub fn at_eof(self: &mut Self) -> bool { return self.peek().kind == TrTK_EOF; }
     // The (pos, line, have_la) triple is the full backtrack state.
-    pub fn save_pos(self: &Lexer) -> i64 {
+    pub fn save_pos(self: &Self) -> i64 {
         // When a lookahead is buffered, the logical position is the start of
         // that token; otherwise it is `pos`. Encode have_la in the high bit-
         // free way: callers pair save_pos with save_line and restore via reset.
         if self.have_la { return self.la.start; }
         return self.pos;
     }
-    pub fn save_line(self: &Lexer) -> i64 {
+    pub fn save_line(self: &Self) -> i64 {
         if self.have_la { return self.la.line; }
         return self.line;
     }
-    pub fn reset(self: &mut Lexer, p: i64, ln: i64) {
+    pub fn reset(self: &mut Self, p: i64, ln: i64) {
         self.pos = p; self.line = ln; self.have_la = false;
     }
     // Match a specific token kind; on match consume + return true.
-    pub fn try_tok(self: &mut Lexer, kind: i32) -> bool {
+    pub fn try_tok(self: &mut Self, kind: i32) -> bool {
         if self.peek().kind == kind { self.next(); return true; }
         return false;
     }
     // Consume a trailing numeric type suffix (i/u/s/f/d + digits), conservatively.
-    fn scan_num_suffix(self: &mut Lexer) {
+    fn scan_num_suffix(self: &mut Self) {
         // Other suffixes: i/u/s/f/d/l + digits (i8…i128, u8…u128, f32/f64, ull/ul/ll/u, _u8…_s64).
         while self.pos < self.src.len() {
             let sc: u8 = self.cur(0i64);
             if sc == 105u8 || sc == 117u8 || sc == 115u8 || sc == 102u8 || sc == 100u8 || sc == 108u8 || lx_is_digit(sc) { self.pos = self.pos + 1i64; } else { break; }
         }
     }
-    fn lex_one(self: &mut Lexer) -> Token {
+    fn lex_one(self: &mut Self) -> Token {
         let k: i64 = self.pos;
         let c: TrTokCell = self.tbuf.get(k);
         if c.endpos >= 0i64 {
@@ -138,7 +138,7 @@ impl Lexer {
         self.tbuf.set(k, TrTokCell { tk: t.kind, tstart: t.start, tlen: t.len, tline: t.line, endpos: self.pos, endline: self.line, intag_after: self.in_tag });
         return t;
     }
-    fn lex_one_raw(self: &mut Lexer) -> Token {
+    fn lex_one_raw(self: &mut Self) -> Token {
         if self.in_tag {
             // TAG mode: skip tag-interior whitespace, then match tokens.
             while self.pos < self.src.len() {

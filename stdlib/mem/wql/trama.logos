@@ -51,7 +51,7 @@ pub schema TVar : code(0x0013_0000_0000_0001) {
     next: WRef<TStmt>   = 1,
 }
 pub schema TFor : code(0x0013_0000_0000_0002) {
-    var:  str          = 6,   // VARIABLE — loop-var NAME (self-describing IR, Option B)
+    var:  &str          = 6,   // VARIABLE — loop-var NAME (self-describing IR, Option B)
     expr: WRef<SExpr>   = 7,   // EXPRESSION — the iterable
     body: WRef<TStmt>   = 8,   // STATEMENTS — head of the loop-body chain
     next: WRef<TStmt>   = 1,
@@ -63,7 +63,7 @@ pub schema TIf : code(0x0013_0000_0000_0003) {
     next: WRef<TStmt>   = 1,
 }
 pub schema TSet : code(0x0013_0000_0000_0004) {
-    var:  str          = 6,   // VARIABLE — assigned-var NAME (self-describing IR, Option B)
+    var:  &str          = 6,   // VARIABLE — assigned-var NAME (self-describing IR, Option B)
     expr: WRef<SExpr>   = 7,   // EXPRESSION — the assigned value
     next: WRef<TStmt>   = 1,
 }
