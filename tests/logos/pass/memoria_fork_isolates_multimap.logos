@@ -1,0 +1,74 @@
+// ADR 0039 law 2 (row M3v): a fork isolates a multimap. Each write kind goes
+// into a fork of the committed snapshot — insert, remove, the batch insert,
+// and a REFUSED insert (a duplicate key, which must change neither side) —
+// over a tree several levels deep, one container per write kind. The
+// committed version keeps every answer: a checksum over every key's values,
+// weighted by key and position.
+package test;
+
+use memoria.ctr.multimap;
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.btfl;
+use logos.mem.bt.node;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.mem.collections.vec;
+use logos.std.fmt;
+
+fn digest(s: &Arc<dyn Snapshot>, id: u64) -> u64 {
+    let h = open_ctr::<typeof(Multimap::<u64, u64>)>(s, id);
+    let mut d: u64 = 0u64;
+    let mut k: u64 = 0u64;
+    while k < 6000u64 {
+        let mut got: Vec<u64> = Vec::new();
+        if h.find(k, &mut got) {
+            d = d + k + 1u64;
+            let mut j: i64 = 0i64;
+            while j < got.len() { d = d + (k + 3u64) * (j as u64 + 1u64) * got.get(j); j = j + 1i64; }
+        }
+        k = k + 1u64;
+    }
+    return d;
+}
+
+fn three(k: u64) -> Vec<u64> {
+    let mut v: Vec<u64> = Vec::new();
+    v.push(k * 10u64); v.push(k * 10u64 + 1u64); v.push(k * 10u64 + 2u64);
+    return v;
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut id: u64 = 1u64;
+    while id <= 4u64 {
+        let h = create_ctr::<typeof(Multimap::<u64, u64>)>(&s1, id);
+        let mut k: u64 = 0u64;
+        while k < 4000u64 { let v: Vec<u64> = three(k); h.insert(k, &v); k = k + 2u64; }
+        id = id + 1u64;
+    }
+    s1.commit();
+    let before: u64 = digest(&s1, 1u64);
+    let mut w: u64 = 0u64;
+    while w < 4u64 {
+        let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+        {
+            let mut h2 = open_ctr::<typeof(Multimap::<u64, u64>)>(&s2, w + 1u64);
+            if w == 0u64 { let v: Vec<u64> = three(1001u64); h2.insert(1001u64, &v); }
+            if w == 1u64 { h2.remove(2000u64); }
+            if w == 2u64 {
+                let mut buf = h2.make_buffer();
+                let mut k: u64 = 5000u64;
+                while k < 5100u64 { let v: Vec<u64> = three(k); buf.push(k, &v); k = k + 1u64; }
+                h2.insert_batch(&buf);
+            }
+            if w == 3u64 { let v: Vec<u64> = three(7u64); h2.insert(2000u64, &v); }
+        }
+        println!("{} fork {} committed {}", w, digest(&s2, w + 1u64) != before, digest(&s1, w + 1u64) == before);
+        s2.commit();
+        w = w + 1u64;
+    }
+    return 0i32;
+}

@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+0 fork true committed true
+1 fork true committed true
+2 fork true committed true
+3 fork false committed true

@@ -1,0 +1,65 @@
+// ADR 0039 law 2 (row M3v): a fork isolates a vector. Each write kind goes
+// into a fork of the committed snapshot — set, insert_at, remove_at, append
+// and the batch insert — over a tree several levels deep, and the committed
+// version keeps every answer (one container per write kind, so a leak in one
+// does not mask the next): size, and a checksum that weights each value
+// by its position (a write that lands in the shared node moves it).
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.bt.btvec;
+use logos.mem.sync;
+use logos.std.fmt;
+
+pub container Vled {
+    kind vector;
+    entry { elem: u64 }
+    measure count;
+}
+
+fn digest(s: &Arc<dyn Snapshot>, id: u64) -> u64 {
+    let c = open_ctr::<typeof(Vled)>(s, id);
+    let n: u64 = c.size();
+    let mut h: u64 = n;
+    let mut i: u64 = 0u64;
+    while i < n { h = h + (i + 1u64) * c.get(i); i = i + 1u64; }
+    return h;
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut id: u64 = 1u64;
+    while id <= 5u64 {
+        let mut c = create_ctr::<typeof(Vled)>(&s1, id);
+        let mut i: u64 = 0u64;
+        while i < 3000u64 { c.append(i * 7u64 + 1u64); i = i + 1u64; }
+        id = id + 1u64;
+    }
+    s1.commit();
+    let before: u64 = digest(&s1, 1u64);
+    let mut k: u64 = 0u64;
+    while k < 5u64 {
+        let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+        {
+            let mut c2 = open_ctr::<typeof(Vled)>(&s2, k + 1u64);
+            if k == 0u64 { c2.set(1500u64, 999999u64); }
+            if k == 1u64 { c2.insert_at(10u64, 5u64); }
+            if k == 2u64 { c2.remove_at(2999u64); c2.remove_at(0u64); }
+            if k == 3u64 { c2.append(77u64); }
+            if k == 4u64 {
+                let mut b: BtvecBuf = c2.make_buffer();
+                let mut j: u64 = 0u64;
+                while j < 500u64 { b.push(j); j = j + 1u64; }
+                c2.insert(1200u64, &b);
+            }
+        }
+        println!("{} fork {} committed {}", k, digest(&s2, k + 1u64) != before, digest(&s1, k + 1u64) == before);
+        s2.commit();
+        k = k + 1u64;
+    }
+    return 0i32;
+}
