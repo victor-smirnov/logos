@@ -1,0 +1,10 @@
+// The twin: a local borrowed into a P that must be 'static still dangles.
+package call_static_arg_local_into_static_refused;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.string;
+struct P<'d> { names: Vec<&'d str>, tp: &'d str, }
+fn p_new<'d>(s0: &'d str) -> P<'d> { return P { names: Vec::<&str>::new(), tp: s0 }; }
+fn fill<'d>(p: &'d str, out: &mut P<'d>) { out.names.push(p); }
+fn g() -> P<'static> { let mut p = p_new(""); let s: String = String::from("x"); fill(s.as_str(), &mut p); return p; }
+fn main() { println!("{}", g().names.len()); }
