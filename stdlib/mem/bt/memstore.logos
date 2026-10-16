@@ -127,7 +127,7 @@ impl BlockStore for MemBlocks {
 pub struct BranchRef { name: String, tip: u64 }
 
 /// The default branch name (git's `master`): every store is born with it.
-pub const MASTER_BRANCH: str = "master";
+pub const MASTER_BRANCH: &str = "master";
 
 /// A MemoryStore snapshot WRAPPER. `desc` points at the store-owned history
 /// entry (Box-stable); the wrapper carries no state of its own. Dropping the
@@ -526,7 +526,7 @@ impl Snapshot for MemorySnapshot {
     /// on the descriptor AND materializes the branch ref now (pointing at this
     /// snapshot's current tip if already committed, else left for commit to
     /// advance). Reaches the store through the parent hold.
-    pub fn set_as_branch(self: &MemorySnapshot, name: str) {
+    pub fn set_as_branch(self: &MemorySnapshot, name: &str) {
         unsafe {
             (*self.d()).branch.clear();
             (*self.d()).branch.push_str(name);
@@ -584,7 +584,7 @@ impl MemoryStore {
 
     // ── branch table (linear scan; branches are few) ──────────────────────
 
-    fn branch_index(self: &MemoryStore, name: str) -> i64 {
+    fn branch_index(self: &MemoryStore, name: &str) -> i64 {
         let n: i64 = self.branches.len();
         let mut i: i64 = 0i64;
         while i < n {
@@ -595,21 +595,21 @@ impl MemoryStore {
     }
 
     /// Branch tip id, or 0 if the branch is absent/empty.
-    fn branch_tip(self: &MemoryStore, name: str) -> u64 {
+    fn branch_tip(self: &MemoryStore, name: &str) -> u64 {
         let i: i64 = self.branch_index(name);
         if i < 0i64 { return 0u64; }
         return self.branches.borrow(i).tip;
     }
 
     /// Create the branch if absent (tip 0).
-    fn ensure_branch(self: &mut MemoryStore, name: str) {
+    fn ensure_branch(self: &mut MemoryStore, name: &str) {
         if self.branch_index(name) < 0i64 {
             self.branches.push(BranchRef { name: String::from(name), tip: 0u64 });
         }
     }
 
     /// Point a branch at `id` (creating it if absent).
-    fn set_branch_tip(self: &mut MemoryStore, name: str, id: u64) {
+    fn set_branch_tip(self: &mut MemoryStore, name: &str, id: u64) {
         let i: i64 = self.branch_index(name);
         if i < 0i64 {
             self.branches.push(BranchRef { name: String::from(name), tip: id });
@@ -618,7 +618,7 @@ impl MemoryStore {
         unsafe { (*self.branches.at(i)).tip = id; }
     }
 
-    fn remove_branch(self: &mut MemoryStore, name: str) {
+    fn remove_branch(self: &mut MemoryStore, name: &str) {
         let i: i64 = self.branch_index(name);
         if i >= 0i64 { let _ = self.branches.remove(i); }   // BranchRef move-drops its String
     }
@@ -640,7 +640,7 @@ impl MemoryStore {
     // SHARES the parent's directory tree with one inc_rc (O(1) fork — the CoW
     // copy happens lazily, per touched leaf, on the first mutation). Returns it
     // with its first wrapper slot accounted.
-    fn fork_desc(self: &mut MemoryStore, parent: u64, branch: str) -> *mut SnapDesc {
+    fn fork_desc(self: &mut MemoryStore, parent: u64, branch: &str) -> *mut SnapDesc {
         let id: u64 = self.next_id;
         self.next_id = self.next_id + 1u64;
         let mut dr: MemBlockPtr = block_null();
@@ -711,7 +711,7 @@ impl MemoryStore {
         unsafe {
             (*snap.desc).status = SNAP_COMMITTED;
             let id: u64 = (*snap.desc).id;
-            let br: str = (*snap.desc).branch.as_str();
+            let br: &str = (*snap.desc).branch.as_str();
             self.set_branch_tip(br, id);
         }
     }
@@ -815,7 +815,7 @@ fn wrap_committed(st: &mut Arc<MemoryStore>, id: u64) -> Option<Arc<dyn Snapshot
 /// `find_branch(name)->branch()`). The child inherits the branch, so its commit
 /// advances that branch. None if the branch does not exist. If the branch
 /// exists but is empty (tip 0) the child is a root on that branch.
-pub fn store_fork_branch(st: &mut Arc<MemoryStore>, name: str) -> Option<Arc<dyn Snapshot>> {
+pub fn store_fork_branch(st: &mut Arc<MemoryStore>, name: &str) -> Option<Arc<dyn Snapshot>> {
     let hold: Arc<MemoryStore> = st.clone_ref();
     let g: &mut MemoryStore = unsafe { store_mut(&*st) };
     if g.branch_index(name) < 0i64 { return Option::None; }
@@ -835,7 +835,7 @@ pub fn store_fork_from(st: &mut Arc<MemoryStore>, parent_id: u64) -> Option<Arc<
     let pd: *mut SnapDesc = g.desc_of(parent_id);
     if pd == (0 as *mut SnapDesc) { return Option::None; }
     if unsafe { (*pd).status } != SNAP_COMMITTED { return Option::None; }
-    let br: str = unsafe { (*pd).branch.as_str() };
+    let br: &str = unsafe { (*pd).branch.as_str() };
     let d: *mut SnapDesc = g.fork_desc(parent_id, br);
     let snap: MemorySnapshot = MemorySnapshot { desc: d, store: hold };
     return Option::Some(arc_new::<MemorySnapshot>(snap) as Arc<dyn Snapshot>);
@@ -843,7 +843,7 @@ pub fn store_fork_from(st: &mut Arc<MemoryStore>, parent_id: u64) -> Option<Arc<
 
 /// A read wrapper over a named branch's tip snapshot (Memoria `find_branch`).
 /// None if the branch is absent or empty (tip 0).
-pub fn store_find_branch(st: &mut Arc<MemoryStore>, name: str) -> Option<Arc<dyn Snapshot>> {
+pub fn store_find_branch(st: &mut Arc<MemoryStore>, name: &str) -> Option<Arc<dyn Snapshot>> {
     let tip: u64 = { let g: &mut MemoryStore = unsafe { store_mut(&*st) }; g.branch_tip(name) };
     if tip == 0u64 { return Option::None; }
     return wrap_committed(st, tip);
@@ -857,7 +857,7 @@ pub fn store_master(st: &mut Arc<MemoryStore>) -> Option<Arc<dyn Snapshot>> {
 
 /// Points a named branch at a snapshot id (Memoria `set_branch`), creating the
 /// branch if absent. Asserts the id names a committed snapshot.
-pub fn store_set_branch(st: &mut Arc<MemoryStore>, name: str, id: u64) {
+pub fn store_set_branch(st: &mut Arc<MemoryStore>, name: &str, id: u64) {
     let g: &mut MemoryStore = unsafe { store_mut(&*st) };
     let d: *mut SnapDesc = g.desc_of(id);
     assert(d != (0 as *mut SnapDesc), "store_set_branch: unknown snapshot id");
@@ -874,7 +874,7 @@ pub fn store_set_master(st: &mut Arc<MemoryStore>, id: u64) {
 /// Removes a named branch ref (Memoria `remove_named_branch`). The snapshots it
 /// pointed at stay in history (findable by id) until dropped + packed. Removing
 /// `master` is allowed but unusual.
-pub fn store_remove_branch(st: &mut Arc<MemoryStore>, name: str) {
+pub fn store_remove_branch(st: &mut Arc<MemoryStore>, name: &str) {
     let g: &mut MemoryStore = unsafe { store_mut(&*st) };
     g.remove_branch(name);
 }
@@ -909,7 +909,7 @@ pub fn store_branches(st: &Arc<MemoryStore>) -> Vec<String> {
 }
 
 /// A branch's tip id, 0 if absent/empty (Memoria `branch_head`).
-pub fn store_branch_head(st: &Arc<MemoryStore>, name: str) -> u64 {
+pub fn store_branch_head(st: &Arc<MemoryStore>, name: &str) -> u64 {
     let g: &MemoryStore = &**st;
     return g.branch_tip(name);
 }
@@ -1264,7 +1264,7 @@ pub fn store_save<W: OutStream>(st: &Arc<MemoryStore>, out: &mut W) -> bool {
                 if !out.write_u32((*d).status) { return false; }
                 if !out.write_u64(*rid) { return false; }
                 if !out.write_u32((*d).dir_level) { return false; }
-                let bn: str = (*d).branch.as_str();
+                let bn: &str = (*d).branch.as_str();
                 if !out.write_u32(bn.len() as u32) { return false; }
                 if !out.write_all(bn.as_ptr(), bn.len()) { return false; }
                 i = i + 1i64;
@@ -1275,7 +1275,7 @@ pub fn store_save<W: OutStream>(st: &Arc<MemoryStore>, out: &mut W) -> bool {
         {
             let mut i: i64 = 0i64;
             while i < g.branches.len() {
-                let nm: str = g.branches.borrow(i).name.as_str();
+                let nm: &str = g.branches.borrow(i).name.as_str();
                 if !out.write_u32(nm.len() as u32) { return false; }
                 if !out.write_all(nm.as_ptr(), nm.len()) { return false; }
                 if !out.write_u64(g.branches.borrow(i).tip) { return false; }

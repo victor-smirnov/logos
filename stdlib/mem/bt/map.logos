@@ -97,7 +97,7 @@ pub trait Snapshot {
     /// Rebinds this snapshot to a named branch: `commit` will advance THAT
     /// branch to this id (Memoria `set_as_branch`). The branch is created if it
     /// does not exist yet.
-    fn set_as_branch(self: &Self, name: str);
+    fn set_as_branch(self: &Self, name: &str);
     /// Rebinds this snapshot to the default branch `master` (Memoria
     /// `set_as_master`).
     fn set_as_master(self: &Self) { self.set_as_branch("master"); }
@@ -199,7 +199,7 @@ pub trait BatchMapEntry {
 /// One (key, value) entry of a VOLUME map batch — the value by view.
 pub trait BatchMapEntryVol {
     fn key_cell(self: &Self) -> u64;
-    fn val_str(self: &Self) -> str;
+    fn val_str(self: &Self) -> &str;
 }
 
 /// One (key, value-run) entry of a multimap batch.

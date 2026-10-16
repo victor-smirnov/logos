@@ -25,13 +25,13 @@ use logos.mem.string;
 use logos.mem.collections.vec;
 use logos.lang.str;
 
-fn viol(out: &mut String, node: *mut u8, msg: str) {
+fn viol(out: &mut String, node: *mut u8, msg: &str) {
     out.push_str("  VIOLATION @"); push_hex(out, node as u64);
     out.push_str(" lvl="); out.push_u64(unsafe { node_level(node) } as u64);
     out.push_str(": "); out.push_str(msg); out.push_str("\n");
 }
 
-fn viol_i(out: &mut String, node: *mut u8, msg: str, i: u64, a: u64, b: u64) {
+fn viol_i(out: &mut String, node: *mut u8, msg: &str, i: u64, a: u64, b: u64) {
     out.push_str("  VIOLATION @"); push_hex(out, node as u64);
     out.push_str(": "); out.push_str(msg);
     out.push_str(" [i="); out.push_u64(i);

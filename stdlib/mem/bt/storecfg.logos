@@ -63,12 +63,12 @@ pub const MEM_STORE_LOCAL: WritStatic = @{
 /// emitters splice token text). The conuco store_cfg test pins the type
 /// plane; the factory gate pins this spelling — drift between them fails a
 /// gate, not silently.
-pub const MEM_STORE_NODE: str = "CowProfile";
+pub const MEM_STORE_NODE: &str = "CowProfile";
 
 /// The block-pointer slot's SPLICE spelling — the type generated containers
 /// name when they hold a block handle. Swapping the store swaps this type (and
 /// with it, resolve/dispose policy) without the container code changing.
-pub const MEM_STORE_BLOCKPTR: str = "MemBlockPtr";
+pub const MEM_STORE_BLOCKPTR: &str = "MemBlockPtr";
 
 /// The composed configuration: a two-layer overlay view. Store-local slots
 /// win over external ones (a store's own facts are not overridable from
@@ -98,7 +98,7 @@ impl StoreCfg {
     /// Laundered through the raw word (`wany_from_word`) — the borrow checker
     /// conservatively ties a Ref-carrying WAny to the local view it came from
     /// (the mem.any precedent); the rebuilt value carries no borrow.
-    pub fn get(self: StoreCfg, slot: str) -> WAny {
+    pub fn get(self: StoreCfg, slot: &str) -> WAny {
         let l: WView2 = self.loc;
         let lv: WAny = l.map_get(l.root(), slot);
         if !lv.is_null() { return wany_from_word(lv.raw()); }
@@ -106,11 +106,11 @@ impl StoreCfg {
         let ev: WAny = e.map_get(e.root(), slot);
         return wany_from_word(ev.raw());
     }
-    pub fn has(self: StoreCfg, slot: str) -> bool {
+    pub fn has(self: StoreCfg, slot: &str) -> bool {
         return !self.get(slot).is_null();
     }
     /// Integer slot with a default for absence.
-    pub fn get_int_or(self: StoreCfg, slot: str, dflt: u64) -> u64 {
+    pub fn get_int_or(self: StoreCfg, slot: &str, dflt: u64) -> u64 {
         let v: WAny = self.get(slot);
         if v.is_null() { return dflt; }
         let e: WView2 = self.ext;   // any view decodes a value-form WAny
