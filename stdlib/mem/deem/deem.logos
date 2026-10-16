@@ -107,13 +107,13 @@ pub struct QError {
 
 impl QError {
     /// Returns the error text as a borrowed `str` view, valid while the `QError` lives.
-    pub fn message(self: &QError) -> str {
+    pub fn message(self: &QError) -> &str {
         return unsafe { str_from_raw(self.msg.as_ptr(), self.msg.len()) };
     }
 }
 
 // Build a QError from a literal message.
-fn qerr(m: str) -> QError {
+fn qerr(m: &str) -> QError {
     let mut s: String = String::new();
     s.push_str(m);
     return QError { msg: s };
@@ -121,7 +121,7 @@ fn qerr(m: str) -> QError {
 
 // Build a QError from up to five message parts (the chk_fail shape, but as a
 // DIRECT value — usable inside loops where moving a Chk out is awkward).
-fn qfail(a: str, b: str, c: str, d: str, e: str) -> QError {
+fn qfail(a: &str, b: &str, c: &str, d: &str, e: &str) -> QError {
     let mut s: String = String::new();
     s.push_str(a);
     s.push_str(b);
@@ -133,12 +133,12 @@ fn qfail(a: str, b: str, c: str, d: str, e: str) -> QError {
 
 // &String → borrowed str view (the codegen string_as_str shape, local to keep
 // this package free of metaprog-importing dependencies).
-fn sstr(s: &String) -> str {
+fn sstr(s: &String) -> &str {
     return unsafe { str_from_raw(s.as_ptr(), s.len()) };
 }
 
 // SView2 (rodata-blob string view) → str.
-fn sview2_str(v: SView2) -> str {
+fn sview2_str(v: SView2) -> &str {
     if v.ptr == (0 as *const u8) { return ""; }
     return unsafe { str_from_raw(v.ptr, v.len as i64) };
 }
@@ -197,15 +197,15 @@ pub struct SchemaCatalog {
 impl SchemaCatalog {
     pub fn new() -> SchemaCatalog {
         return SchemaCatalog {
-            s_names: vec_new::<str>(), s_codes: vec_new::<u64>(), s_n: 0i64,
-            f_owner: vec_new::<i64>(), f_names: vec_new::<str>(), f_keys: vec_new::<i64>(),
+            s_names: vec_new::<&str>(), s_codes: vec_new::<u64>(), s_n: 0i64,
+            f_owner: vec_new::<i64>(), f_names: vec_new::<&str>(), f_keys: vec_new::<i64>(),
             f_tys: vec_new::<i64>(), f_kinds: vec_new::<i64>(), f_targets: vec_new::<u64>(),
-            f_tnames: vec_new::<str>(), f_ordw: vec_new::<bool>(), f_n: 0i64,
+            f_tnames: vec_new::<&str>(), f_ordw: vec_new::<bool>(), f_n: 0i64,
         };
     }
 
     // Internal: schema index by name / code (-1 = absent).
-    pub fn sidx_of_name(self: &SchemaCatalog, name: str) -> i64 {
+    pub fn sidx_of_name(self: &SchemaCatalog, name: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.s_n {
             if str_eq(self.s_names.get(i), name) { return i; }
@@ -223,7 +223,7 @@ impl SchemaCatalog {
         return -1i64;
     }
     // Internal: field index within schema `si` (-1 = absent).
-    fn fidx(self: &SchemaCatalog, si: i64, fname: str) -> i64 {
+    fn fidx(self: &SchemaCatalog, si: i64, fname: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.f_n {
             if self.f_owner.get(i) == si && str_eq(self.f_names.get(i), fname) { return i; }
@@ -235,7 +235,7 @@ impl SchemaCatalog {
     // Register a schema (name + its `code(…)` value). Idempotent by name.
     // Backfills any edge fields whose target name matches (so multi-blob
     // aggregation — the decl-site annotation route — is order-independent).
-    pub fn add_schema(self: &mut SchemaCatalog, name: str, code: u64) {
+    pub fn add_schema(self: &mut SchemaCatalog, name: &str, code: u64) {
         if self.sidx_of_name(name) >= 0i64 { return; }
         if self.s_n >= CAT_SCHEMAS { return; }
         self.s_names.push(name);
@@ -254,7 +254,7 @@ impl SchemaCatalog {
     // Register a SCALAR (or erased) field: `ty` ∈ i64/f64/bool/str/any
     // (canonical value-type names; the integer/float families are already
     // collapsed by the emitter). Unknown ty names register as erased.
-    pub fn add_field(self: &mut SchemaCatalog, sname: str, field: str, key: i64, ty: str) {
+    pub fn add_field(self: &mut SchemaCatalog, sname: &str, field: &str, key: i64, ty: &str) {
         self.add_field_src(sname, field, key, ty, "");
     }
 
@@ -270,8 +270,8 @@ impl SchemaCatalog {
     // erased and refuse aggregates that compile today — a capability withdrawal,
     // and a decision about the rule `b761b283` landed, not a plumb. What `src`
     // adds is strictly a fact that had no carrier at all.
-    pub fn add_field_src(self: &mut SchemaCatalog, sname: str, field: str, key: i64,
-                         ty: str, src: str) {
+    pub fn add_field_src(self: &mut SchemaCatalog, sname: &str, field: &str, key: i64,
+                         ty: &str, src: &str) {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return; }
         if self.f_n >= CAT_FIELDS { return; }
@@ -306,7 +306,7 @@ impl SchemaCatalog {
     // element EL type is recorded in `f_tys`. Both emission routes (the
     // schema_catalog! macro and the future decl-site annotation) use the SAME
     // blob entry shape — {"ty":"edge","target":"<name>"} — the name decides.
-    pub fn add_edge(self: &mut SchemaCatalog, sname: str, field: str, key: i64, target: str) {
+    pub fn add_edge(self: &mut SchemaCatalog, sname: &str, field: &str, key: i64, target: &str) {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return; }
         if self.f_n >= CAT_FIELDS { return; }
@@ -395,15 +395,15 @@ impl SchemaCatalog {
         while j < n {
             let e2: WAny = vw.array_get(ents, j);
             if str_eq(sview2_str(vw.get_str_view(vw.map_get(e2, "kind"))), "schema") {
-                let sname: str = sview2_str(vw.get_str_view(vw.map_get(e2, "name")));
+                let sname: &str = sview2_str(vw.get_str_view(vw.map_get(e2, "name")));
                 let flds: WAny = vw.map_get(e2, "fields");
                 let nf: u64 = vw.array_len(flds);
                 let mut k: u64 = 0u64;
                 while k < nf {
                     let f: WAny = vw.array_get(flds, k);
-                    let fname: str = sview2_str(vw.get_str_view(vw.map_get(f, "name")));
+                    let fname: &str = sview2_str(vw.get_str_view(vw.map_get(f, "name")));
                     let key: i64 = vw.get_int(vw.map_get(f, "key"));
-                    let ty: str = sview2_str(vw.get_str_view(vw.map_get(f, "ty")));
+                    let ty: &str = sview2_str(vw.get_str_view(vw.map_get(f, "ty")));
                     if str_eq(ty, "edge") {
                         c.add_edge(sname, fname, key,
                                    sview2_str(vw.get_str_view(vw.map_get(f, "target"))));
@@ -414,7 +414,7 @@ impl SchemaCatalog {
                         // existed) and reads as "", so the derived facts fall
                         // back to the class's exactly as they did.
                         let srcw: WAny = vw.map_get(f, "src");
-                        let src: str = if srcw.is_null() { "" }
+                        let src: &str = if srcw.is_null() { "" }
                                        else { sview2_str(vw.get_str_view(srcw)) };
                         c.add_field_src(sname, fname, key, ty, src);
                     }
@@ -427,7 +427,7 @@ impl SchemaCatalog {
 
     // ── Probe API (tests / tooling) ────────────────────────────────────────
     // The registered code of schema `name` (0 = not in the catalog).
-    pub fn schema_code(self: &SchemaCatalog, name: str) -> u64 {
+    pub fn schema_code(self: &SchemaCatalog, name: &str) -> u64 {
         let si: i64 = self.sidx_of_name(name);
         if si < 0i64 { return 0u64; }
         return self.s_codes.get(si);
@@ -437,7 +437,7 @@ impl SchemaCatalog {
     // field and for every type whose order survived. Public so a fixture can
     // pin that the fact REACHED the runtime catalog, separately from anything
     // that consumes it — the plumb and its consumers fail independently.
-    pub fn field_ord_wrap(self: &SchemaCatalog, sname: str, field: str) -> bool {
+    pub fn field_ord_wrap(self: &SchemaCatalog, sname: &str, field: &str) -> bool {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return false; }
         let fi: i64 = self.fidx(si, field);
@@ -445,7 +445,7 @@ impl SchemaCatalog {
         return self.f_ordw.get(fi);
     }
     // The TOM key of `schema.field` (-1 = unknown).
-    pub fn field_key(self: &SchemaCatalog, sname: str, field: str) -> i64 {
+    pub fn field_key(self: &SchemaCatalog, sname: &str, field: &str) -> i64 {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return -1i64; }
         let fi: i64 = self.fidx(si, field);
@@ -455,7 +455,7 @@ impl SchemaCatalog {
     // The value-type name of `schema.field`: "i64"/"f64"/"bool"/"str" for
     // scalars, "edge" for WRef<S> fields, "arr:i64"/"arr:f64"/"arr:bool"/
     // "arr:str" for scalar-element array edges, "any" for erased, "" unknown.
-    pub fn field_ty(self: &SchemaCatalog, sname: str, field: str) -> str {
+    pub fn field_ty(self: &SchemaCatalog, sname: &str, field: &str) -> &str {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return ""; }
         let fi: i64 = self.fidx(si, field);
@@ -584,7 +584,7 @@ impl QEnv {
         };
     }
 
-    fn find(self: &QEnv, name: str) -> i64 {
+    fn find(self: &QEnv, name: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.n {
             if str_eq(self.names[i], name) { return i; }
@@ -593,7 +593,7 @@ impl QEnv {
         return -1i64;
     }
     // Rebind-aware slot allocation (last write wins per name).
-    fn slot(self: &mut QEnv, name: str) -> i64 {
+    fn slot(self: &mut QEnv, name: &str) -> i64 {
         let i: i64 = self.find(name);
         if i >= 0i64 { return i; }
         if self.n >= QENV_CAP { return -1i64; }
@@ -605,7 +605,7 @@ impl QEnv {
     /// Binds `name` to a schema'd Writ object (a `WAny` ref to a schema-stamped TOM).
     /// The schema code is read off the object; a non-schema value binds with code 0 and is
     /// diagnosed by the strict checker on first use.
-    pub fn bind_node(self: &mut QEnv, name: str, node: WAny) {
+    pub fn bind_node(self: &mut QEnv, name: &str, node: WAny) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_NODE;
@@ -613,28 +613,28 @@ impl QEnv {
         self.codes[i] = node_schema_code(node);
     }
     /// Binds `name` to an `i64` query/template parameter.
-    pub fn bind_i64(self: &mut QEnv, name: str, v: i64) {
+    pub fn bind_i64(self: &mut QEnv, name: &str, v: i64) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_I64;
         self.ivals[i] = v;
     }
     /// Binds `name` to an `f64` query/template parameter.
-    pub fn bind_f64(self: &mut QEnv, name: str, v: f64) {
+    pub fn bind_f64(self: &mut QEnv, name: &str, v: f64) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_F64;
         self.fvals[i] = v;
     }
     /// Binds `name` to a `bool` query/template parameter.
-    pub fn bind_bool(self: &mut QEnv, name: str, v: bool) {
+    pub fn bind_bool(self: &mut QEnv, name: &str, v: bool) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_BOOL;
         self.bvals[i] = v;
     }
     /// Binds `name` to a `str` parameter; the view must stay valid across `render`/`run`.
-    pub fn bind_str(self: &mut QEnv, name: str, v: str) {
+    pub fn bind_str(self: &mut QEnv, name: &str, v: &str) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_STR;
@@ -645,7 +645,7 @@ impl QEnv {
     /// The element schema resolves live at `run` (off the first element's stamped code) — an
     /// empty array binds fine and yields no rows.
     /// The caller keeps the backing doc alive across `run`.
-    pub fn bind_source(self: &mut QEnv, name: str, arr: WAny) {
+    pub fn bind_source(self: &mut QEnv, name: &str, arr: WAny) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_SRC;
@@ -674,7 +674,7 @@ impl QEnv {
     /// 8-element rows in the edge vocabulary (parent, key, idx, child, kind,
     /// tag, vi, vs; see `edges_to_source`). Scanned like a tree source (the
     /// same dotted columns), but from the given rows instead of a walk.
-    pub fn bind_edge_rows(self: &mut QEnv, name: str, rows: WAny) {
+    pub fn bind_edge_rows(self: &mut QEnv, name: &str, rows: WAny) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_EDGE;
@@ -688,7 +688,7 @@ impl QEnv {
     /// (`"i64"`/`"f64"`/`"bool"`/`"str"`, max 4), `ret` likewise. The checker resolves calls
     /// against builtins first, then this registry; re-registering a name overwrites it.
     /// Returns `false` (registers nothing) on a bad type name, >4 args, or a full registry.
-    pub fn register_fn(self: &mut QEnv, name: str, f: QFn, args: &[str], ret: str) -> bool {
+    pub fn register_fn(self: &mut QEnv, name: &str, f: QFn, args: &[str], ret: &str) -> bool {
         let rc: i32 = el_ret_class(ret);
         if rc < 0i32 { return false; }
         let na: i64 = args.len();
@@ -716,7 +716,7 @@ impl QEnv {
         return true;
     }
 
-    fn find_fn(self: &QEnv, name: str) -> i64 {
+    fn find_fn(self: &QEnv, name: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.f_n {
             if str_eq(self.f_names[i], name) { return i; }
@@ -729,8 +729,8 @@ impl QEnv {
     /// `arg_ty`/`ret_ty` are the declared EL types of the aggregate argument and the finalized
     /// result. Builtin aggregate names shadow UDAs. Returns `false` (nothing registered) on a
     /// bad type name or a full registry (same contract as `register_fn`).
-    pub fn register_agg(self: &mut QEnv, name: str, init: QAggInit, step: QAggStep,
-                        fin: QAggFin, arg_ty: str, ret_ty: str) -> bool {
+    pub fn register_agg(self: &mut QEnv, name: &str, init: QAggInit, step: QAggStep,
+                        fin: QAggFin, arg_ty: &str, ret_ty: &str) -> bool {
         let ac: i32 = el_ret_class(arg_ty);
         let rc: i32 = el_ret_class(ret_ty);
         if ac < 0i32 || rc < 0i32 { return false; }
@@ -749,7 +749,7 @@ impl QEnv {
         return true;
     }
 
-    fn find_agg(self: &QEnv, name: str) -> i64 {
+    fn find_agg(self: &QEnv, name: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.a_n {
             if str_eq(self.a_names[i], name) { return i; }
@@ -783,14 +783,14 @@ fn node_schema_code(w: WAny) -> u64 {
 // A WString pointee's bytes as a `str` view (provenance-laundering: the input
 // is a RAW resolve()d pointer, so the view ties to the owning arena, not to a
 // local WAny — the generated parsers' wstr_as_str idiom).
-fn wstr_at<'a>(p: *const u8) -> str {
+fn wstr_at<'a>(p: *const u8) -> &str {
     if (p as i64) == 0i64 { return ""; }
     let ws: &WString = unsafe { &*(p as *const WString) };
     return ws.as_str();
 }
 
 // A string-typed WAny's payload ("" for null/non-string).
-fn wany_str(v: WAny) -> str {
+fn wany_str(v: WAny) -> &str {
     if !v.is_string() { return ""; }
     return wstr_at(v.resolve());
 }
@@ -976,7 +976,7 @@ fn rt_b(v: RtVal) -> bool {
           | RtVal::Error => { return false; }
     }
 }
-fn rt_s(v: RtVal) -> str {
+fn rt_s(v: RtVal) -> &str {
     match v {
         RtVal::S(s) => { return s; }
         RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::Node(_) | RtVal::Null
@@ -1064,7 +1064,7 @@ fn rt_push(out: &mut String, v: RtVal) {
 // picks between them — it tied the result to `s`, and a caller interning a
 // LOCAL String then looked like it returned a borrow of that local. The arena
 // owns the bytes once `wstring` has copied them; `s` does not outlive the call.
-fn intern_str<'a>(arena: &'a Writ, s: str) -> &'a str {
+fn intern_str<'a>(arena: &'a Writ, s: &str) -> &'a str {
     let ws: &WString = arena.wstring(s);
     return ws.as_str();
 }
@@ -1183,14 +1183,14 @@ pub struct QRelReg {
 fn qrelreg_new() -> QRelReg {
     return QRelReg {
         n: 0i64, names: [""; 16], ncols: [0i64; 16], coff: [0i64; 16],
-        cnames: vec_new::<str>(), ctys: vec_new::<i64>(),
+        cnames: vec_new::<&str>(), ctys: vec_new::<i64>(),
         nscc: 0i64, comp: [0i64; 16], rec: [false; 16], order: [0i64; 16],
         rel_agg: [0i32; 16],
     };
 }
 
 // Rel index by name (-1 = not a rel).
-fn qreg_find(reg: &QRelReg, name: str) -> i64 {
+fn qreg_find(reg: &QRelReg, name: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < reg.n {
         if str_eq(reg.names[i], name) { return i; }
@@ -1200,7 +1200,7 @@ fn qreg_find(reg: &QRelReg, name: str) -> i64 {
 }
 
 // Column index WITHIN rel `ri` (-1 = unknown column).
-fn qreg_col(reg: &QRelReg, ri: i64, col: str) -> i64 {
+fn qreg_col(reg: &QRelReg, ri: i64, col: &str) -> i64 {
     let off: i64 = reg.coff[ri];
     let mut c: i64 = 0i64;
     while c < reg.ncols[ri] {
@@ -1229,7 +1229,7 @@ fn qreg_push_scc_members(out: &mut String, reg: &QRelReg, c: i64) {
 
 // Split a DOTTED rel-column ident "<var>.<col>" (the rel-field rewrite's
 // output; user idents cannot contain '.'). Returns the dot index, -1 if none.
-fn dotted_at(name: str) -> i64 {
+fn dotted_at(name: &str) -> i64 {
     let n: i64 = name.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -1238,10 +1238,10 @@ fn dotted_at(name: str) -> i64 {
     }
     return -1i64;
 }
-fn str_prefix(s: str, n: i64) -> str {
+fn str_prefix(s: &str, n: i64) -> &str {
     return unsafe { str_from_raw(s.as_ptr(), n) };
 }
-fn str_suffix(s: str, from: i64) -> str {
+fn str_suffix(s: &str, from: i64) -> &str {
     return unsafe { str_from_raw((s.as_ptr() as i64 + from) as *const u8, s.len() - from) };
 }
 

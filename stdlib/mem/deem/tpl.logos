@@ -57,7 +57,7 @@ fn rbinds_new() -> RBinds {
     };
 }
 impl RBinds {
-    fn find(self: &RBinds, name: str) -> i64 {
+    fn find(self: &RBinds, name: &str) -> i64 {
         let mut i: i64 = self.n - 1i64;
         while i >= 0i64 {
             if str_eq(self.names[i], name) { return i; }
@@ -71,11 +71,11 @@ impl RBinds {
     // their columns as dotted names ("e.parent"); Field eval probes here
     // before the generic base-eval path. Zero-alloc: length + prefix + '.' +
     // suffix comparison.
-    fn find2(self: &RBinds, root: str, fld: str) -> i64 {
+    fn find2(self: &RBinds, root: &str, fld: &str) -> i64 {
         let want: i64 = root.len() + 1i64 + fld.len();
         let mut i: i64 = self.n - 1i64;
         while i >= 0i64 {
-            let nm: str = self.names[i];
+            let nm: &str = self.names[i];
             if nm.len() == want
             && str_starts_with(nm, root)
             && str_byte_at(nm, root.len()) == 46u8   // '.'
@@ -94,7 +94,7 @@ impl RBinds {
         return RtVal::Null;
     }
     // Push a binding holding `v` (scoping is the caller's mark/rollback).
-    fn bind_val(self: &mut RBinds, name: str, v: RtVal) {
+    fn bind_val(self: &mut RBinds, name: &str, v: RtVal) {
         if self.n >= 40i64 { return; }
         self.names[self.n] = name;
         self.set_val(self.n, v);
@@ -132,7 +132,7 @@ fn env_val(env: &QEnv, i: i64) -> RtVal {
 // laundering): the returned RtVal's payloads are COPIES of word-sized views
 // into arenas/rodata, never references into the RBinds storage itself, so the
 // caller's &mut RBinds must not be pinned by the shared read here.
-fn eval_root(name: str, env: &QEnv, lb: *const RBinds) -> RtVal {
+fn eval_root(name: &str, env: &QEnv, lb: *const RBinds) -> RtVal {
     let lbv: &RBinds = unsafe { &*lb };
     let li: i64 = lbv.find(name);
     if li >= 0i64 { return lbv.val(li); }
@@ -154,7 +154,7 @@ fn eval_root(name: str, env: &QEnv, lb: *const RBinds) -> RtVal {
 //   • anything else (unknown schema, unknown field, non-object) reads Null.
 // STRICT bindings never reach the Null arms (the checker resolved every
 // field), so strict semantics are unchanged.
-fn field_read(cat: &SchemaCatalog, w: WAny, fname: str) -> RtVal {
+fn field_read(cat: &SchemaCatalog, w: WAny, fname: &str) -> RtVal {
     if w.is_map() {
         let sm: &WMap<WString, WAny> = w.as_map();
         let sv: WAny = sm.get(fname);
@@ -220,7 +220,7 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
             // The literal's text is its SPELLING (the parsers process no
             // escapes); the evaluator needs the VALUE, interned in `scratch`.
             if v.is_string() {
-                let sp: str = wany_str(v);
+                let sp: &str = wany_str(v);
                 if !str_contains(sp, "\\") { return RtVal::S(sp); }
                 let mut dv: String = String::new();
                 el_str_unescape(sp, &mut dv);
@@ -242,7 +242,7 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
             // (zero-alloc find2); miss ⇒ the generic base-eval path below.
             // A bare root parses as Field{base: null, name} (check_root's
             // shape), so extract the root name from EITHER spelling.
-            let mut tr_root: str = "";
+            let mut tr_root: &str = "";
             match f.base_expr() {
                 SExpr::Var(bv) => { tr_root = bv.name; }
                 SExpr::Field(bf) => {
@@ -484,7 +484,7 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
 // Append a TText run, decoding the template backslash escapes (`\{` `\}`
 // `` \` `` `\\`) to their bare characters (the emit_escaped de-escape rules,
 // applied directly to the output instead of to generated source).
-fn push_deescaped(out: &mut String, s: str) {
+fn push_deescaped(out: &mut String, s: &str) {
     let n: i64 = s.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -592,7 +592,7 @@ impl Tpl {
     /// Runs parse, the shared IR optimizer, and the env-independent checks; unknown function
     /// names defer to the render-time strict check (they may be env-registered UDFs).
     /// Errors are values (`Result`), never compile diagnostics.
-    pub fn compile(text: str, cat: &SchemaCatalog) -> Result<Tpl, QError> {
+    pub fn compile(text: &str, cat: &SchemaCatalog) -> Result<Tpl, QError> {
         let doc: Writ = writ_new(4096i64);
         let tpl_any: WAny = parse_tpl(text, &doc);
         if tpl_any.is_null() || !tpl_any.is_array() {
@@ -651,7 +651,7 @@ impl Tpl {
 struct Chk { failed: bool, msg: String, defer_unknown_fn: bool }
 fn chk_new() -> Chk { return Chk { failed: false, msg: String::new(), defer_unknown_fn: false }; }
 fn chk_err(c: Chk) -> QError { return QError { msg: c.msg }; }
-fn chk_fail(c: &mut Chk, a: str, b: str, d: str, e: str, f: str) {
+fn chk_fail(c: &mut Chk, a: &str, b: &str, d: &str, e: &str, f: &str) {
     if c.failed { return; }
     c.failed = true;
     c.msg.push_str(a);
@@ -662,7 +662,7 @@ fn chk_fail(c: &mut Chk, a: str, b: str, d: str, e: str, f: str) {
 }
 
 // The human name of an SBin/SUn operator (diagnostics).
-fn bin_op_name(op: i32) -> str {
+fn bin_op_name(op: i32) -> &str {
     if op == OP_OR()  { return "||"; }
     if op == OP_AND() { return "&&"; }
     if op == OP_EQ()  { return "=="; }
@@ -698,10 +698,10 @@ fn cbinds_new() -> CBinds {
                     ordws: [false; 40], n: 0i64 };
 }
 impl CBinds {
-    fn bind(self: &mut CBinds, name: str, tag: i32, code: u64) {
+    fn bind(self: &mut CBinds, name: &str, tag: i32, code: u64) {
         self.bind_o(name, tag, code, false);
     }
-    fn bind_o(self: &mut CBinds, name: str, tag: i32, code: u64, ordw: bool) {
+    fn bind_o(self: &mut CBinds, name: &str, tag: i32, code: u64, ordw: bool) {
         if self.n >= CB_CAP { return; }
         self.names[self.n] = name;
         self.tags[self.n]  = tag;
@@ -709,7 +709,7 @@ impl CBinds {
         self.ordws[self.n] = ordw;
         self.n = self.n + 1i64;
     }
-    fn find(self: &CBinds, name: str) -> i64 {
+    fn find(self: &CBinds, name: &str) -> i64 {
         let mut i: i64 = self.n - 1i64;
         while i >= 0i64 {
             if str_eq(self.names[i], name) { return i; }
@@ -722,7 +722,7 @@ impl CBinds {
 // The COLLECTION type of a bound source (QB_SRC word): CT_ARR{schema code}
 // for schema'd rows, CT_SARR{elem tag} for scalar elements, CT_UNKNOWN for an
 // EMPTY array (nothing to type — and nothing will be evaluated over it).
-fn src_elem_ty(name: str, word: i64, cat: &SchemaCatalog, chk: &mut Chk) -> CTy {
+fn src_elem_ty(name: &str, word: i64, cat: &SchemaCatalog, chk: &mut Chk) -> CTy {
     let av: WAny = unsafe { WAny::ref_to(word as *const u8) };
     if !av.is_array() {
         chk_fail(chk, "source '", name, "' is not bound to a Writ array", "", "");
@@ -762,13 +762,13 @@ fn src_elem_ty(name: str, word: i64, cat: &SchemaCatalog, chk: &mut Chk) -> CTy 
 // Resolve a ROOT name (bare ident / $param / loop var) to a checked type.
 // DOTTED rel-column idents ("p.b" — the rel-field rewrite's output) resolve
 // through the CT_RELROW binding of their root var against the rel registry.
-fn check_root(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
+fn check_root(name: &str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
               lb: &CBinds, chk: &mut Chk, reg: &QRelReg) -> CTy {
     let li: i64 = lb.find(name);
     if li >= 0i64 { return CTy { t: lb.tags[li], code: lb.codes[li], ordw: lb.ordws[li], lit: false }; }
     let dot: i64 = dotted_at(name);
     if dot > 0i64 {
-        let root: str = str_prefix(name, dot);
+        let root: &str = str_prefix(name, dot);
         let li2: i64 = lb.find(root);
         if li2 >= 0i64 && lb.tags[li2] == CT_RELROW {
             let ri: i64 = lb.codes[li2] as i64;
@@ -1348,7 +1348,7 @@ fn simplify_all(head: i64, h: &Writ) {
 // row sets, and the conservative borrow regions would pin a `&mut Chk` for
 // the result's lifetime — the RBinds provenance-laundering idiom applies.
 fn chk_bad(chk: *mut Chk) -> bool { return unsafe { (&*chk).failed }; }
-fn chk_fail_p(chk: *mut Chk, a: str, b: str, d: str, e: str, f: str) {
+fn chk_fail_p(chk: *mut Chk, a: &str, b: &str, d: &str, e: &str, f: &str) {
     unsafe { chk_fail(&mut *chk, a, b, d, e, f); }
 }
 
