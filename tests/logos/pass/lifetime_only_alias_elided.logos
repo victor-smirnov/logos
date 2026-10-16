@@ -1,0 +1,10 @@
+// A lifetime-only type alias written without its lifetime (`Vec<Row>` for
+// `type Row<'a> = (i64, &'a str)`) elides it, as a lifetime-only struct does (rustc 1.98.1
+// prints "1 x"). Reported by deem (WritEdgeRow<'a> under the str-fields rule).
+package lifetime_only_alias_elided;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+pub type Row<'a> = (i64, &'a str);
+fn fill(out: &mut Vec<Row>, k: i64) { out.push((k, "x")); }
+fn count(rows: &Vec<Row>) -> i64 { return rows.len(); }
+fn main() -> i32 { let mut v: Vec<Row> = Vec::new(); fill(&mut v, 1); println!("{} {}", count(&v), v.get(0).1); return 0; }
