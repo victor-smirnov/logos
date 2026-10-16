@@ -14661,8 +14661,12 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                                                                    : sinfo.package + "." + std::string(sname));
             // The meet token — and a binder pinned by an INVARIANT occurrence —
             // replace the first region met (structlit_lt_subst_).
-            for (auto& [k, v] : bl_ng)
+            for (auto& [k, v] : bl_ng) {
                 if (lt_is_meet(v) || (!v.empty() && flt.count(k) && flt[k] != v)) flt[k] = v;
+                // An inference region (structlit_lt_subst_: only a covariant 'static was
+                // offered) overrides this walk's first-wins 'static.
+                else if (v.empty() && flt.count(k) && outlives_is_static(flt[k])) flt.erase(k);
+            }
         }
         logos::probe::census("lit.mint.sized");
         ng_lt_args.assign(sinfo.lifetime_params.size(), std::string{});

@@ -3481,9 +3481,17 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
         auto ukey = std::string(name);
         auto check_alias = [&](const std::string& key) -> TypeRef {
             auto it = type_aliases_.find(key);
-            if (it == type_aliases_.end() ||
-                !it->second.type_params.empty() || !it->second.lifetime_params.empty())
+            if (it == type_aliases_.end() || !it->second.type_params.empty())
                 return nullptr;
+            // A lifetime-only alias written bare (`Vec<Row>` for `type Row<'a> = (i64, &'a str)`):
+            // its regions are elided, as a lifetime-only struct's are (rustc admits).
+            if (!it->second.lifetime_params.empty()) {
+                TypeRef t0 = it->second.type;
+                if (!t0 || TypeRef(t0).kind() == LogosType::Kind::Error) return nullptr;
+                logos::compiler::StrMap<std::string> el;
+                for (auto& lp : it->second.lifetime_params) el[lp] = std::string{};
+                return subst_type_sema(t0, {}, el);
+            }
             // LAZY: an alias whose RHS could not resolve at declaration time
             // (its `typeof(container …)` names a config const a later metaprog
             // round emits) kept its AST — re-resolve it HERE, where the name is

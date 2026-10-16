@@ -1594,6 +1594,20 @@ private:
                 continue;
             }
             if (auto ip = inv_pick.find(lp); ip != inv_pick.end()) { out[lp] = ip->second; continue; }
+            // A covariant `'static` candidate (a string literal in `&'d str`) only says
+            // `'static: 'd`; `Rel { name: "lit", cols }` no longer pins `'d` to 'static.
+            // Only where the binder ALSO meets an elided slot (a bare `Vec<Col>` for
+            // `Col<'d>`): there the region is inferred, and 'static would pin it. A
+            // binder met only by 'static keeps 'static (`let foo: Foo<'static> =
+            // Foo { field: &SX }`); an empty binder means "a local region" here.
+            if (bare.count(lp)) {
+                std::vector<std::string> rest;
+                for (auto& c : it->second) if (!outlives_is_static(c)) rest.push_back(c);
+                if (rest.size() != it->second.size()) {
+                    if (rest.empty()) { out[lp] = std::string{}; continue; }
+                    it->second = std::move(rest);
+                }
+            }
             std::unordered_set<std::string> d(it->second.begin(), it->second.end());
             // THE MEET. Two DIFFERENT regions were offered for one binder and
             // the binder is covariant: it is instantiated at the region both
