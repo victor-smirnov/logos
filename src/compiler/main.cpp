@@ -7020,7 +7020,7 @@ int main(int argc, char** argv) {
         for (const auto& t : tests) {
             std::string nm_lit = "\"" + t.name + "\"";
             s += "    {\n";
-            s += "        let nm: str = " + nm_lit + ";\n";
+            s += "        let nm: &str = " + nm_lit + ";\n";
             s += "        logos_test_print_start(nm.as_ptr(), nm.len());\n";
             if (t.ignored) {
                 s += "        logos_test_print_ignored();\n";
@@ -7037,7 +7037,7 @@ int main(int argc, char** argv) {
                         }
                         std::string lit = "\"" + esc + "\"";
                         s += "        if rv != (0 as i32) {\n";
-                        s += "            let exp: str = " + lit + ";\n";
+                        s += "            let exp: &str = " + lit + ";\n";
                         s += "            let ok: i32 = logos_panic_msg_contains(exp.as_ptr(), exp.len());\n";
                         s += "            if ok != (0 as i32) {\n";
                         s += "                logos_test_print_ok();\n";

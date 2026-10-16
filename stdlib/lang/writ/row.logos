@@ -419,16 +419,16 @@ pub struct RowBuf {
 
 impl<'a> RowRef<'a> {
     /// The borrowed row. Valid while this view — hence the container — lives.
-    pub fn row(self: &RowRef) -> &WRow { return self.r; }
+    pub fn row(self: &Self) -> &WRow { return self.r; }
 
     /// The row's column span (highest present column ID + 1).
-    pub fn span(self: &RowRef) -> i64 { return self.r.span(); }
+    pub fn span(self: &Self) -> i64 { return self.r.span(); }
     /// Number of PRESENT columns (a popcount over the presence atoms).
-    pub fn count(self: &RowRef) -> i64 { return self.r.count(); }
+    pub fn count(self: &Self) -> i64 { return self.r.count(); }
     /// True iff column `col` is present in this row.
-    pub fn contains(self: &RowRef, col: i64) -> bool { return self.r.contains(col); }
+    pub fn contains(self: &Self, col: i64) -> bool { return self.r.contains(col); }
     /// The value at column `col`; null when absent.
-    pub fn get(self: &RowRef, col: i64) -> WAny { return self.r.get(col); }
+    pub fn get(self: &Self, col: i64) -> WAny { return self.r.get(col); }
 
     /// THE PROMOTION (D11's "explicit constructor"): assembles this borrowed row
     /// into a document of its own and hands back the owning form.
@@ -439,7 +439,7 @@ impl<'a> RowRef<'a> {
     /// RE-ANCHORED, so a `Ref` column resolves inside the NEW arena.
     ///
     /// Refuses exactly as the walker refuses (too deep, unknown tag, OOM).
-    pub fn to_buf(self: &RowRef) -> Result<RowBuf, CloneRefusal> {
+    pub fn to_buf(self: &Self) -> Result<RowBuf, CloneRefusal> {
         match wod_serialize(WAny::from(self.r)) {
             Result::Err(e) => { return Result::Err(e); }
             Result::Ok(od) => {

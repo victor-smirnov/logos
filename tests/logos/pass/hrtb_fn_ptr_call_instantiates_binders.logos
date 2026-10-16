@@ -1,0 +1,17 @@
+// A call through a higher-ranked fn pointer (`for<'x, 's> fn(&'x [V<'s>]) -> V<'s>`) instantiates
+// its binders from the arguments, as a generic fn's: f(&argv) over [V<'d>; 2] is V<'d>.
+// rustc 1.98.1 prints "abc". Reported by deem (QFn UDF surface).
+package hrtb_fn_ptr_call_instantiates_binders;
+use logos.std.fmt;
+use logos.mem.string;
+enum V<'s> { S(&'s str), N }
+impl Copy for V<'_> {}
+type F = for<'x, 's> fn(&'x [V<'s>]) -> V<'s>;
+fn first<'s>(a: &[V<'s>]) -> V<'s> { return a[0]; }
+fn call<'d>(f: F, s: &'d str) -> V<'d> {
+    let argv: [V<'d>; 2] = [V::S(s), V::N];
+    let r: V<'d> = f(&argv);
+    return r;
+}
+fn main() { let mut s: String = String::new(); s.push_str("abc");
+    match call(first, s.as_str()) { V::S(x) => { println!("{}", x); } V::N => { println!("none"); } } }

@@ -1,8 +1,8 @@
-// THE NAMED EXCLUSION. `self: &C` inside `impl<'a> C<'a>` writes NO lifetime
-// argument, so there is nothing to disagree with — the check compares lifetime
-// arguments only when some were written. One token from the fail twin
-// fail/bc_self_type_enum_lt_mismatch_fail.logos (`&C` vs `&C<'static>`).
-package bc_self_type_elided_lt_admit;
+// `self: &C` inside `impl<'a> C<'a>` is rustc E0308 (mismatched `self` parameter type): an
+// elided lifetime list is a FRESH region, not Self's. This file used to be the pass fixture
+// pinning the opposite ("elision asserts nothing"), a wrong rule that admitted a receiver
+// whose region was unrelated to Self's (deem's bare-holder `self: &mut P` push dangled).
+package bc_self_type_elided_lt_refused;
 enum C<'a> { R(&'a i64), O(i64) }
 impl<'a> C<'a> {
     fn g(self: &C) -> i64 { return 0i64; }

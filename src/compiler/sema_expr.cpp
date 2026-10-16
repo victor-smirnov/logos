@@ -5344,11 +5344,28 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         uint64_t n_args = arg_exprs.size();
         uint64_t n_params = TypeRef(callee_type).closure_params().size();
         const char* kind_str = is_fn_ptr ? "fn-ptr call" : "closure call";
+        // A higher-ranked fn pointer (`for<'x, 's> fn(&'x [V<'s>]) -> V<'s>`): its binders
+        // (minted tokens, resolve_type) are instantiated per call from the arguments,
+        // as a generic fn's are (build_call_lt_subst_).
+        SemaLifetimeSubst hr_ls;
+        if (is_fn_ptr && n_args == n_params) {
+            std::unordered_set<std::string> regs;
+            for (auto cp : TypeRef(callee_type).closure_params()) collect_param_regions_(cp, regs);
+            collect_param_regions_(TypeRef(callee_type).closure_ret(), regs);
+            std::vector<std::string> binders;
+            for (auto& r : regs) if (lt_is_fnptr_binder(r)) binders.push_back(r);
+            if (!binders.empty()) {
+                std::vector<TypeRef> cps;
+                for (auto cp : TypeRef(callee_type).closure_params()) cps.push_back(cp);
+                hr_ls = build_call_lt_subst_(cps, binders, arg_exprs, TypeRef(callee_type).closure_ret());
+            }
+        }
         if (n_args != n_params) {
             error(std::format("{}: expected {} args, got {}", kind_str, n_params, n_args));
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
                 auto pt = closure_call_formal_(TypeRef(callee_type).closure_params()[i]);
+                if (!hr_ls.empty()) pt = subst_type_sema(pt, {}, hr_ls);
                 expect_arg_(arg_exprs[i], pt, CoercePos::ClosureArg, std::format("{} arg {}", kind_str, i + 1), {}, pt);
             }
         }
@@ -5375,6 +5392,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                   callee_type)
             : builder().var_ref(std::string(callee), vr_type);
         TypeRef ret = TypeRef(callee_type).closure_ret() ? TypeRef(callee_type).closure_ret() : void_t();
+        if (!hr_ls.empty()) ret = subst_type_sema(ret, {}, hr_ls);
         // Move semantics for the `f(args)` call form (closure/fn-ptr var as
         // callee): a by-value concrete move-type argument transfers ownership
         // into the callee, so mark the source moved — otherwise a `String`
@@ -24726,7 +24744,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
             "use logos.std.compiler.metaprog;\n"
             "fn {}() -> ExprBlob {{\n"
             "    let p: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
-            "    let s: str = unsafe {{ logos.lang.str::str_from_raw(p, {}i64) }};\n"
+            "    let s: &str = unsafe {{ logos.lang.str::str_from_raw(p, {}i64) }};\n"
             "    return {}(s);\n"
             "}}\n",
             pkg, thunk_callee_use(macro_info->package, pkg), thunk_name, site_id,
@@ -25053,15 +25071,15 @@ void SemaChecker::emit_token_macro_item_site(
             call_text = std::format(
                 "{{\n"
                 "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
-                "    let __n: str = unsafe {{ logos.lang.str::str_from_raw(__pn, {1}i64) }};\n"
+                "    let __n: &str = unsafe {{ logos.lang.str::str_from_raw(__pn, {1}i64) }};\n"
                 "    let __pp: *const u8 = unsafe {{ logos_macro_arg({0}u64, 1u64) }};\n"
-                "    let __pr: str = unsafe {{ logos.lang.str::str_from_raw(__pp, {2}i64) }};\n"
+                "    let __pr: &str = unsafe {{ logos.lang.str::str_from_raw(__pp, {2}i64) }};\n"
                 "    let __pm: *const u8 = unsafe {{ logos_macro_arg({0}u64, 2u64) }};\n"
-                "    let __mk: str = unsafe {{ logos.lang.str::str_from_raw(__pm, {3}i64) }};\n"
+                "    let __mk: &str = unsafe {{ logos.lang.str::str_from_raw(__pm, {3}i64) }};\n"
                 "    let __ps: *const u8 = unsafe {{ logos_macro_arg({0}u64, 3u64) }};\n"
-                "    let __ns: str = unsafe {{ logos.lang.str::str_from_raw(__ps, {4}i64) }};\n"
+                "    let __ns: &str = unsafe {{ logos.lang.str::str_from_raw(__ps, {4}i64) }};\n"
                 "    let __pt: *const u8 = unsafe {{ logos_macro_arg({0}u64, 4u64) }};\n"
-                "    let __rt: str = unsafe {{ logos.lang.str::str_from_raw(__pt, {5}i64) }};\n"
+                "    let __rt: &str = unsafe {{ logos.lang.str::str_from_raw(__pt, {5}i64) }};\n"
                 "    let __ir: *const u8 = unsafe {{ logos_rule_ir({0}u64) }};\n"
                 "    {6}(__n, __pr, __mk, __ns, __rt, __ir)\n"
                 "}}",
@@ -25082,15 +25100,15 @@ void SemaChecker::emit_token_macro_item_site(
             call_text = std::format(
                 "{{\n"
                 "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
-                "    let __n: str = unsafe {{ logos.lang.str::str_from_raw(__pn, {1}i64) }};\n"
+                "    let __n: &str = unsafe {{ logos.lang.str::str_from_raw(__pn, {1}i64) }};\n"
                 "    let __pp: *const u8 = unsafe {{ logos_macro_arg({0}u64, 1u64) }};\n"
-                "    let __pr: str = unsafe {{ logos.lang.str::str_from_raw(__pp, {2}i64) }};\n"
+                "    let __pr: &str = unsafe {{ logos.lang.str::str_from_raw(__pp, {2}i64) }};\n"
                 "    let __pm: *const u8 = unsafe {{ logos_macro_arg({0}u64, 2u64) }};\n"
-                "    let __mk: str = unsafe {{ logos.lang.str::str_from_raw(__pm, {3}i64) }};\n"
+                "    let __mk: &str = unsafe {{ logos.lang.str::str_from_raw(__pm, {3}i64) }};\n"
                 "    let __ps: *const u8 = unsafe {{ logos_macro_arg({0}u64, 3u64) }};\n"
-                "    let __ns: str = unsafe {{ logos.lang.str::str_from_raw(__ps, {4}i64) }};\n"
+                "    let __ns: &str = unsafe {{ logos.lang.str::str_from_raw(__ps, {4}i64) }};\n"
                 "    let __pg: *const u8 = unsafe {{ logos_macro_arg({0}u64, 4u64) }};\n"
-                "    let __gp: str = unsafe {{ logos.lang.str::str_from_raw(__pg, {5}i64) }};\n"
+                "    let __gp: &str = unsafe {{ logos.lang.str::str_from_raw(__pg, {5}i64) }};\n"
                 "    let __ir: *const u8 = unsafe {{ logos_rule_ir({0}u64) }};\n"
                 "    {6}(__n, __pr, __mk, __ns, __gp, __ir)\n"
                 "}}",
@@ -25104,11 +25122,11 @@ void SemaChecker::emit_token_macro_item_site(
             call_text = std::format(
                 "{{\n"
                 "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
-                "    let __n: str = unsafe {{ logos.lang.str::str_from_raw(__pn, {1}i64) }};\n"
+                "    let __n: &str = unsafe {{ logos.lang.str::str_from_raw(__pn, {1}i64) }};\n"
                 "    let __pp: *const u8 = unsafe {{ logos_macro_arg({0}u64, 1u64) }};\n"
-                "    let __pr: str = unsafe {{ logos.lang.str::str_from_raw(__pp, {2}i64) }};\n"
+                "    let __pr: &str = unsafe {{ logos.lang.str::str_from_raw(__pp, {2}i64) }};\n"
                 "    let __pb: *const u8 = unsafe {{ logos_macro_arg({0}u64, 2u64) }};\n"
-                "    let __b: str = unsafe {{ logos.lang.str::str_from_raw(__pb, {3}i64) }};\n"
+                "    let __b: &str = unsafe {{ logos.lang.str::str_from_raw(__pb, {3}i64) }};\n"
                 "    {4}(__n, __pr, __b)\n"
                 "}}",
                 site_id, static_cast<int64_t>(resource_name.size()),
@@ -25119,9 +25137,9 @@ void SemaChecker::emit_token_macro_item_site(
             call_text = std::format(
                 "{{\n"
                 "    let __pn: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
-                "    let __n: str = unsafe {{ logos.lang.str::str_from_raw(__pn, {}i64) }};\n"
+                "    let __n: &str = unsafe {{ logos.lang.str::str_from_raw(__pn, {}i64) }};\n"
                 "    let __pb: *const u8 = unsafe {{ logos_macro_arg({}u64, 1u64) }};\n"
-                "    let __b: str = unsafe {{ logos.lang.str::str_from_raw(__pb, {}i64) }};\n"
+                "    let __b: &str = unsafe {{ logos.lang.str::str_from_raw(__pb, {}i64) }};\n"
                 "    {}(__n, __b)\n"
                 "}}",
                 site_id, static_cast<int64_t>(resource_name.size()),
@@ -25131,7 +25149,7 @@ void SemaChecker::emit_token_macro_item_site(
             call_text = std::format(
                 "{{\n"
                 "    let __p: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
-                "    let __s: str = unsafe {{ logos.lang.str::str_from_raw(__p, {}i64) }};\n"
+                "    let __s: &str = unsafe {{ logos.lang.str::str_from_raw(__p, {}i64) }};\n"
                 "    {}(__s)\n"
                 "}}",
                 site_id, static_cast<int64_t>(raw_text.size()),
