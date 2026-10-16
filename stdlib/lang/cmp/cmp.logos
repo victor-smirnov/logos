@@ -113,7 +113,7 @@ impl PartialEq for str {
     fn eq(&self, other: &Self) -> bool {
         // self / other are `&str` which canonicalises to `Slice<u8>` (str
         // is the value form of UnsizedSlice<u8>). Pass through directly.
-        return str_eq(*self, *other);
+        return str_eq(self, other);
     }
 }
 impl Eq for str {}

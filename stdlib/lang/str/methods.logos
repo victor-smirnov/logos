@@ -105,11 +105,11 @@ impl str {
     }
 
     /// Trims leading and trailing ASCII whitespace.
-    pub fn trim(&self) -> &str { return str_trim(*self); }
+    pub fn trim(&self) -> &str { return str_trim(self); }
     /// Trims leading ASCII whitespace.
-    pub fn trim_start(&self) -> &str { return str_trim_start(*self); }
+    pub fn trim_start(&self) -> &str { return str_trim_start(self); }
     /// Trims trailing ASCII whitespace.
-    pub fn trim_end(&self) -> &str { return str_trim_end(*self); }
+    pub fn trim_end(&self) -> &str { return str_trim_end(self); }
 
     /// `true` if both are equal ignoring ASCII case.
     pub fn eq_ignore_ascii_case(&self, other: &str) -> bool {
@@ -131,11 +131,11 @@ impl str {
     }
 
     /// Iterator over the `char`s of `self`.
-    pub fn chars(&self) -> Chars { return str_chars(*self); }
+    pub fn chars(&self) -> Chars { return str_chars(self); }
     /// Iterator over `(byte_offset, char)` pairs.
-    pub fn char_indices(&self) -> CharIndices { return str_char_indices(*self); }
+    pub fn char_indices(&self) -> CharIndices { return str_char_indices(self); }
     /// Iterator over the raw bytes.
-    pub fn bytes(&self) -> Bytes { return str_bytes(*self); }
+    pub fn bytes(&self) -> Bytes { return str_bytes(self); }
     /// Iterator over the lines (`\n` or `\r\n` terminated), terminators stripped.
     pub fn lines<'a>(self: &'a str) -> Lines<'a> { return str_lines(self); }
     /// Iterator over the pieces between matches of `pat`.
