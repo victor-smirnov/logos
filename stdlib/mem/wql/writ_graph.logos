@@ -49,7 +49,7 @@ use logos.lang.stream;             // BatchStream / RowsBatch / RowMajor / Rewin
 use logos.lang.option;             // Option — the cursor's pull answers with one
 
 // One graph edge row (the shared vocabulary; see the module doc).
-pub type WritEdgeRow = (i64, str, i64, i64, str, i64, i64, str);
+pub type WritEdgeRow<'a> = (i64, &'a str, i64, i64, &'a str, i64, i64, &'a str);
 // The same row with its `str` cells' lifetime named: the cells are views into
 // the DOCUMENT (`'a`), not into whatever handed the row out — a cursor's batch
 // (`WritWalk::next_batch`) borrows the cursor, the rows in it do not.
@@ -183,7 +183,7 @@ fn wg_vi(child: WAny) -> i64 {
     return vi;
 }
 
-fn wg_emit(out: &mut Vec<WritEdgeRow>, parent: WAny, key: &str, idx: i64,
+fn wg_emit<'a>(out: &mut Vec<WritEdgeRow<'a>>, parent: WAny, key: &'a str, idx: i64,
            child: WAny, ord: i64) {
     out.push((parent.raw() as i64, key, idx,
               wg_node_id(parent.raw() as i64, child, ord), wg_kind(child),

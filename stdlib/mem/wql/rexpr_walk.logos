@@ -1592,7 +1592,7 @@ fn clause_infallible(t: &str) -> bool {
 // Collected off the RSort / RDistinct / RLimit wrappers around the projection
 // root and threaded to the per-shape emitters (which weave sort / dedup / first-n
 // into the generated loop nest).
-struct QMods {
+struct QMods<'d> {
     has_sort:       bool,
     sort_key:       WRef<SExpr>,
     sort_desc:      bool,
@@ -1600,7 +1600,7 @@ struct QMods {
     has_limit:      bool,
     limit_n:        i64,
     limit_is_param: bool,
-    limit_param:    str,
+    limit_param:    &'d str,
 }
 
 fn qmods_none() -> QMods {
@@ -3495,13 +3495,13 @@ fn emit_step_texts(on_ref: WRef<SExpr>, new_var: &str, sel: i64, ktn: &str,
 /// emitted type, and the residual / equi-key / streamed flags. One record for
 /// every nest emitter (entry join, aggregate over a join, rel body), which
 /// used to carry nine parallel vectors each.
-struct NestSteps {
+struct NestSteps<'d> {
     build:  Vec<String>,
     probe:  Vec<String>,
     resid:  Vec<String>,
     pred:   Vec<String>,
     strat:  Vec<i32>,
-    ktn:    Vec<str>,
+    ktn:    Vec<&'d str>,
     hasres: Vec<bool>,
     equi:   Vec<bool>,
     stream: Vec<bool>,
@@ -4597,7 +4597,7 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
 // derivation ASSERTS that (a panic in `derive_orders` when the placement
 // disagrees), so a shape this reconstruction cannot express stops the compile
 // instead of emitting a wrong nest.
-fn chain_reorder(ch: &DNest, jo: &JoinOrder, cix: i64) -> DNest {
+fn chain_reorder<'d>(ch: &DNest<'d>, jo: &JoinOrder<'d>, cix: i64) -> DNest<'d> {
     let m: i64 = ch.n + 1i64;
     let mut fl: [i64; 4] = [0i64; 4];
     let mut nfl: i64 = 0i64;
@@ -4650,15 +4650,15 @@ fn chain_reorder(ch: &DNest, jo: &JoinOrder, cix: i64) -> DNest {
 // SLOT 0 is the base and slot i+1 the i-th step. One index space over the whole
 // nest is what lets a permutation be a permutation of numbers; the three accessors
 // are the only place the base's separate fields and the step arrays meet.
-fn jch_src(ch: &DNest, s: i64) -> &str {
+fn jch_src<'d>(ch: &DNest<'d>, s: i64) -> &'d str {
     if s == 0i64 { return ch.base_src; }
     return ch.src[s - 1i64];
 }
-fn jch_ty(ch: &DNest, s: i64) -> &str {
+fn jch_ty<'d>(ch: &DNest<'d>, s: i64) -> &'d str {
     if s == 0i64 { return ch.base_ty; }
     return ch.ty[s - 1i64];
 }
-fn jch_var(ch: &DNest, s: i64) -> &str {
+fn jch_var<'d>(ch: &DNest<'d>, s: i64) -> &'d str {
     if s == 0i64 { return ch.base_var; }
     return ch.var[s - 1i64];
 }
@@ -4674,10 +4674,10 @@ fn jch_var(ch: &DNest, s: i64) -> &str {
 // Each (rel, col) is ONE fact, measured once by `prepare` — the table literal
 // is evaluated there, with the query's parameters in scope, so a fact is the
 // reporter call itself.
-struct NdvFacts {
+struct NdvFacts<'d> {
     pub n: i64,
     pub ri: [i64; 8],
-    pub col: [str; 8],
+    pub col: [&'d str; 8],
     pub dl: [i64; 16],
     pub dr: [i64; 16],
 }
@@ -4726,7 +4726,7 @@ fn ndv_fact(nf: &mut NdvFacts, ch: &DNest, prm: &MacroParams, var: &str, col: &s
     return nf.n - 1i64;
 }
 
-fn ndv_facts_of(ch: &DNest, jo: &JoinOrder, prm: &MacroParams, h: &Writ) -> NdvFacts {
+fn ndv_facts_of<'d>(ch: &DNest<'d>, jo: &JoinOrder<'d>, prm: &MacroParams<'d>, h: &Writ) -> NdvFacts<'d> {
     let mut nf: NdvFacts = NdvFacts { n: 0i64, ri: [0i64; 8], col: [""; 8],
                                       dl: [-1i64; 16], dr: [-1i64; 16] };
     let mut c: i64 = 0i64;
@@ -4950,10 +4950,10 @@ fn group_index_decl(keyt_f: ExprBlob, key_ty: &str) -> ExprBlob {
 /// A function because `ncand` of them are needed and a nest spelled twice would be
 /// two chances to diverge in exactly the place where divergence is silent — a
 /// mis-collected index tuple is a wrong row, not a crash.
-fn cand_branch(ch: &DNest, jo: &JoinOrder, cix: i64, ty: &ElTypes, prm: &MacroParams,
+fn cand_branch<'d>(ch: &DNest<'d>, jo: &JoinOrder<'d>, cix: i64, ty: &ElTypes<'d>, prm: &MacroParams<'d>,
                h: &Writ, has_sort: bool, first: bool, distinct: bool, has_where: bool,
-               where_body: &str, where_w: WAny, key_body: &str, proj_f: ExprBlob, result_ty: &str,
-               lim_f: ExprBlob, has_lim_use: bool, qvars: &Vec<&str>, nq: i64,
+               where_body: &'d str, where_w: WAny, key_body: &'d str, proj_f: ExprBlob, result_ty: &'d str,
+               lim_f: ExprBlob, has_lim_use: bool, qvars: &Vec<&'d str>, nq: i64,
                out: &mut ExprBlob) -> bool {
     let cch: DNest = chain_reorder(ch, jo, cix);
     let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
@@ -5247,9 +5247,9 @@ fn full_join_pass(ch: &DNest, nest: ExprBlob, body_inner: ExprBlob, fp: &FullPar
 // order, only the query's own is emitted and the refusal carries its ground.
 /// ADR 0031 R6.4 — A JOIN-CHAIN ENTRY FROM THE PLAN: the folded entry
 /// (`dplan::plan_entry_chain`) and the chain read off the planned core's rule.
-pub fn emit_entry_join(ds: &DSimple, jp: JoinPlan, fn_name: &str, params_text: &str, prm: &MacroParams,
-                       result_ty: &str, has_result_ty: bool, sel_mode: i32,
-                       prelude: &str, h: &Writ) -> bool {
+pub fn emit_entry_join<'d>(ds: &DSimple<'d>, jp: JoinPlan<'d>, fn_name: &'d str, params_text: &'d str, prm: &MacroParams<'d>,
+                       result_ty: &'d str, has_result_ty: bool, sel_mode: i32,
+                       prelude: &'d str, h: &Writ) -> bool {
     let sel: WRef<SExpr> = WRef::<SExpr>::from_any(ds.sel);
     match &ds.form {
         DForm::Empty => {
@@ -5287,11 +5287,11 @@ pub fn emit_entry_join(ds: &DSimple, jp: JoinPlan, fn_name: &str, params_text: &
     }
 }
 
-fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
-                   mods: QMods,
-                   fn_name: &str, params_text: &str, prm: &MacroParams,
-                   result_ty0: &str, has_result_ty: bool, first: bool,
-                   prelude: &str, h: &Writ) -> bool {
+fn emit_join_chain<'d>(ch: DNest<'d>, jp: JoinPlan<'d>, where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
+                   mods: QMods<'d>,
+                   fn_name: &'d str, params_text: &'d str, prm: &MacroParams<'d>,
+                   result_ty0: &'d str, has_result_ty: bool, first: bool,
+                   prelude: &'d str, h: &Writ) -> bool {
 
     // 2. Type dict: EVERY bound source's row schema + the scalar params.
     // Rel-sourced scans (slice B) stamp their COLUMN types + the positional
@@ -5693,20 +5693,19 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
     // artifact of the two that survives the compile. `prep_set_search` existed to
     // write those two numbers here, after the fact, on every path; a record carries
     // them wherever it goes and there is nothing left to remember.
-    let mut prp: Prepared = prep_fixed(jo.w);
-    if jo.dynamic {
-        if jo.deferred {
-            prp = prep_deferred(jo.nfl, jo.ncand,
-                                string_as_str(&szs[0]), string_as_str(&szs[1]),
-                                string_as_str(&szs[2]), string_as_str(&szs[3]),
-                                string_as_str(&tblb), jo.w);
-        } else {
-            prp = prep_dyn(jo.nfl, jo.ncand,
-                           string_as_str(&szs[0]), string_as_str(&szs[1]),
-                           string_as_str(&szs[2]), string_as_str(&szs[3]),
-                           string_as_str(&meas), string_as_str(&tblb), jo.w);
-        }
-    }
+    let prp: Prepared = if !jo.dynamic {
+        prep_fixed(jo.w)
+    } else if jo.deferred {
+        prep_deferred(jo.nfl, jo.ncand,
+                      string_as_str(&szs[0]), string_as_str(&szs[1]),
+                      string_as_str(&szs[2]), string_as_str(&szs[3]),
+                      string_as_str(&tblb), jo.w)
+    } else {
+        prep_dyn(jo.nfl, jo.ncand,
+                 string_as_str(&szs[0]), string_as_str(&szs[1]),
+                 string_as_str(&szs[2]), string_as_str(&szs[3]),
+                 string_as_str(&meas), string_as_str(&tblb), jo.w)
+    };
     let selem: &str = if first { "" } else { result_ty };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), selem, body_f, prm, prp);
     return true;
@@ -10060,7 +10059,7 @@ fn agg_key_ty(prm: &MacroParams, ri: i64) -> String {
     return k;
 }
 
-fn agg_val_ty(prm: &MacroParams, ri: i64) -> &str { return prm.relc_ty[prm.rel_coff[ri] + agg_nk(prm, ri)]; }
+fn agg_val_ty<'d>(prm: &MacroParams<'d>, ri: i64) -> &'d str { return prm.relc_ty[prm.rel_coff[ri] + agg_nk(prm, ri)]; }
 
 /// The row a (key, value) pair is: `(k, v)`, or `(k.0, k.1, …, v)` for a tuple key.
 fn agg_row_text(prm: &MacroParams, ri: i64, k: &str, v: &str) -> String {
@@ -10178,7 +10177,7 @@ fn split_agg_proj(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes, var0: &s
 
 // One SIMPLE rel body: scan + optional where + dedup-push projection.
 // The single-source rel body's facts, read off the core clause and its chain.
-struct RelScanView { src_name: str, row_ty: str, var_name: str, select: WAny, where_pred: WAny }
+struct RelScanView<'d> { src_name: &'d str, row_ty: &'d str, var_name: &'d str, select: WAny, where_pred: WAny }
 
 fn rel_body_simple_frag(cl: &CClause, ch: &DNest, ri: i64, b: i64,
                         prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
@@ -10692,7 +10691,7 @@ fn push_dep_params(out: &mut String, prm: &MacroParams, mask: &RelSet) {
 // core. `ovr[k]` renames the source of chain slot k (0 = the base, k = the k-th
 // step) for this emission — the semi-naive delta variants — instead of the
 // parse node being rewritten and restored around the call (`set_occ_src`, gone).
-fn rel_rule_of(prm: &MacroParams, ri: i64, b: i64) -> &CRule {
+fn rel_rule_of<'p, 'd>(prm: &'p MacroParams<'d>, ri: i64, b: i64) -> &'p CRule<'d> {
     let rels: &[CRel] = prm.plan_core.rels.as_slice();
     let rules: &[CRule] = rels[ri].rules.as_slice();
     return &rules[b];
@@ -10707,11 +10706,11 @@ fn rel_nrules(prm: &MacroParams, ri: i64) -> i64 {
 // ADR 0031 R4.5b — every emitter starts from the type environment the
 // checker computed for its rule (`typecheck::core_typecheck`), not from one of
 // its own: the entry's is the last, rel `ri`'s rule `b` is at its offset.
-fn entry_env(prm: &MacroParams) -> ElTypes {
+fn entry_env<'d>(prm: &MacroParams<'d>) -> ElTypes<'d> {
     return el_types_clone(&prm.plan_tys.as_slice()[prm.plan_tys.len() - 1i64]);
 }
 
-fn rule_env(prm: &MacroParams, ri: i64, b: i64) -> ElTypes {
+fn rule_env<'d>(prm: &MacroParams<'d>, ri: i64, b: i64) -> ElTypes<'d> {
     return el_types_clone(&prm.plan_tys.as_slice()[prm.plan_ty_off.get(ri) + b]);
 }
 

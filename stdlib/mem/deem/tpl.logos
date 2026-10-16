@@ -40,13 +40,13 @@ use logos.mem.collections.hashmap;// HashMap — hash-join buckets / distinct se
 
 // Render-time LOCAL bindings (loop vars / set vars) — newest-first lookup,
 // mark/rollback scoping (the CBinds shape, but carrying VALUES).
-struct RBinds {
-    names: [str; 40],
+struct RBinds<'d> {
+    names: [&'d str; 40],
     kinds: [i32; 40],   // QB_* (QB_NODE stores the ref word)
     ivals: [i64; 40],
     fvals: [f64; 40],
     bvals: [bool; 40],
-    svals: [str; 40],
+    svals: [&'d str; 40],
     words: [i64; 40],
     n:     i64,
 }
@@ -56,8 +56,8 @@ fn rbinds_new() -> RBinds {
         bvals: [false; 40], svals: [""; 40], words: [0i64; 40], n: 0i64,
     };
 }
-impl RBinds {
-    fn find(self: &RBinds, name: &str) -> i64 {
+impl<'d> RBinds<'d> {
+    fn find(self: &Self, name: &str) -> i64 {
         let mut i: i64 = self.n - 1i64;
         while i >= 0i64 {
             if str_eq(self.names[i], name) { return i; }
@@ -71,7 +71,7 @@ impl RBinds {
     // their columns as dotted names ("e.parent"); Field eval probes here
     // before the generic base-eval path. Zero-alloc: length + prefix + '.' +
     // suffix comparison.
-    fn find2(self: &RBinds, root: &str, fld: &str) -> i64 {
+    fn find2(self: &Self, root: &str, fld: &str) -> i64 {
         let want: i64 = root.len() + 1i64 + fld.len();
         let mut i: i64 = self.n - 1i64;
         while i >= 0i64 {
@@ -84,7 +84,7 @@ impl RBinds {
         }
         return -1i64;
     }
-    fn val(self: &RBinds, i: i64) -> RtVal {
+    fn val(self: &Self, i: i64) -> RtVal {
         let k: i32 = self.kinds[i];
         if k == QB_I64  { return RtVal::I(self.ivals[i]); }
         if k == QB_F64  { return RtVal::F(self.fvals[i]); }
@@ -94,14 +94,14 @@ impl RBinds {
         return RtVal::Null;
     }
     // Push a binding holding `v` (scoping is the caller's mark/rollback).
-    fn bind_val(self: &mut RBinds, name: &str, v: RtVal) {
+    fn bind_val(self: &mut Self, name: &'d str, v: RtVal<'d>) {
         if self.n >= 40i64 { return; }
         self.names[self.n] = name;
         self.set_val(self.n, v);
         self.n = self.n + 1i64;
     }
     // Overwrite slot `i`'s value (per-iteration loop-var rebind).
-    fn set_val(self: &mut RBinds, i: i64, v: RtVal) {
+    fn set_val(self: &mut Self, i: i64, v: RtVal<'d>) {
         match v {
             RtVal::I(x) => { self.kinds[i] = QB_I64;  self.ivals[i] = x; }
             RtVal::F(x) => { self.kinds[i] = QB_F64;  self.fvals[i] = x; }
@@ -115,7 +115,7 @@ impl RBinds {
 }
 
 // A QEnv binding as an RtVal.
-fn env_val(env: &QEnv, i: i64) -> RtVal {
+fn env_val<'d>(env: &QEnv<'d>, i: i64) -> RtVal<'d> {
     let k: i32 = env.kinds[i];
     if k == QB_I64   { return RtVal::I(env.ivals[i]); }
     if k == QB_F64   { return RtVal::F(env.fvals[i]); }
@@ -132,7 +132,7 @@ fn env_val(env: &QEnv, i: i64) -> RtVal {
 // laundering): the returned RtVal's payloads are COPIES of word-sized views
 // into arenas/rodata, never references into the RBinds storage itself, so the
 // caller's &mut RBinds must not be pinned by the shared read here.
-fn eval_root(name: &str, env: &QEnv, lb: *const RBinds) -> RtVal {
+fn eval_root<'d>(name: &'d str, env: &QEnv<'d>, lb: *const RBinds<'d>) -> RtVal<'d> {
     let lbv: &RBinds = unsafe { &*lb };
     let li: i64 = lbv.find(name);
     if li >= 0i64 { return lbv.val(li); }
@@ -154,7 +154,7 @@ fn eval_root(name: &str, env: &QEnv, lb: *const RBinds) -> RtVal {
 //   • anything else (unknown schema, unknown field, non-object) reads Null.
 // STRICT bindings never reach the Null arms (the checker resolved every
 // field), so strict semantics are unchanged.
-fn field_read(cat: &SchemaCatalog, w: WAny, fname: &str) -> RtVal {
+fn field_read<'d>(cat: &SchemaCatalog<'d>, w: WAny, fname: &'d str) -> RtVal<'d> {
     if w.is_map() {
         let sm: &WMap<WString, WAny> = w.as_map();
         let sv: WAny = sm.get(fname);
@@ -212,8 +212,8 @@ fn field_read(cat: &SchemaCatalog, w: WAny, fname: &str) -> RtVal {
 // `QPlan.agg_argu` / `self.agg_argu`; and the sort COMPARATOR, which ranks
 // already-evaluated keys and keeps `QPlan.sordw`. Those are comparisons over
 // values, not evaluations of expressions.
-fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
-              scratch: &Writ) -> RtVal {
+fn eval_sexpr<'d>(e: SExpr, cat: &SchemaCatalog<'d>, env: &QEnv<'d>, lb: *const RBinds<'d>,
+              scratch: &'d Writ) -> RtVal<'d> {
     match e {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
@@ -504,8 +504,8 @@ fn push_deescaped(out: &mut String, s: &str) {
 
 // `lb` is a RAW pointer through the whole walk (the eval reborrow-laundering
 // contract of eval_root — RtVal payloads never point into RBinds storage).
-fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
-                scratch: &Writ, out: &mut String, chk: *mut Chk) {
+fn render_stmts<'d>(head: i64, cat: &SchemaCatalog<'d>, env: &QEnv<'d>, lb: *mut RBinds<'d>,
+                scratch: &'d Writ, out: &mut String, chk: *mut Chk) {
     let mut cur: i64 = head;
     while cur != 0i64 {
         if chk_bad(chk) { return; }   // a math error in a prior {{…}} aborts the render
@@ -574,14 +574,14 @@ fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
 // ═══════════════════════════════════════════════════════════════════════════
 /// Compiled dynamic template — compile once with `Tpl::compile`, render many with `render`.
 /// Owns the parsed IR and a catalog snapshot; independent of any `QEnv` until render time.
-pub struct Tpl {
+pub struct Tpl<'d> {
     doc:  Writ,            // owns the Trama AST + embedded SExpr IR
     head: i64,             // TStmt chain head word (into `doc`'s arena)
-    cat:  SchemaCatalog,   // catalog snapshot (Vec-backed — must stay SMALL,
+    cat:  SchemaCatalog<'d>,   // catalog snapshot (Vec-backed — must stay SMALL,
                            // see the SchemaCatalog layout note)
 }
 
-impl Tpl {
+impl<'d> Tpl<'d> {
     // Parse template TEXT → Trama IR; stitch the statement chain; run the
     // shared IR optimizer over every embedded expression; run the env-
     // independent checks. Errors are VALUES. Unknown fn names DEFER to the
@@ -615,7 +615,7 @@ impl Tpl {
     /// Runs the full strict check (var→schema resolution, field types) against this env first;
     /// a math error in an embedded expression aborts the render as a `QError`.
     /// Re-entrant over different envs (the check is per-env by design).
-    pub fn render(self: &Tpl, env: &QEnv) -> Result<String, QError> {
+    pub fn render(self: &Tpl<'d>, env: &QEnv<'d>) -> Result<String, QError> {
         let reg0: QRelReg = qrelreg_new();
         let mut lb: CBinds = cbinds_new();
         let mut chk: Chk = chk_new();
@@ -681,8 +681,8 @@ fn bin_op_name(op: i32) -> &'static str {
 // Template-local CHECK bindings ({% for %} loop vars, {% set %} vars) —
 // scoped: callers mark/rollback around bodies; lookups scan newest-first.
 const CB_CAP: i64 = 40i64;
-struct CBinds {
-    names: [str; 40],
+struct CBinds<'d> {
+    names: [&'d str; 40],
     tags:  [i32; 40],
     codes: [u64; 40],
     // `CTy.ordw` for the bound value — see the ⚠ at `CTy`. A row variable over a
@@ -697,11 +697,11 @@ fn cbinds_new() -> CBinds {
     return CBinds { names: [""; 40], tags: [0i32; 40], codes: [0u64; 40],
                     ordws: [false; 40], n: 0i64 };
 }
-impl CBinds {
-    fn bind(self: &mut CBinds, name: &str, tag: i32, code: u64) {
+impl<'d> CBinds<'d> {
+    fn bind(self: &mut Self, name: &'d str, tag: i32, code: u64) {
         self.bind_o(name, tag, code, false);
     }
-    fn bind_o(self: &mut CBinds, name: &str, tag: i32, code: u64, ordw: bool) {
+    fn bind_o(self: &mut Self, name: &'d str, tag: i32, code: u64, ordw: bool) {
         if self.n >= CB_CAP { return; }
         self.names[self.n] = name;
         self.tags[self.n]  = tag;
@@ -709,7 +709,7 @@ impl CBinds {
         self.ordws[self.n] = ordw;
         self.n = self.n + 1i64;
     }
-    fn find(self: &CBinds, name: &str) -> i64 {
+    fn find(self: &Self, name: &str) -> i64 {
         let mut i: i64 = self.n - 1i64;
         while i >= 0i64 {
             if str_eq(self.names[i], name) { return i; }
@@ -1366,8 +1366,8 @@ fn sx_of(w: i64) -> SExpr { return unsafe { WAny::ref_to(w as *const u8) }.view:
 // sites ever passed true, which is why one expression had two values. The claim
 // is a property of the expression and now rides on its nodes (`SBin.ordw`), so
 // every boundary evaluates the same expression the same way.
-fn eval_sx(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
-           scratch: &Writ, chk: *mut Chk) -> RtVal {
+fn eval_sx<'d>(e: SExpr, cat: &SchemaCatalog<'d>, env: &QEnv<'d>, lb: *const RBinds<'d>,
+           scratch: &'d Writ, chk: *mut Chk) -> RtVal<'d> {
     let v: RtVal = eval_sexpr(e, cat, env, lb, scratch);
     if rt_is_err(v) {
         chk_fail_p(chk, "arithmetic error (integer overflow or division by zero) in a query expression", "", "", "", "");

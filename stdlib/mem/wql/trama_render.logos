@@ -11,7 +11,7 @@
 //
 //   resource <name> = trama!(<params>){ <template> };
 //     e.g.  resource r = trama!(o: &Order){ " … {{ o.total }} … " };
-//     e.g.  resource g = trama!(u: &User, greeting: str){ " {{ greeting }}, {{ u.name }} " };
+//     e.g.  resource g = trama!(u: &User, greeting: &str){ " {{ greeting }}, {{ u.name }} " };
 //
 // The PARENS carry a genuine Logos parameter list — parsed + TYPE-CHECKED by the
 // compiler because the handler re-emits it VERBATIM into the generated
@@ -29,7 +29,7 @@
 //
 // Each param whose type resolves to a schema struct (reflect.logos) is REFLECTED
 // so its field accesses (`{{ o.total }}`) type automatically (NO `with` clause);
-// a scalar/str param (`greeting: str`) is usable directly in the template (a
+// a scalar/str param (`greeting: &str`) is usable directly in the template (a
 // bare param name = that param). The existing loop-var recursive reflection
 // still applies (`{% for x in o.items %}` follows `Order.items`'s element type).
 //
@@ -79,21 +79,21 @@ use logos.mem.string;
 use logos.lang.str;
 
 // ── Surface lexer (clause carving) ─────────────────────────────────────────
-struct TLexer {
-    src: str,
+struct TLexer<'d> {
+    src: &'d str,
     pos: i64,
     len: i64,
 }
 
 fn tl_is_space(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
 
-impl TLexer {
-    fn cur(self: &TLexer) -> u8 {
+impl TLexer<'_> {
+    fn cur(self: &Self) -> u8 {
         if self.pos >= self.len { return 0u8; }
         return str_byte_at(self.src, self.pos);
     }
-    fn bump(self: &mut TLexer) { self.pos = self.pos + 1i64; }
-    fn skip_ws(self: &mut TLexer) {
+    fn bump(self: &mut Self) { self.pos = self.pos + 1i64; }
+    fn skip_ws(self: &mut Self) {
         while self.pos < self.len && tl_is_space(self.cur()) { self.bump(); }
     }
     // The template body, delimited by either `"…"` or backticks `` `…` ``.
@@ -103,7 +103,7 @@ impl TLexer {
     // double-quote form stays for simple templates (no inner quotes). Returns
     // the inner [start,end) slice; advances past the closing delimiter. Empty on
     // a missing/mismatched delimiter.
-    fn scan_template(self: &mut TLexer) -> &str {
+    fn scan_template(self: &mut Self) -> &str {
         self.skip_ws();
         let delim: u8 = self.cur();
         // No inner delimiter (`"` or backtick): the WHOLE brace body IS the
@@ -172,9 +172,9 @@ fn lit_of_text(s: &str) -> String {
 // A tiny association list over `str` slices, built from the `with` clause. Used
 // to emit a loop var's element binding type (`let v: <ty>`); an undeclared var
 // defaults to the i64 baseline. Replaces the retired TrParser.var_ty_of table.
-struct TVarTys {
-    names: Vec<str>,
-    tys:   Vec<str>,
+struct TVarTys<'d> {
+    names: Vec<&'d str>,
+    tys:   Vec<&'d str>,
     n:     i64,
 }
 fn tvartys_new() -> TVarTys {
@@ -184,11 +184,11 @@ fn tvartys_new() -> TVarTys {
         n: 0i64,
     };
 }
-impl TVarTys {
-    fn declare(self: &mut TVarTys, name: &str, ty: &str) {
+impl<'d> TVarTys<'d> {
+    fn declare(self: &mut Self, name: &'d str, ty: &'d str) {
         self.names.push(name); self.tys.push(ty); self.n = self.n + 1i64;
     }
-    fn ty_name(self: &TVarTys, name: &str) -> &str {
+    fn ty_name(self: &Self, name: &str) -> &str {
         let mut i: i64 = 0i64;
         while i < self.n { if str_eq(self.names[i], name) { return self.tys[i]; } i = i + 1i64; }
         return "";
@@ -203,9 +203,9 @@ impl TVarTys {
 // its element type is discovered (`item → Item`), so NESTED loops resolve
 // (`for line in item.lines` → element of `Item.lines`). A tiny (name,type-name)
 // association list over borrowed `str` slices (names live in the IR / surface).
-struct StructEnv {
-    names: Vec<str>,
-    tys:   Vec<str>,
+struct StructEnv<'d> {
+    names: Vec<&'d str>,
+    tys:   Vec<&'d str>,
     n:     i64,
 }
 fn struct_env_new() -> StructEnv {
@@ -215,15 +215,15 @@ fn struct_env_new() -> StructEnv {
         n: 0i64,
     };
 }
-impl StructEnv {
-    fn bind(self: &mut StructEnv, name: &str, ty: &str) {
+impl<'d> StructEnv<'d> {
+    fn bind(self: &mut Self, name: &'d str, ty: &'d str) {
         // Last write wins (a nested loop var can shadow, though names are unique
         // in practice); overwrite an existing binding by name.
         let mut i: i64 = 0i64;
         while i < self.n { if str_eq(self.names[i], name) { self.tys[i] = ty; return; } i = i + 1i64; }
         self.names.push(name); self.tys.push(ty); self.n = self.n + 1i64;
     }
-    fn type_of(self: &StructEnv, name: &str) -> &str {
+    fn type_of(self: &Self, name: &str) -> &str {
         let mut i: i64 = 0i64;
         while i < self.n { if str_eq(self.names[i], name) { return self.tys[i]; } i = i + 1i64; }
         return "";
@@ -613,7 +613,7 @@ fn is_primitive_ty(name: &str) -> bool {
 /// `Err(ElError)`, never a host trap. `name`/`params`/`s` are the raw macro
 /// input: the binding name, the parameter-list text, and the raw brace body.
 #[token_macro]
-pub fn trama(name: &str, params: &str, s: &str) -> ItemList {
+pub fn trama<'d>(name: &'d str, params: &'d str, s: &'d str) -> ItemList {
     let out: ItemList = item_list_new();
 
     if name.len() == 0i64 {
@@ -628,7 +628,7 @@ pub fn trama(name: &str, params: &str, s: &str) -> ItemList {
     // The params are re-emitted VERBATIM below as the generated fn signature (so
     // the compiler parses + type-checks them); here we ALSO parse them locally
     // to drive schema reflection + value-typing.
-    let mut prm: MacroParams = macro_params_new();
+    let mut prm: MacroParams = macro_params_new("");
     parse_macro_params(params, &mut prm);
     if prm.n == 0i64 {
         error("trama!: needs at least one parameter — write `resource <name> = trama!(o: &Ty){ … }`");
@@ -659,7 +659,7 @@ pub fn trama(name: &str, params: &str, s: &str) -> ItemList {
     // PARAM (ADR 0012 Phase 2). A struct param (its core type resolves to a
     // schema struct) is stamped so `{{ o.field }}` types automatically AND bound
     // in the env so field chains + `{% for v in o.field %}` loops resolve. A
-    // scalar/str param (`greeting: str`) gets its value-type set directly so a
+    // scalar/str param (`greeting: &str`) gets its value-type set directly so a
     // bare `{{ greeting }}` renders with the right push (str vs i64/bool). No
     // `with`/`data` clause exists any more — the params ARE the type source.
     let mut ty: ElTypes = el_types_new();

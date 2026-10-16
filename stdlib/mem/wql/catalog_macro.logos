@@ -120,7 +120,7 @@ fn is_int_family(name: &str) -> bool {
 // not. `src` is emitted only when it DIFFERS from `ty` (a blob written before
 // this existed, or by hand, reads back as "" and every derived fact defaults to
 // the class's — i.e. to exactly the old behaviour).
-struct FieldTy { ty: str, target: str, src: str }
+struct FieldTy<'d> { ty: &'d str, target: &'d str, src: &'d str }
 
 fn classify_field_type(view: &OView, fld: WAny) -> FieldTy {
     let tynode: WAny = view.ast_type_child(fld);
@@ -147,7 +147,7 @@ fn classify_field_type(view: &OView, fld: WAny) -> FieldTy {
 }
 
 // ── Requested-schema list (idents in the macro body) ───────────────────────
-struct NameList { names: Vec<str>, n: i64 }
+struct NameList<'d> { names: Vec<&'d str>, n: i64 }
 
 fn scan_names(s: &str) -> NameList {
     let mut out: NameList = NameList { names: Vec::<&str>::new(), n: 0i64 };

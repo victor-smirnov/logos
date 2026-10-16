@@ -231,7 +231,7 @@ pub fn RJ_N() -> i64        { return 8i64; }
 /// `ssz`     per side, the size EXPRESSION that will be read. For a deferred plan
 ///           the fact fields are all -1, so this text is the only account of WHAT
 ///           will be compared.
-pub struct Why {
+pub struct Why<'d> {
     pub ground: i32,
     pub axis:   i32,
     pub nfl:    i64,
@@ -240,14 +240,14 @@ pub struct Why {
     pub ncand:  i64,
     pub nnest:  i64,
     pub rjn:    [i64; 8],
-    pub key:    str,
-    pub keywhy: str,
+    pub key:    String,
+    pub keywhy: &'d str,
     pub nsd:    i64,
     pub scode:  [i32; 4],
-    pub ssrc:   [str; 4],
+    pub ssrc:   [&'d str; 4],
     pub srep:   [i64; 4],
     pub sfirst: [bool; 4],
-    pub ssz:    [str; 4],
+    pub ssz:    [&'d str; 4],
 }
 
 /// An UNSET record — `WG_UNSET`, which every renderer names as a defect. One nest is
@@ -255,7 +255,7 @@ pub struct Why {
 pub fn why_new() -> Why {
     return Why { ground: WG_UNSET(), axis: AX_NONE(), nfl: 0i64, nperm: 0i64, nadm: 0i64,
                  ncand: 0i64, nnest: 1i64, rjn: [0i64; 8],
-                 key: "", keywhy: "", nsd: 0i64,
+                 key: String::new(), keywhy: "", nsd: 0i64,
                  scode: [0i32; 4], ssrc: ["", "", "", ""], srep: [0i64; 4],
                  sfirst: [false; 4], ssz: ["", "", "", ""] };
 }
@@ -291,9 +291,9 @@ pub fn why_of(g: i32, ax: i32) -> Why {
 /// its emitted comparison fails. Both are carried, not re-asked — the plan's
 /// `operand()` answers the first, and a reader who disagrees with the verdict can
 /// check it against the type they wrote.
-pub fn why_key(tn: &str, why: &str, ax: i32) -> Why {
+pub fn why_key<'d>(tn: &str, why: &'d str, ax: i32) -> Why<'d> {
     let mut w: Why = why_of(WG_KEY_ORDER(), ax);
-    w.key = tn;
+    w.key = String::from_str(tn);
     w.keywhy = why;
     return w;
 }
@@ -305,8 +305,8 @@ pub fn why_axis(w: &Why) -> i32 { return w.axis; }
 /// number. The key's type name where a key failed; the FIRST source that lost its
 /// measurement where a size did; empty where the ground's operands are all counts
 /// (which `enumerated`/`proved`/`considered`/`refused` already answer).
-pub fn why_operand(w: &Why) -> &str {
-    if w.ground == WG_KEY_ORDER() { return w.key; }
+pub fn why_operand<'a>(w: &'a Why) -> &'a str {
+    if w.ground == WG_KEY_ORDER() { return w.key.as_str(); }
     if w.ground == WG_DEFERRED() {
         let mut i: i64 = 0i64;
         while i < w.nsd {
@@ -611,7 +611,7 @@ fn push_rj_census(w: &Why, out: &mut String) {
 fn push_ground(w: &Why, out: &mut String) {
     if w.ground == WG_KEY_ORDER() {
         out.push_str("`order by` names a sequence, but C1's licence is that the EMITTED comparison REALIZES that sequence, not that a key exists — and being total is one of that licence's conditions rather than the whole of it. This key (`");
-        out.push_str(w.key);
+        out.push_str(w.key.as_str());
         out.push_str("`) fails it: ");
         out.push_str(w.keywhy);
         out.push_str(". The row-index tiebreak that makes every nest yield the same sequence rests on that comparison, so with this key the answer would stay a fact about WHICH NEST collected the tuples — this chain keeps the query's own order");
@@ -913,7 +913,7 @@ pub fn jr_neg(r: i32) -> i32 {
 
 /// The facts and the rule they entailed. `asked`/`held` are masks over `JA_*`;
 /// `key_tn` is the operand the key antecedents were asked of.
-pub struct JoinGround { pub rule: i32, pub asked: i32, pub held: i32, pub key_tn: str }
+pub struct JoinGround<'d> { pub rule: i32, pub asked: i32, pub held: i32, pub key_tn: &'d str }
 
 pub fn jg_new(key_tn: &str) -> JoinGround {
     return JoinGround { rule: JR_UNSET(), asked: 0i32, held: 0i32, key_tn: key_tn };

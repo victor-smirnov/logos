@@ -36,13 +36,13 @@ use logos.std.wql.dplan;          // clause_group_pure
 // scalar param, `key` or an aggregate name, or a module item — Canon's `where`
 // clauses read imported consts (`o.verb != OP_SEEK`), which this handler's
 // reflection (one module's AST) cannot see.
-struct NameScope {
-    pub vars: Vec<str>, pub anti: Vec<bool>, pub nv: i64,   // the chain, in binding order
+struct NameScope<'d> {
+    pub vars: Vec<&'d str>, pub anti: Vec<bool>, pub nv: i64,   // the chain, in binding order
     pub upto: i64,     // vars[0..upto) are bound at this clause
     pub own: i64,      // the step whose `on` this is (-1 outside one)
     pub grouped: bool, // after `group by` in the entry
-    pub comp: str,     // a comprehension head's loop var ("" outside one)
-    pub known: Vec<str>, // names bound outside the chain: `key`, aggregate outputs
+    pub comp: &'d str,     // a comprehension head's loop var ("" outside one)
+    pub known: Vec<&'d str>, // names bound outside the chain: `key`, aggregate outputs
 }
 
 fn ns_new() -> NameScope {

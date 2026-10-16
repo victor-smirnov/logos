@@ -818,12 +818,28 @@ pub fn stamp_udfs_from_module(view: &OView, t: &mut ElTypes) {
 /// asking the compiler for its fields (ADR 0031 R4.5): the module view the
 /// handler holds is one module, and every field of such a struct used to read
 /// as the dictionary's `i64` baseline.
+// A borrowed field (`&'d str`) is read as its referent, as the AST path reads
+// the type node's NAME: the suffix after `&`, a lifetime and `mut`.
+fn peel_ref(ft: &str) -> &str {
+    let n: i64 = ft.len();
+    if n == 0i64 || str_byte_at(ft, 0i64) != 38u8 { return ft; }          // '&'
+    let mut i: i64 = 1i64;
+    if i < n && str_byte_at(ft, i) == 39u8 {                               // '\''
+        while i < n && str_byte_at(ft, i) != 32u8 { i = i + 1i64; }
+        i = i + 1i64;
+    }
+    if i + 4i64 <= n && str_byte_at(ft, i) == 109u8 && str_byte_at(ft, i + 1i64) == 117u8
+       && str_byte_at(ft, i + 2i64) == 116u8 && str_byte_at(ft, i + 3i64) == 32u8 { i = i + 4i64; }   // "mut "
+    if i >= n { return ft; }
+    return unsafe { str_from_raw((ft.as_ptr() as i64 + i) as *const u8, n - i) };
+}
+
 fn stamp_imported_fields(t: &mut ElTypes, struct_name: &str, row_var: &str) {
     let n: i64 = struct_field_count(struct_name);
     let mut i: i64 = 0i64;
     while i < n {
         let f: &str = struct_field_name(struct_name, i);
-        let ft: &str = logos.std.compiler.metaprog::field_type_name(struct_name, f);
+        let ft: &str = peel_ref(logos.std.compiler.metaprog::field_type_name(struct_name, f));
         if f.len() > 0i64 && ft.len() > 0i64 {
             if row_var.len() > 0i64 { t.field_bind_named(row_var, f, ft); }
             t.set_ty_named(f, ft);

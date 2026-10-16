@@ -39,13 +39,13 @@ use logos.std.wql.params;                // MacroParams / parse_macro_params
 /// points at the RQRelArr the compiler already parsed, `pubs` carries the
 /// per-rel visibility the query grammar cannot express. Not a user-facing macro.
 #[token_macro]
-pub fn __mapping_item(name: &str, params: &str, pubs: &str, natspec: &str, rules: &str, ir: *const u8) -> ItemList {
+pub fn __mapping_item<'d>(name: &'d str, params: &'d str, pubs: &'d str, natspec: &'d str, rules: &'d str, ir: *const u8) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
         error("mapping item: empty mapping name (compiler seam regression?)");
         return out;
     }
-    let mut prm0: MacroParams = macro_params_new();
+    let mut prm0: MacroParams = macro_params_new("");
     parse_macro_params(params, &mut prm0);
     if prm0.n == 0i64 {
         error("mapping item: needs at least one parameter — the source shape (e.g. `g: &Writ`)");

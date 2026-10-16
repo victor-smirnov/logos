@@ -680,12 +680,12 @@ pub fn el_class_repr(ty: i32) -> &'static str {
 //
 // ⚠ `bits` = 0 means WIDTH IS NOT A PROPERTY of this type (`str`, `String`), not
 // "zero bits". No derivation reads `bits` for a non-numeric class.
-pub struct ElTy {
-    pub name:   str,    // the resolved Logos spelling — this type's identity
+pub struct ElTy<'d> {
+    pub name:   &'d str,    // the resolved Logos spelling — this type's identity
     pub cls:    i32,    // EL_TY_* — the coarse VIEW, -1 = outside the lattice
     pub bits:   i64,    // width of the SOURCE type (0 = not a width-bearing type)
     pub signed: bool,
-    pub repr:   str,    // the type the emitted EL expression computes in
+    pub repr:   &'d str,    // the type the emitted EL expression computes in
     pub canon:  bool,   // name == repr: the EL computes in this type itself
     pub fits:   bool,   // every value survives the conversion to `repr`
     pub ident:  i32,    // EL_ID_*  — identity under that conversion
@@ -1492,7 +1492,7 @@ pub fn el_cmp_ident(named: &str, emitted: &str) -> i32 {
 }
 
 /// The ground for a key whose emitted comparison does not realize its order.
-pub fn el_cmp_why<'a>(named: &'a str, emitted: &'a str) -> &'a str {
+pub fn el_cmp_why(named: &str, emitted: &str) -> &'static str {
     let f: i32 = el_cmp_fidelity(named, emitted);
     if f == EL_ORD_OK() { return ""; }
     if f == EL_ORD_UNNAMED() && el_ty(named).cls >= 0i32 && el_ty(emitted).cls >= 0i32 {
@@ -1881,7 +1881,7 @@ pub fn agg_acc_zero(acc: &str) -> &str {
 // the reorder licence over an f64 key, which `24141965` exists to refuse. Both
 // were measured. A struct source stamps here now for exactly the same reason a
 // rel one always did.
-pub struct ElTypes {
+pub struct ElTypes<'d> {
     // ── the flat name dictionary ──
     // What has NO owner at all: scalar params, the `group by` key, an aggregate
     // output column, a by-value element binding, a trama `{% set %}` — names
@@ -1890,7 +1890,7 @@ pub struct ElTypes {
     // field step resolves against `rb_*` (a row var for `a.n`, a struct type for
     // `a.b.c`) and reaches this table only when neither key is bound, where the
     // answer is the `i64` baseline either way.
-    pub names:  Vec<str>,
+    pub names:  Vec<&'d str>,
     // The LOGOS TYPE of each binding — THE column (ADR 0024 S3/S6). It used to
     // sit BESIDE a four-value classification, and a binding recorded through the
     // class-only setter left this empty: `ty_name_of` then invented the class's
@@ -1901,18 +1901,18 @@ pub struct ElTypes {
                               // itself handed out (`set_ty_named(v, infer_ty_name(e, self))`),
                               // so a view here would make the table borrow itself.
     pub n:      i64,
-    pub udf_names: Vec<str>,
-    pub udf_rets:  Vec<str>,
+    pub udf_names: Vec<&'d str>,
+    pub udf_rets:  Vec<&'d str>,
     pub udf_arity: Vec<i64>,
     pub udf_n:     i64,
-    pub rb_var: Vec<str>,
-    pub rb_col: Vec<str>,
+    pub rb_var: Vec<&'d str>,
+    pub rb_col: Vec<&'d str>,
     // How the column is REACHED off its row var — k ≥ 0 (`var.k`, a native
     // rel's tuple component), `COL_WHOLE` (`(*var)`, the scalar row of a
     // 1-column rel), `COL_FIELD` (`var.col`, a struct field).
     pub rb_idx: Vec<i64>,
     // The column's DECLARED type, per binding (ADR 0024 S3/S6).
-    pub rb_tn:  Vec<str>,
+    pub rb_tn:  Vec<&'d str>,
     // WHAT `rb_var` NAMES — `CB_VAR` a query ROW VAR, `CB_TYPE` a declared
     // STRUCT. The second kind is what resolves a NESTED path: `a.b.c` has no row
     // var (`root_ident_name` reports "" for it), so the type of `a.b` — which the
@@ -1981,7 +1981,7 @@ pub fn el_types_new() -> ElTypes {
 
 /// A copy of a type environment (ADR 0031 R4.5b: the checker computes one per
 /// rule and every emitter of that rule starts from a copy of it).
-pub fn el_types_clone(t: &ElTypes) -> ElTypes {
+pub fn el_types_clone<'d>(t: &ElTypes<'d>) -> ElTypes<'d> {
     let mut c: ElTypes = el_types_new();
     let mut i: i64 = 0i64;
     while i < t.n { c.names.push(t.names[i]); c.tns.push(String::from_str(t.tns[i].as_str())); i = i + 1i64; }
@@ -2020,36 +2020,36 @@ pub fn el_types_clone(t: &ElTypes) -> ElTypes {
     return c;
 }
 
-impl ElTypes {
+impl<'d> ElTypes<'d> {
     /// Mark row var `v` as the optional side of an outer join (live).
-    pub fn opt_add(self: &mut ElTypes, v: &str) {
+    pub fn opt_add(self: &mut Self, v: &str) {
         if self.opt_index(v) >= 0i64 { return; }
         self.opt_vars.push(String::from_str(v)); self.opt_live.push(true);
     }
-    fn opt_index(self: &ElTypes, v: &str) -> i64 {
+    fn opt_index(self: &Self, v: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.opt_vars.len() { if str_eq(self.opt_vars[i].as_str(), v) { return i; } i = i + 1i64; }
         return -1i64;
     }
     /// `v` reads as possibly absent here (an outer var, outside its own `on`).
-    pub fn opt_is_live(self: &ElTypes, v: &str) -> bool {
+    pub fn opt_is_live(self: &Self, v: &str) -> bool {
         let i: i64 = self.opt_index(v);
         return i >= 0i64 && self.opt_live[i];
     }
-    pub fn opt_is_var(self: &ElTypes, v: &str) -> bool { return self.opt_index(v) >= 0i64; }
-    pub fn opt_set_live(self: &mut ElTypes, v: &str, live: bool) {
+    pub fn opt_is_var(self: &Self, v: &str) -> bool { return self.opt_index(v) >= 0i64; }
+    pub fn opt_set_live(self: &mut Self, v: &str, live: bool) {
         let i: i64 = self.opt_index(v);
         if i >= 0i64 { self.opt_live[i] = live; }
     }
     /// Record that the rule reads field `col` (of type `inner`) of outer var `v`.
-    pub fn ov_add(self: &mut ElTypes, v: &str, col: &str, inner: &str) {
+    pub fn ov_add(self: &mut Self, v: &str, col: &str, inner: &str) {
         if self.ov_find(v, col) >= 0i64 { return; }
         let mut ty: String = String::new(); ty.push_str("Option<"); ty.push_str(inner); ty.push_str(">");
         let mut lc: String = String::new(); lc.push_str("__ov_"); lc.push_str(v); lc.push_str("_"); lc.push_str(col);
         self.ov_var.push(String::from_str(v)); self.ov_col.push(String::from_str(col));
         self.ov_inner.push(String::from_str(inner)); self.ov_ty.push(ty); self.ov_local.push(lc);
     }
-    pub fn ov_find(self: &ElTypes, v: &str, col: &str) -> i64 {
+    pub fn ov_find(self: &Self, v: &str, col: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.ov_var.len() {
             if str_eq(self.ov_var[i].as_str(), v) && str_eq(self.ov_col[i].as_str(), col) { return i; }
@@ -2065,13 +2065,13 @@ impl ElTypes {
     // EMPTY — so `ty_name_of` INVENTED the class's representative and a `u64`
     // column came back out as `i64`. There is now one column, the TYPE, and the
     // class is a view of it.
-    pub fn ty_of(self: &ElTypes, name: &str) -> i32 {
+    pub fn ty_of(self: &Self, name: &str) -> i32 {
         return self.class_of_name(self.ty_name_of(name));
     }
 
     /// The class of a type NAME: the lattice's, `EL_TY_NAMED` for a declared
     /// plain struct/enum or a generic instantiation, the lenient INT otherwise.
-    pub fn class_of_name(self: &ElTypes, ty: &str) -> i32 {
+    pub fn class_of_name(self: &Self, ty: &str) -> i32 {
         let c: i32 = el_class_lookup(ty);
         if c >= 0i32 { return c; }
         if self.is_named(ty) { return EL_TY_NAMED(); }
@@ -2084,7 +2084,7 @@ impl ElTypes {
         return EL_TY_INT();
     }
 
-    pub fn is_named(self: &ElTypes, ty: &str) -> bool {
+    pub fn is_named(self: &Self, ty: &str) -> bool {
         if ty.len() == 0i64 { return false; }
         let mut i: i64 = 0i64;
         while i < self.named.len() {
@@ -2094,7 +2094,7 @@ impl ElTypes {
         return false;
     }
 
-    pub fn note_named(self: &mut ElTypes, ty: &str) {
+    pub fn note_named(self: &mut Self, ty: &str) {
         if self.is_named(ty) { return; }
         self.named.push(String::from_str(ty));
     }
@@ -2103,7 +2103,7 @@ impl ElTypes {
     // needs about the binding is derivable from the type, so the type is what is
     // kept. Reflection over a struct's fields, a native rel's columns, the
     // parameter list and every by-value element binding come through here.
-    pub fn set_ty_named(self: &mut ElTypes, name: &str, ty_name: &str) {
+    pub fn set_ty_named(self: &mut Self, name: &'d str, ty_name: &str) {
         let mut i: i64 = 0i64;
         while i < self.n {
             if str_eq(self.names[i], name) { self.tns[i] = String::from_str(ty_name); return; }
@@ -2119,7 +2119,7 @@ impl ElTypes {
     // lattice baseline, the same answer the class view has always given).
     /// Is `name` recorded at all? `ty_name_of` answers the `i64` baseline for a
     /// name it never saw (an imported const, say), which is not a type.
-    pub fn knows(self: &ElTypes, name: &str) -> bool {
+    pub fn knows(self: &Self, name: &str) -> bool {
         let mut i: i64 = 0i64;
         while i < self.n {
             if str_eq(self.names[i], name) { return true; }
@@ -2128,7 +2128,7 @@ impl ElTypes {
         return false;
     }
 
-    pub fn ty_name_of(self: &ElTypes, name: &str) -> &str {
+    pub fn ty_name_of(self: &Self, name: &str) -> &str {
         let mut i: i64 = 0i64;
         while i < self.n {
             if str_eq(self.names[i], name) { return string_as_str(&self.tns[i]); }
@@ -2139,7 +2139,7 @@ impl ElTypes {
     }
 
     // The UDF-table index of the fn named `name`, or -1 when unregistered.
-    pub fn udf_find(self: &ElTypes, name: &str) -> i64 {
+    pub fn udf_find(self: &Self, name: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.udf_n {
             if str_eq(self.udf_names[i], name) { return i; }
@@ -2150,7 +2150,7 @@ impl ElTypes {
 
     // Register a reflected user fn (first registration wins — module items are
     // walked in declaration order and names are unique per module anyway).
-    pub fn udf_add(self: &mut ElTypes, name: &str, ret_name: &str, arity: i64) {
+    pub fn udf_add(self: &mut Self, name: &'d str, ret_name: &'d str, arity: i64) {
         if self.udf_find(name) >= 0i64 { return; }
         self.udf_names.push(name);
         self.udf_rets.push(ret_name);
@@ -2161,11 +2161,11 @@ impl ElTypes {
     /// The CLASS of UDF `i`'s return — a view of its declared return TYPE
     /// (`el_ret_class`, STRICT: -1 for a type outside the lattice). It was a
     /// second array beside `udf_rets`, written from the same name (E4.2).
-    pub fn udf_class(self: &ElTypes, i: i64) -> i32 { return el_ret_class(self.udf_rets[i]); }
+    pub fn udf_class(self: &Self, i: i64) -> i32 { return el_ret_class(self.udf_rets[i]); }
 
     // True iff `name` resolves to a UDF returning an OWNED `String` (the
     // returns-String treatment: `.as_str()` borrow / owned result element).
-    pub fn udf_returns_string(self: &ElTypes, name: &str) -> bool {
+    pub fn udf_returns_string(self: &Self, name: &str) -> bool {
         let i: i64 = self.udf_find(name);
         if i < 0i64 { return false; }
         return str_eq(self.udf_rets[i], "String");
@@ -2189,14 +2189,14 @@ impl ElTypes {
     /// `set_ty_named` has. A source is stamped more than once per query (the
     /// planner stamps to decide, the emitter stamps to emit), and appending
     /// would have exhausted the table on a re-walk rather than on a wide query.
-    pub fn rel_bind_named(self: &mut ElTypes, var: &str, col: &str, idx: i64,
-                          ty_name: &str) {
+    pub fn rel_bind_named(self: &mut Self, var: &'d str, col: &'d str, idx: i64,
+                          ty_name: &'d str) {
         self.bind_col(CB_VAR(), var, col, idx, ty_name);
     }
 
     /// THE binding write. `kind` says whether `owner` names a row var or a type.
-    fn bind_col(self: &mut ElTypes, kind: i64, owner: &str, col: &str, idx: i64,
-                ty_name: &str) {
+    fn bind_col(self: &mut Self, kind: i64, owner: &'d str, col: &'d str, idx: i64,
+                ty_name: &'d str) {
         let e: i64 = self.find_col(kind, owner, col);
         if e >= 0i64 {
             self.rb_idx[e] = idx;
@@ -2212,7 +2212,7 @@ impl ElTypes {
     }
 
     /// THE binding lookup — the entry index, or -1.
-    fn find_col(self: &ElTypes, kind: i64, owner: &str, col: &str) -> i64 {
+    fn find_col(self: &Self, kind: i64, owner: &str, col: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.rb_n {
             if self.rb_kind[i] == kind && str_eq(self.rb_var[i], owner)
@@ -2228,7 +2228,7 @@ impl ElTypes {
     /// and the surviving type was applied to BOTH.
     /// Is `name` a ROW variable — one whose fields are bound (a source's row,
     /// held by reference in the emitted loop) — rather than a value?
-    pub fn is_row_var(self: &ElTypes, name: &str) -> bool {
+    pub fn is_row_var(self: &Self, name: &str) -> bool {
         let mut i: i64 = 0i64;
         while i < self.rb_n {
             if self.rb_kind[i] == CB_VAR() && str_eq(self.rb_var[i], name) { return true; }
@@ -2237,19 +2237,19 @@ impl ElTypes {
         return false;
     }
 
-    pub fn field_bind_named(self: &mut ElTypes, var: &str, col: &str, ty_name: &str) {
+    pub fn field_bind_named(self: &mut Self, var: &'d str, col: &'d str, ty_name: &'d str) {
         self.bind_col(CB_VAR(), var, col, COL_FIELD(), ty_name);
     }
 
     /// Bind (STRUCT TYPE, col) → the field's declared type. What a NESTED path
     /// resolves against: `a.b.c` has no row var of its own, but `a.b`'s type is a
     /// struct NAME, and that name plus `c` is a key as precise as (var, col).
-    pub fn type_bind_named(self: &mut ElTypes, ty_of: &str, col: &str, ty_name: &str) {
+    pub fn type_bind_named(self: &mut Self, ty_of: &'d str, col: &'d str, ty_name: &'d str) {
         self.bind_col(CB_TYPE(), ty_of, col, COL_FIELD(), ty_name);
     }
 
     /// The declared type NAME of field `col` of STRUCT `ty_of`, or "".
-    pub fn type_col_ty_name(self: &ElTypes, ty_of: &str, col: &str) -> &str {
+    pub fn type_col_ty_name(self: &Self, ty_of: &str, col: &str) -> &str {
         let e: i64 = self.find_col(CB_TYPE(), ty_of, col);
         if e < 0i64 { return ""; }
         return self.rb_tn[e];
@@ -2257,7 +2257,7 @@ impl ElTypes {
 
     /// True iff struct `ty_of`'s fields have already been stamped — the guard
     /// that terminates the reflection walk on a self-referential schema.
-    pub fn type_stamped(self: &ElTypes, ty_of: &str) -> bool {
+    pub fn type_stamped(self: &Self, ty_of: &str) -> bool {
         let mut i: i64 = 0i64;
         while i < self.rb_n {
             if self.rb_kind[i] == CB_TYPE() && str_eq(self.rb_var[i], ty_of) { return true; }
@@ -2275,7 +2275,7 @@ impl ElTypes {
     /// `stamp_schema_by_type`). Anything that must reason about ALL
     /// of a struct's fields must ALSO require `type_stamped`, which says the
     /// reflection walk reached this type at all.
-    pub fn type_field_at(self: &ElTypes, ty_of: &str, i: i64) -> i64 {
+    pub fn type_field_at(self: &Self, ty_of: &str, i: i64) -> i64 {
         let mut e: i64 = 0i64;
         let mut seen: i64 = 0i64;
         while e < self.rb_n {
@@ -2289,19 +2289,19 @@ impl ElTypes {
     }
 
     /// The declared type NAME at a binding-table index from `type_field_at`.
-    pub fn binding_ty_name_at(self: &ElTypes, e: i64) -> &str {
+    pub fn binding_ty_name_at(self: &Self, e: i64) -> &str {
         if e < 0i64 || e >= self.rb_n { return ""; }
         return self.rb_tn[e];
     }
 
     /// The COLUMN name at a binding-table index from `type_field_at`.
-    pub fn binding_col_at(self: &ElTypes, e: i64) -> &str {
+    pub fn binding_col_at(self: &Self, e: i64) -> &str {
         if e < 0i64 || e >= self.rb_n { return ""; }
         return self.rb_col[e];
     }
 
     /// The declared type NAME of `var.col`, or "" when this is not a rel binding.
-    pub fn rel_col_ty_name(self: &ElTypes, var: &str, col: &str) -> &str {
+    pub fn rel_col_ty_name(self: &Self, var: &str, col: &str) -> &str {
         let e: i64 = self.find_col(CB_VAR(), var, col);
         if e < 0i64 { return ""; }
         return self.rb_tn[e];
@@ -2309,7 +2309,7 @@ impl ElTypes {
 
     // The ACCESS code of `var.col` (`COL_*` or a tuple index), or `COL_WHOLE`
     // when unbound — meaningless unless `rel_col_ty` has said the pair is bound.
-    pub fn rel_col_of(self: &ElTypes, var: &str, col: &str) -> i64 {
+    pub fn rel_col_of(self: &Self, var: &str, col: &str) -> i64 {
         let e: i64 = self.find_col(CB_VAR(), var, col);
         if e < 0i64 { return -1i64; }
         return self.rb_idx[e];
@@ -2317,14 +2317,14 @@ impl ElTypes {
 
     // The EL value-type of `var.col`, or -1 (not a rel binding) — the class VIEW
     // of the bound type, and also the existence test the callers use.
-    pub fn rel_col_ty(self: &ElTypes, var: &str, col: &str) -> i32 {
+    pub fn rel_col_ty(self: &Self, var: &str, col: &str) -> i32 {
         let e: i64 = self.find_col(CB_VAR(), var, col);
         if e < 0i64 { return -1i32; }
         return self.class_of_name(self.rb_tn[e]);
     }
 
     // True iff `var` is a rel-bound row var (any column bound under it).
-    pub fn rel_var_bound(self: &ElTypes, var: &str) -> bool {
+    pub fn rel_var_bound(self: &Self, var: &str) -> bool {
         let mut i: i64 = 0i64;
         while i < self.rb_n {
             if self.rb_kind[i] == CB_VAR() && str_eq(self.rb_var[i], var) { return true; }

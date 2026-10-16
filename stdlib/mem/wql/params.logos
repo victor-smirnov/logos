@@ -112,13 +112,13 @@ impl RelSet {
 // rewritten to it while a delta-variant body is emitted), the native ROW TYPE
 // text (`(i64, str)` / scalar `i64` for a 1-column rel), and the column
 // window [coff, coff+ccnt) into the flat relc_* arrays.
-pub struct MacroParams {
-    pub names:    Vec<str>,
-    pub tys:      Vec<str>,     // CORE type name (deref/slice-stripped)
+pub struct MacroParams<'d> {
+    pub names:    Vec<&'d str>,
+    pub tys:      Vec<&'d str>,     // CORE type name (deref/slice-stripped)
     pub is_slice: Vec<bool>,    // `&[T]`-family — a query SOURCE param
     pub n:        i64,
     // ── rel registry (wql! rel blocks — slices B/C) ──
-    pub rel_names: Vec<str>,    // declared rel name ("step")
+    pub rel_names: Vec<&'d str>,    // declared rel name ("step")
     pub rel_srcs: Vec<String>,    // emitted source name ("__rel_step_sl")  // OWNED — the registry OUTLIVES the frame
                                 // whose Strings backed this view, and has no region
                                 // parameter to say so.
@@ -131,8 +131,8 @@ pub struct MacroParams {
                                 // parameter to say so.
     pub rel_coff: Vec<i64>,    // column window offset (flat relc_* arrays)
     pub rel_ccnt: Vec<i64>,    // column count
-    pub relc_name: Vec<str>,   // flat column names
-    pub relc_ty:   Vec<str>,   // flat column type names ("i64"/"str"/"bool")
+    pub relc_name: Vec<&'d str>,   // flat column names
+    pub relc_ty:   Vec<&'d str>,   // flat column type names ("i64"/"str"/"bool")
     // #322 — the source declares the column UNIQUE (`unique <rel> = <col>;`):
     // no two rows share its value, so an index keyed by it holds one row a key.
     pub relc_uniq: Vec<bool>,
@@ -173,7 +173,7 @@ pub struct MacroParams {
     /// loop writes the flag and the sentence that explains it; `""` ⇔ admitted.
     pub rel_sccid: Vec<i64>,
     pub rel_incr_ok: Vec<bool>,
-    pub rel_incr_why: Vec<str>,
+    pub rel_incr_why: Vec<&'d str>,
     // ── NATIVE rels (ADR 0016 M1a): sources with an ENGINE-SUPPLIED
     // materialization instead of query bodies. Today: `<p>: &Writ` params —
     // the generic graph-edge relation (writ_graph_edges). A native rel has
@@ -231,17 +231,17 @@ pub struct MacroParams {
     pub plan_group_pure: bool,
     /// ADR 0031 R5 — the PLANNED core: the program the walker emits, lowered
     /// after every rewrite, each atom resolved against this registry.
-    pub plan_core: CProgram,
+    pub plan_core: CProgram<'d>,
     /// ADR 0031 R4.5b — each rule's type environment as the checker computed
     /// it (`typecheck::core_typecheck`): rel `r`'s rule `b` at
     /// `plan_ty_off[r] + b`, the entry last. Every emitter starts from it.
-    pub plan_tys: Vec<ElTypes>,
+    pub plan_tys: Vec<ElTypes<'d>>,
     pub plan_ty_off: Vec<i64>,
     /// The producer's RETURN TYPE, as text. The emitted binding is annotated
     /// with it rather than inferring: a generated producer's signature is not
     /// always resolvable in the round its consumer is compiled, and an inferred
     /// `let` then carries an unresolved type var into the loop.
-    pub rel_itty: Vec<str>,
+    pub rel_itty: Vec<&'d str>,
     // ── ADR 0025 S3 — THE ORDER FACTS ────────────────────────────────────
     // Three axes the compiler measured on the producer's RETURN TYPE (natspec
     // flags `o` / `r` / `n`) plus one the type could not carry (`^<col>`).
@@ -264,7 +264,7 @@ pub struct MacroParams {
     /// over this rel keeps its Sort node. Non-empty implies `rel_ordered` — the
     /// compiler refuses the declaration when the type disagrees — so a reader
     /// may test this field alone for "is there a usable order fact here".
-    pub rel_ordcol: Vec<str>,
+    pub rel_ordcol: Vec<&'d str>,
     /// ADR 0025 S3 — THE PLAN'S ANSWER, not a fact about the source: this
     /// query's `order by` is already true of this rel's rows, so the emitter
     /// must not build the sort phase. Written by `plan_apply_access` from
@@ -300,7 +300,7 @@ pub struct MacroParams {
     pub rel_mat: Vec<String>,   // OWNED — fed from the AccessPlan, which is
                                 // itself a frame value; a view here would
                                 // outlive what it points at.
-    pub rel_marg: Vec<str>,
+    pub rel_marg: Vec<&'d str>,
     /// A NARROWING argument the materializer takes beyond the source itself —
     /// the constant a pushdown reads from (`__ctr_bat_Hs…(c, 42u64)`).
     /// Empty for the plain full-scan binding. The capability belongs to the
@@ -309,7 +309,7 @@ pub struct MacroParams {
     pub rel_marg2: Vec<String>, // OWNED — fed from the AccessPlan, a frame
                                 // value; a view here would make the registry
                                 // borrow the plan it outlives.
-    pub rel_mod: Vec<str>,
+    pub rel_mod: Vec<&'d str>,
     // ── the item's TYPE-PARAM list, verbatim (`<V: Bound, …>`; "" = concrete) ──
     // A generic `deem q<V: …>(…)` re-emits it onto EVERY generated fn head; the
     // calls between those fns infer their args from the source param, so no
@@ -332,8 +332,8 @@ pub struct MacroParams {
     // container to count. A measured number REFINES that ordinal at run time and
     // replaces nothing: the ordinal is what a static comparison consumes, the
     // number is what a plan built against real data will.
-    pub rel_size_fn: Vec<str>,
-    pub rel_size_ty: Vec<str>,
+    pub rel_size_fn: Vec<&'d str>,
+    pub rel_size_ty: Vec<&'d str>,
     pub rel_size_at: Vec<String>,  // OWNED — the registry OUTLIVES the frame
                                 // whose Strings backed this view, and has no region
                                 // parameter to say so.
@@ -346,22 +346,22 @@ pub struct MacroParams {
     // consumer's own), and whether it is that mapping's internal (not `pub`)
     // — set only for a mapping consumed from another package. A hidden rel is
     // queryable by its own mapping's rels and by nothing the consumer wrote.
-    pub fused_mapping: Vec<str>,
+    pub fused_mapping: Vec<&'d str>,
     pub fused_hidden: Vec<bool>,
     // Parse rels the entry cannot reach (`lower::live_rel_mask`), by position =
     // registry index: the prelude does not evaluate them.
     pub rel_dead:      RelSet,
     pub ndv_off: Vec<i64>,
     pub ndv_cnt: Vec<i64>,
-    pub ndvc_col: Vec<str>,
-    pub ndvc_fn: Vec<str>,
-    pub ndvc_ty: Vec<str>,
+    pub ndvc_col: Vec<&'d str>,
+    pub ndvc_fn: Vec<&'d str>,
+    pub ndvc_ty: Vec<&'d str>,
     pub ndv_n:    i64,
     pub op_off: Vec<i64>,
     pub op_cnt: Vec<i64>,
-    pub opc_col: Vec<str>,
-    pub opc_cmp: Vec<str>,
-    pub opc_fn: Vec<str>,
+    pub opc_col: Vec<&'d str>,
+    pub opc_cmp: Vec<&'d str>,
+    pub opc_fn: Vec<&'d str>,
     pub opc_exact: Vec<bool>,
     pub opc_iter: Vec<bool>,
     /// The `b` flag of an OPERATION's producer (ADR 0025 §1) — the narrowing
@@ -369,9 +369,9 @@ pub struct MacroParams {
     /// replaces the rel's own producer, so the flag has to travel with it or
     /// a pushdown would silently fall back to the row pull.
     pub opc_batch: Vec<bool>,
-    pub opc_itty: Vec<str>,
+    pub opc_itty: Vec<&'d str>,
     pub op_n:     i64,
-    pub tparams:     str,
+    pub tparams:     &'d str,
     // ── the query as a SOURCE (ADR 0024 S0) ──────────────────────────────
     // The parsed root, carried so that ANY diagnostic reached from the walk can
     // locate itself. A position is useless if it is only available where it was
@@ -396,7 +396,7 @@ pub struct MacroParams {
     pub oracle_on: bool,
 }
 
-pub fn macro_params_new() -> MacroParams {
+pub fn macro_params_new<'d>(tparams: &'d str) -> MacroParams<'d> {
     let nul: WAny = WAny::null();
     return MacroParams {
         names: Vec::<&str>::new(),
@@ -467,7 +467,7 @@ pub fn macro_params_new() -> MacroParams {
         opc_batch:Vec::<bool>::new(),
         opc_itty: Vec::<&str>::new(),
         op_n:     0i64,
-        tparams:     "",
+        tparams:     tparams,
         src_root:    nul,
         oracle_dump: String::new(),
         oracle_dir: String::new(),
@@ -477,9 +477,9 @@ pub fn macro_params_new() -> MacroParams {
     };
 }
 
-impl MacroParams {
+impl<'d> MacroParams<'d> {
     // Index of the param named `name`, or -1.
-    pub fn index_of(self: &MacroParams, name: &str) -> i64 {
+    pub fn index_of(self: &Self, name: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.n {
             if str_eq(self.names[i], name) { return i; }
@@ -489,14 +489,14 @@ impl MacroParams {
     }
 
     // Is `name` a declared SLICE param (a wql! query source)?
-    pub fn is_source(self: &MacroParams, name: &str) -> bool {
+    pub fn is_source(self: &Self, name: &str) -> bool {
         let i: i64 = self.index_of(name);
         if i < 0i64 { return false; }
         return self.is_slice[i];
     }
 
     // Is `name` a declared SCALAR (non-slice) param?
-    pub fn is_scalar(self: &MacroParams, name: &str) -> bool {
+    pub fn is_scalar(self: &Self, name: &str) -> bool {
         let i: i64 = self.index_of(name);
         if i < 0i64 { return false; }
         return !self.is_slice[i];
@@ -522,7 +522,7 @@ impl MacroParams {
     /// imports as `Ident`s (`#( use #us; )*`), a text chunk carries them as
     /// source; a second copy of the dedup walk would drift the moment either
     /// changed, which is the failure this whole audit keeps finding.
-    pub fn native_use_at(self: &MacroParams, k: i64) -> &str {
+    pub fn native_use_at(self: &Self, k: i64) -> &str {
         let mut seen: i64 = 0i64;
         let mut emitted: Vec<&str> = Vec::<&str>::new();
         let mut i: i64 = 0i64;
@@ -595,7 +595,7 @@ impl MacroParams {
     /// already drifted — the text one imported the iterator trait and the
     /// indexed one did not, so a converted emitter's generated fn lost an
     /// import the text chunk had.
-    pub fn native_use_text(self: &MacroParams, out: &mut String) {
+    pub fn native_use_text(self: &Self, out: &mut String) {
         let mut k: i64 = 0i64;
         loop {
             let one: &str = self.native_use_at(k);
@@ -608,7 +608,7 @@ impl MacroParams {
     }
 
     // The CORE type name of the param named `name` ("" if absent).
-    pub fn ty_of(self: &MacroParams, name: &str) -> &str {
+    pub fn ty_of(self: &Self, name: &str) -> &str {
         let i: i64 = self.index_of(name);
         if i < 0i64 { return ""; }
         return self.tys[i];
@@ -617,7 +617,7 @@ impl MacroParams {
     // ── rel registry (filled by the wql! program walker; slices B/C) ────────
 
     // Register a rel (declaration order). Returns the rel index (-1 = full).
-    pub fn rel_add(self: &mut MacroParams, name: &str, src: &str, dsrc: &str, rowty: &str) -> i64 {
+    pub fn rel_add(self: &mut Self, name: &'d str, src: &str, dsrc: &str, rowty: &str) -> i64 {
         let i: i64 = self.rel_n;
         // One entry per rel in every per-rel registry (`AD_NONE` for the node).
         self.rel_names.push("");
@@ -672,7 +672,7 @@ impl MacroParams {
 
     // Mark registry position `i` as a rel of the fused mapping `m` (written
     // before the walk registers the rels, so the lists grow to reach `i`).
-    pub fn set_fused(self: &mut MacroParams, i: i64, m: &str, hidden: bool) {
+    pub fn set_fused(self: &mut Self, i: i64, m: &'d str, hidden: bool) {
         while self.fused_mapping.len() <= i { self.fused_mapping.push(""); self.fused_hidden.push(false); }
         self.fused_mapping[i] = m;
         self.fused_hidden[i] = hidden;
@@ -681,7 +681,7 @@ impl MacroParams {
     // Append one column to the LAST registered rel.
     /// Record one declared operation for the rel most recently registered.
     /// Record a distinct-value reporter for a column of the LAST registered rel (#726).
-    pub fn rel_add_ndv(self: &mut MacroParams, col: &str, fn_name: &str, ty: &str) {
+    pub fn rel_add_ndv(self: &mut Self, col: &'d str, fn_name: &'d str, ty: &'d str) {
         let r: i64 = self.rel_n - 1i64;
         if r < 0i64 { return; }
         if self.ndv_cnt[r] == 0i64 { self.ndv_off[r] = self.ndv_n; }
@@ -693,7 +693,7 @@ impl MacroParams {
     }
 
     /// The distinct-value reporter rel `r` declared for column `col`, "" = none (#726).
-    pub fn rel_ndv_fn(self: &MacroParams, r: i64, col: &str) -> &str {
+    pub fn rel_ndv_fn(self: &Self, r: i64, col: &str) -> &str {
         if r < 0i64 || r >= self.rel_n { return ""; }
         let mut k: i64 = self.ndv_off[r];
         let end: i64 = self.ndv_off[r] + self.ndv_cnt[r];
@@ -704,8 +704,8 @@ impl MacroParams {
         return "";
     }
 
-    pub fn rel_add_op(self: &mut MacroParams, col: &str, cmp: &str, fn_name: &str,
-                      exact: bool, iter: bool, batch: bool, ity: &str) {
+    pub fn rel_add_op(self: &mut Self, col: &'d str, cmp: &'d str, fn_name: &'d str,
+                      exact: bool, iter: bool, batch: bool, ity: &'d str) {
         let r: i64 = self.rel_n - 1i64;
         if r < 0i64 { return; }
         if self.op_cnt[r] == 0i64 { self.op_off[r] = self.op_n; }
@@ -723,7 +723,7 @@ impl MacroParams {
     /// Does the source EMITTED under this name stream? Safe for a name that is
     /// no rel at all (a slice param), which is why the emitters ask this rather
     /// than indexing `rel_stream` by a lookup that can return -1.
-    pub fn rel_src_streams(self: &MacroParams, src: &str) -> bool {
+    pub fn rel_src_streams(self: &Self, src: &str) -> bool {
         let i: i64 = self.rel_find_src(src);
         if i < 0i64 { return false; }
         return self.rel_stream[i];
@@ -755,7 +755,7 @@ impl MacroParams {
     /// The `-2` is spelled, not called: same reason as the `-1i32`
     /// initializer above — `params.logos` must not depend on
     /// `access_plan.logos`, which reads THIS. `AD_BUFFER()` is that literal.
-    pub fn rel_src_node(self: &MacroParams, src: &str) -> i32 {
+    pub fn rel_src_node(self: &Self, src: &str) -> i32 {
         let i: i64 = self.rel_find_src(src);
         if i < 0i64 { return -2i32; }
         return self.rel_node[i];
@@ -774,7 +774,7 @@ impl MacroParams {
     /// 159 corpus dumps and +85,994 bytes, all of them one added use-decl line).
     /// A text-preserving stage may not add an import to an emitter module, so
     /// the node question is asked through the registry that owns the field.
-    pub fn rel_src_unmaterialized(self: &MacroParams, src: &str) -> bool {
+    pub fn rel_src_unmaterialized(self: &Self, src: &str) -> bool {
         return self.rel_src_node(src) == -1i32;
     }
 
@@ -789,7 +789,7 @@ impl MacroParams {
     ///
     /// A name that is no rel answers `false`, which is the safe direction: the
     /// sort is emitted.
-    pub fn rel_src_ord_noop(self: &MacroParams, src: &str) -> bool {
+    pub fn rel_src_ord_noop(self: &Self, src: &str) -> bool {
         let i: i64 = self.rel_find_src(src);
         if i < 0i64 { return false; }
         return self.rel_ord_noop[i];
@@ -802,7 +802,7 @@ impl MacroParams {
     /// too: a forward walk under a `desc` query that was never admitted as a
     /// no-op cannot happen, because the emitter only asks this AFTER
     /// `rel_src_ord_noop` said yes.
-    pub fn rel_src_ord_rev(self: &MacroParams, src: &str) -> bool {
+    pub fn rel_src_ord_rev(self: &Self, src: &str) -> bool {
         let i: i64 = self.rel_find_src(src);
         if i < 0i64 { return false; }
         return self.rel_ord_rev[i];
@@ -817,13 +817,13 @@ impl MacroParams {
     /// True when the operation at `oi` answers `cmp` EXACTLY — the query's
     /// residual filter is then redundant. False for a superset, where it is
     /// what keeps the answer correct.
-    pub fn rel_op_is_exact(self: &MacroParams, oi: i64, cmp: &str) -> bool {
+    pub fn rel_op_is_exact(self: &Self, oi: i64, cmp: &str) -> bool {
         if oi < 0i64 || oi >= self.op_n { return false; }
         if !self.opc_exact[oi] { return false; }
         return str_eq(self.opc_cmp[oi], cmp);
     }
 
-    pub fn rel_add_col(self: &mut MacroParams, col_name: &str, col_ty: &str) {
+    pub fn rel_add_col(self: &mut Self, col_name: &'d str, col_ty: &'d str) {
         if self.rel_n == 0i64 { return; }
         let i: i64 = self.rel_n - 1i64;
         let k: i64 = self.rel_coff[i] + self.rel_ccnt[i];
@@ -836,7 +836,7 @@ impl MacroParams {
     }
 
     /// Mark column `col` of the LAST registered rel unique (false: no such column).
-    pub fn rel_set_unique(self: &mut MacroParams, col: &str) -> bool {
+    pub fn rel_set_unique(self: &mut Self, col: &str) -> bool {
         if self.rel_n == 0i64 { return false; }
         let i: i64 = self.rel_n - 1i64;
         let mut c: i64 = 0i64;
@@ -848,7 +848,7 @@ impl MacroParams {
     }
 
     /// Rel `ri`'s column `col` is declared unique.
-    pub fn rel_col_unique(self: &MacroParams, ri: i64, col: &str) -> bool {
+    pub fn rel_col_unique(self: &Self, ri: i64, col: &str) -> bool {
         if ri < 0i64 || ri >= self.rel_n { return false; }
         let mut c: i64 = 0i64;
         while c < self.rel_ccnt[ri] {
@@ -859,7 +859,7 @@ impl MacroParams {
     }
 
     // Rel index by DECLARED name ("step"), or -1.
-    pub fn rel_find_name(self: &MacroParams, name: &str) -> i64 {
+    pub fn rel_find_name(self: &Self, name: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.rel_n {
             if str_eq(self.rel_names[i], name) { return i; }
@@ -873,7 +873,7 @@ impl MacroParams {
     // rewritten to the emitted name; the semi-naïve delta-variant emission
     // temporarily rewrites an in-SCC occurrence to the delta name, and the
     // column stamping must resolve BOTH spellings to the same rel).
-    pub fn rel_find_src(self: &MacroParams, src: &str) -> i64 {
+    pub fn rel_find_src(self: &Self, src: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.rel_n {
             if str_eq(string_as_str(&self.rel_srcs[i]), src) { return i; }
@@ -1428,7 +1428,7 @@ pub fn compute_rel_scc(deps: &RelDeps, nr: i64) -> RelScc {
 // and a trama! context param `o: &Order` as (o, Order, scalar-shaped).
 // Empty `p` = zero params. A malformed param stops the scan (the compiler
 // re-reports on the verbatim re-emit).
-pub fn parse_macro_params(p: &str, out: &mut MacroParams) {
+pub fn parse_macro_params<'d>(p: &'d str, out: &mut MacroParams<'d>) {
     let len: i64 = p.len();
     let mut pos: i64 = 0i64;
     loop {
