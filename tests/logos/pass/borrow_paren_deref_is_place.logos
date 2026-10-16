@@ -1,0 +1,31 @@
+// Parentheses never change place-ness: `&(*p)` is `&*p` and `&mut (*p)` is
+// `&mut *p` — a reborrow of the place, for an overloaded Deref (Arc, Box) and a
+// plain reference alike. The parenthesized form was lowered as a spill of the
+// deref's value, so returning it was "reference to temporary". The --gen-dir
+// renderer prints every `&*x` this way, so a reparsed dump hit it too.
+package test;
+use logos.std.fmt;
+use logos.mem.sync;
+use logos.mem.boxed;
+trait T { fn v(self: &Self) -> i32; }
+struct A { x: i32 }
+impl T for A { fn v(self: &A) -> i32 { return self.x; } }
+fn id(t: &dyn T) -> &dyn T { return t; }
+struct H { s: Arc<dyn T>, b: Box<A> }
+fn arc_bare(h: &H) -> &dyn T { return id(&*h.s); }
+fn arc_paren(h: &H) -> &dyn T { return id(&(*h.s)); }
+fn arc_paren2(h: &H) -> &dyn T { return id((&(*h.s))); }
+fn box_paren(h: &H) -> &A { return &(*h.b); }
+fn box_field(h: &H) -> &i32 { return &((*h.b).x); }
+fn ref_paren(r: &A) -> &A { return &(*r); }
+fn bump_paren(h: &mut H) { let r: &mut A = &mut (*h.b); r.x = r.x + 100; }
+fn bump_ref(r: &mut A) -> &mut A { return &mut (*r); }
+fn main() -> i32 {
+    let mut h = H { s: Arc::new(A { x: 7 }) as Arc<dyn T>, b: Box::new(A { x: 3 }) };
+    println!("{} {} {}", arc_bare(&h).v(), arc_paren(&h).v(), arc_paren2(&h).v());
+    println!("{} {} {}", box_paren(&h).x, *box_field(&h), ref_paren(&*h.b).x);
+    bump_paren(&mut h);
+    bump_ref(&mut *h.b).x += 1;
+    println!("{}", h.b.x);
+    return 0;
+}

@@ -2128,8 +2128,9 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     case la::DEREF:       return lower_deref(expr);
 
     case la::ADDR_OF_MUT: {
-        // &mut var — exclusive mutable reference
-        auto child = map_of(expr.get(la::VALUE.code));
+        // &mut var — exclusive mutable reference. Parentheses never change
+        // place-ness: `&mut (*b)` is `&mut *b`, a reborrow, not a spill.
+        auto child = unwrap_paren_node(map_of(expr.get(la::VALUE.code)));
         if (code_of(child) == la::VAR_REF) {
             auto var_name = str_of(child.get(la::NAME.code));
             auto vt = lookup(var_name);
@@ -4509,7 +4510,7 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
     // `&&v` — lexer collapses `&&` to AND. Rewrite as ADDR_OF(ADDR_OF(v)).
     // Mirrors DOUBLE_REF_TYPE at the type level.
     if (op == "&&") {
-        auto child = map_of(node.get(la::VALUE.code));
+        auto child = unwrap_paren_node(map_of(node.get(la::VALUE.code)));
         // `&&STATIC`: the inner `&STATIC` is the global's address and `'static`,
         // exactly as a single `&STATIC` (below) — the generic path took the
         // address of a stack copy and typed it elided.
@@ -4539,7 +4540,8 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
 
     // & — address-of or array-to-slice
     if (op == "&") {
-        auto child = map_of(node.get(la::VALUE.code));
+        // `&(*b)` is `&*b` (see ADDR_OF_MUT).
+        auto child = unwrap_paren_node(map_of(node.get(la::VALUE.code)));
         // `&K` for a const item borrows the const's VALUE (Rust promotes a
         // constant expression): the operand is the initializer under the
         // declared type, so the promotion predicate the checkers and the emitter
