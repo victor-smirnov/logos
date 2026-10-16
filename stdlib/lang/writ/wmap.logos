@@ -504,9 +504,11 @@ impl WritField for i64 {
     fn from_wany(v: WAny) -> i64 { return v.as_i64(); }
     fn to_wany(self: i64, z: *mut Allocator) -> WAny { return unsafe { make_int(z, self) }; }
 }
-impl WritField for str {
-    fn from_wany(v: WAny) -> str { return v.as_wstr(); }
-    fn to_wany(self: &str, z: *mut Allocator) -> WAny {
+// Rust shape: the field type is the borrowed `&'a str` (a by-value `str` has no size);
+// the slice points into the WAny's arena, so its region is the impl's own.
+impl<'a> WritField for &'a str {
+    fn from_wany(v: WAny) -> &'a str { return v.as_wstr(); }
+    fn to_wany(self: &'a str, z: *mut Allocator) -> WAny {
         return unsafe { WAny::ref_to(wstring_in_alloc(z, self) as *const u8) };
     }
 }
