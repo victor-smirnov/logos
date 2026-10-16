@@ -2884,7 +2884,7 @@ fn emit_btfl_family(name: &str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
             /// (unsorted or interleaving), tree untouched.
             pub fn insert_batch(self: &mut #nm, buf: &#mbufid) -> bool {
                 unsafe {
-                    let mut t: Btfl<2, #nd> = self.tree();
+                    let mut t: Btfl<2, #nd> = self.tree_mut();
                     let ok: bool = btfl_batch_insert::<#nd>(self.ms(), &mut t, &buf.inner);
                     if ok {
                         {
@@ -3176,9 +3176,14 @@ fn emit_btvec_family(name: &str, vty: &str, mexpr: ExprBlob, cfg_src: &str) {
                 return #(vconv);
             }
             pub fn set(self: &#nm, pos: u64, v: #(vt)) {
-                self.ms().assert_writable();
-                let t: Btvec<#nd> = self.tree();
-                btvec_set::<#nd>(self.ms(), &t, pos, v as u64);
+                unsafe {
+                    let mut t: Btvec<#nd> = self.tree_mut();
+                    btvec_set::<#nd>(self.ms(), &mut t, pos, v as u64);
+                    {
+                        let __mroot: *mut u8 = ctr_publish_meta_static(t.root, #(mexpr));
+                        self.ms().set_root(self.ctr_id, __mroot, t.level);
+                    }
+                }
             }
             /// Cursor at the `pos`-th entry (0-based; the entry-number seek).
             pub fn seek(self: &#nm, pos: u64) -> #cid {

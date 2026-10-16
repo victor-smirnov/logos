@@ -64,8 +64,10 @@
 //   * one entry (key + its values) must fit a leaf after a split — asserted.
 //   * inserting an EXISTING key is rejected (returns false); append/upsert
 //     of values is 8a2 surface.
-//   * bulk build / remove (btfl_c_leaf_common.hpp:43 ctr_remove_range) /
-//     node merge / CoW insert are NOT in 8a.
+//   * copy-on-write (ADR 0039 D12): a write first owns the path to its key
+//     (`bf_own_path`), then runs the in-place algorithm on owned nodes. It
+//     owns only once the write is known to land — a refused write must leave
+//     the published root alone.
 //
 // SUBSTRATE: memstore node blocks (logos.mem.bt.node / memstore) — the
 // branch keeps child refs in slot 1 as a single-column PdtBuf, so
@@ -1348,6 +1350,29 @@ impl<const N: u32, P: NodeProfile> BtBranch<u64, N> for BtflBranchRef<N, P> {
     }
 }
 
+// Own the root-to-leaf path that `key` descends (find_child — the same walk
+// the insert, splice and remove take), repointing each parent row at its
+// child's clone. Nodes another snapshot holds are cloned, never written.
+fn bf_own_path<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<N, P>, key: u64) {
+    let snp: u64 = snap.snapshot_id();
+    unsafe {
+        t.root = node_privatize(t.root, t.level, snp);
+        let mut node: *mut u8 = t.root;
+        let mut lvl: u32 = t.level;
+        while lvl > 0u32 {
+            let mut a: NodeView = node_view_at(node);
+            let ci: u64 = btfl_find_child(&a, key) as u64;
+            let c: *mut u8 = snap.resolve(br_child(&a).get(0u32, ci)).ptr();
+            let o: *mut u8 = node_privatize(c, lvl - 1u32, snp);
+            if o != c {
+                a.col_mut(BR_CHILD).set(0u32, ci, o as u64);
+            }
+            node = o;
+            lvl = lvl - 1u32;
+        }
+    }
+}
+
 /// Inserts one N-stream ENTRY: a stream-0 row (`key`, in key order) followed
 /// by `lens[s-1]` rows of each stream s (taken flat from `flat`, stream-major).
 /// Returns false iff the key already exists. Splits propagate bottom-up (the
@@ -1360,6 +1385,10 @@ impl<const N: u32, P: NodeProfile> BtBranch<u64, N> for BtflBranchRef<N, P> {
 pub fn btfl_insert_entry<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<N, P>, key: u64,
                                        flat: &Vec<u64>, lens: &Vec<u64>,
                                        spans: &PdtVals) -> bool {
+    if btfl_seek::<N, P>(snap, t, key).found {
+        return false;
+    }
+    bf_own_path::<N, P>(snap, t, key);
     unsafe {
         let e: BtflEntry = BtflEntry {
             flat: flat as *const Vec<u64>,
@@ -2623,6 +2652,7 @@ pub fn btfl_batch_insert<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, 
         e = e + 1u64;
     }
     let snp: u64 = snap.snapshot_id();
+    bf_own_path::<2, P>(snap, t, first);
     let mut rows: Vec<BfRow> = bf_splice_rec::<P>(snap, t.root, t.level, first, buf, &bvoff,
                                                   snp, t.leaf_bytes, t.branch_bytes);
     let mut lvl: u32 = t.level;
@@ -2642,7 +2672,8 @@ pub fn btfl_batch_insert<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, 
 // run, and its structure symbols — plus the parent-driven neighbor merge
 // under EXACT weight admission (the same discipline as the map's removal in
 // pack.logos; the structure stream's merged size is computed on the
-// CONCATENATED run list, seam merge included). In-place tree (btfl v0).
+// CONCATENATED run list, seam merge included). The key path is owned first
+// (bf_own_path); a merged-away sibling is only read and released.
 
 // the entry-aligned admission: can leaves `l` and `r` merge into one?
 fn bf_leaves_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
@@ -3023,6 +3054,7 @@ pub fn btfl_remove<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, P>, ke
     if !sk.found {
         return false;
     }
+    bf_own_path::<2, P>(snap, t, key);
     let r: BfRemRet = bf_remove_rec::<P>(snap, t.root, t.level, key);
     if r.vanished {
         t.root = btfl_leaf_new::<2, P>(snap, t.leaf_bytes);
@@ -3034,7 +3066,9 @@ pub fn btfl_remove<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, P>, ke
         while going {
             let mut a: NodeView = node_view_at(t.root);
             if br_pdt(&a).size() == 1u64 {
-                let child: *mut u8 = snap.resolve(br_child(&a).get(0u32, 0u64)).ptr();
+                // owned before the documents are written into it
+                let c0: *mut u8 = snap.resolve(br_child(&a).get(0u32, 0u64)).ptr();
+                let child: *mut u8 = node_privatize(c0, t.level - 1u32, snap.snapshot_id());
                 // Root DEMOTION: the documents follow the root into the child,
                 // which grows if it must (see btvec's twin).
                 let nc: *mut u8 = meta_handover(t.root, child);

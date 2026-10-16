@@ -9,9 +9,10 @@
 // Like logos.mem.bt.btfl this is a hand-written PROTOTYPE generic over the
 // node form (`P: NodeProfile`): the Canon factory's kind=vector family is
 // thin glue over these fns. Cells are u64 at rest (the btss discipline); the
-// generated family casts its value type at the boundary. In-place mutation
-// (no CoW privatization) — the same v0 restriction as btfl; the CoW walk
-// lands with the shared privatize hook.
+// generated family casts its value type at the boundary. Copy-on-write
+// (ADR 0039 D12): every write walk owns the nodes it touches — the root at
+// entry, each child before it descends (`bv_own` / `bv_own_child`) — so a
+// node another snapshot still holds is cloned, never written.
 //
 //   node layout
 //     leaf:   slot 0 = FSE64 value column            (child_slot = none)
@@ -55,6 +56,24 @@ fn bv_branch_new<P: NodeProfile>(snp: u64, branch_bytes: u32) -> *mut u8 {
     a.fmt_slot(BV_CNT, false, false);
     a.fmt_slot(BV_CHILD, false, false);
     return node;
+}
+
+// ── copy-on-write ───────────────────────────────────────────────────────────
+
+// The node a write at snapshot `snp` may change: `node` itself when `snp`
+// stamped it, else its clone (children rc-bumped, one share of `node` released).
+fn bv_own(node: *mut u8, level: u32, snp: u64) -> *mut u8 {
+    return unsafe { node_privatize(node, level, snp) };
+}
+
+// Own child row `ci` of the OWNED branch `a`, repointing the row at the clone.
+fn bv_own_child(snap: &MemorySnapshot, a: &mut NodeView, ci: u64, child_level: u32, snp: u64) -> *mut u8 {
+    let c: *mut u8 = snap.resolve(bv_child(a).get(0u32, ci)).ptr();
+    let o: *mut u8 = bv_own(c, child_level, snp);
+    if o != c {
+        a.col_mut(BV_CHILD).set(0u32, ci, o as u64);
+    }
+    return o;
 }
 
 // ── the tree handle ─────────────────────────────────────────────────────────
@@ -217,14 +236,31 @@ pub fn btvec_cur_value<P: NodeProfile>(c: &BtvecCur) -> u64 {
     }
 }
 
-/// Overwrite the `pos`-th entry in place (no structural change, no CoW —
-/// the v0 restriction).
-pub fn btvec_set<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, pos: u64, v: u64) {
-    let c: BtvecCur = btvec_seek::<P>(snap, t, pos);
-    assert(c.found, "btvec_set: position beyond the vector");
+/// Overwrite the `pos`-th entry (no structural change; the path is owned
+/// first, so the root may change).
+pub fn btvec_set<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, pos: u64, v: u64) {
+    assert(pos < btvec_size::<P>(t), "btvec_set: position beyond the vector");
+    let snp: u64 = snap.snapshot_id();
+    t.root = bv_own(t.root, t.level, snp);
+    let mut node: *mut u8 = t.root;
+    let mut lvl: u32 = t.level;
+    let mut rem: u64 = pos;
+    while lvl > 0u32 {
+        let mut a: NodeView = node_view_at(node);
+        let mut ci: u64 = 0u64;
+        {
+            let b: ColRef = bv_cnt(&a);
+            while rem >= b.get(0u32, ci) {
+                rem = rem - b.get(0u32, ci);
+                ci = ci + 1u64;
+            }
+        }
+        node = bv_own_child(snap, &mut a, ci, lvl - 1u32, snp);
+        lvl = lvl - 1u32;
+    }
     unsafe {
-        let mut nv: NodeView = node_view_at(c.leaf);
-        nv.col_mut(0u32).set(0u32, c.idx as u64, v);
+        let mut nv: NodeView = node_view_at(node);
+        nv.col_mut(0u32).set(0u32, rem, v);
     }
 }
 
@@ -282,8 +318,8 @@ fn bv_ins_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, 
         rem = rem - cb.get(0u32, ci);
         ci = ci + 1u64;
     }
-    let r: BvIns = bv_ins_rec::<P>(snap, snap.resolve(bv_child(&a).get(0u32, ci)).ptr(), level - 1u32,
-                                   rem, v, snp, leaf_bytes, branch_bytes);
+    let child: *mut u8 = bv_own_child(snap, &mut a, ci, level - 1u32, snp);
+    let r: BvIns = bv_ins_rec::<P>(snap, child, level - 1u32, rem, v, snp, leaf_bytes, branch_bytes);
     a.col_mut(BV_CNT).set(0u32, ci, r.lcnt);
     if !r.split {
         return BvIns { lcnt: btvec_node_total::<P>(node), split: false, rcnt: 0u64, rptr: node };
@@ -337,6 +373,7 @@ pub fn btvec_insert_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, 
     let sz: u64 = btvec_size::<P>(t);
     assert(pos <= sz, "btvec_insert_at: position beyond the vector");
     let snp: u64 = snap.snapshot_id();
+    t.root = bv_own(t.root, t.level, snp);
     let r: BvIns = bv_ins_rec::<P>(snap, t.root, t.level, pos, v, snp, t.leaf_bytes, t.branch_bytes);
     if r.split {
         unsafe {
@@ -713,8 +750,8 @@ fn bv_splice_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u3
             ci = ci + 1u64;
         }
     }
-    let sub: Vec<BvRow> = bv_splice_rec::<P>(snap, snap.resolve(bv_child(&a).get(0u32, ci)).ptr(),
-                                             level - 1u32, rem, buf,
+    let child: *mut u8 = bv_own_child(snap, &mut a, ci, level - 1u32, snp);
+    let sub: Vec<BvRow> = bv_splice_rec::<P>(snap, child, level - 1u32, rem, buf,
                                              snp, leaf_bytes, branch_bytes);
     if sub.length() == 1i64 {
         // No structural growth below: refresh the child row in place.
@@ -806,6 +843,7 @@ pub fn btvec_insert_buf<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>,
     let sz: u64 = btvec_size::<P>(t);
     assert(pos <= sz, "btvec_insert_buf: position beyond the vector");
     let snp: u64 = snap.snapshot_id();
+    t.root = bv_own(t.root, t.level, snp);
     let mut rows: Vec<BvRow> = bv_splice_rec::<P>(snap, t.root, t.level, pos, buf,
                                                   snp, t.leaf_bytes, t.branch_bytes);
     let mut lvl: u32 = t.level;
@@ -823,7 +861,8 @@ pub fn btvec_insert_buf<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>,
 //
 // Same design as the map's removal (pack.logos): parent-driven merge under
 // EXACT weight admission — `w(left rows + right rows) ≤ region budget`
-// decides, no trial insertion. In-place tree (btvec v0, same as insert).
+// decides, no trial insertion. The path is owned (see insert); a merged-away
+// sibling is only read and released, so it is not cloned.
 
 fn bv_branch_remove_row(nv: &mut NodeView, i: u64) {
     let mut s: u32 = 0u32;
@@ -940,7 +979,7 @@ fn bv_remove_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u3
         rem = rem - cb.get(0u32, ci);
         ci = ci + 1u64;
     }
-    let child: *mut u8 = snap.resolve(bv_child(&a).get(0u32, ci)).ptr();
+    let child: *mut u8 = bv_own_child(snap, &mut a, ci, level - 1u32, snap.snapshot_id());
     let sub: u64 = bv_remove_rec::<P>(snap, child, level - 1u32, rem);
     if sub == 0xFFFFFFFFFFFFFFFFu64 {
         bv_branch_remove_row(&mut a, ci);
@@ -963,6 +1002,7 @@ fn bv_remove_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u3
 pub fn btvec_remove_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, pos: u64) {
     let sz: u64 = btvec_size::<P>(t);
     assert(pos < sz, "btvec_remove_at: position beyond the vector");
+    t.root = bv_own(t.root, t.level, snap.snapshot_id());
     let r: u64 = bv_remove_rec::<P>(snap, t.root, t.level, pos);
     if r == 0xFFFFFFFFFFFFFFFFu64 {
         t.root = bv_leaf_new::<P>(snap.snapshot_id(), t.leaf_bytes);
@@ -974,7 +1014,8 @@ pub fn btvec_remove_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, 
         while going {
             let mut a: NodeView = node_view_at(t.root);
             if bv_cnt(&a).size() == 1u64 {
-                let child: *mut u8 = snap.resolve(bv_child(&a).get(0u32, 0u64)).ptr();
+                // owned before the documents are written into it
+                let child: *mut u8 = bv_own_child(snap, &mut a, 0u64, t.level - 1u32, snap.snapshot_id());
                 // Root DEMOTION: the documents follow the root into the child
                 // (Memoria ctr_node_to_root); the child GROWS if it must, so the
                 // collapse is never blocked and nothing is lost.
