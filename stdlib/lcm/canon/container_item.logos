@@ -1156,9 +1156,9 @@ fn emit_tree(tname: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol: b
 // BtLeaf/BtBranch impls. The handle keeps only what is genuinely per-config:
 // the struct, create/open, and the root repoint/publish after an insert.
 //
-// The STORE/SNAPSHOT half is NOT generated: containers run on the hand-written
-// MemoryStore / MemorySnapshot (logos.mem.bt.memstore) — the container⟂store
-// split. `{N}` is a thin typed view of container `ctr_id` in a snapshot; it
+// The STORE/SNAPSHOT half is NOT generated: containers run on the store of
+// their node profile (`<#nd as StoreProfile>::Store`, recovered by `store_of`;
+// the in-memory model's MemorySnapshot today) — the container⟂store split. `{N}` is a thin typed view of container `ctr_id` in a snapshot; it
 // finds its root through the snapshot's directory (`root_of`/`set_root`) and
 // releases trees through the store's container-agnostic `tree_release`. One
 // snapshot holds MANY containers and commits them atomically.
@@ -1174,7 +1174,7 @@ fn emit_tree(tname: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol: b
 // resolves types/functions/bounds at RESOLVE time, but too late for the
 // collect-phase impl check). A generic `kind map` surface (① / a compiler
 // traits-refresh) removes this later. `logos.mem.bt.memstore` (the
-// MemorySnapshot capability + DirEntry + tree_release), `logos.mem.bt.ops` and
+// in-memory model + tree_release), `logos.mem.bt.ops` and
 // `logos.mem.pkd` are function/type refs and resolve via the emitted `use`.
 // `cfg_src` is the family's CFG document source, EMPTY on the declaration path
 // (`container` item seam) and non-empty on the factory path. It is threaded down
@@ -1219,13 +1219,13 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
             ctr_id: u64,
         }
         impl #nm {
-            // PRIVILEGED tier (ADR 0039 D7): this family's engines are written
-            // against the in-memory model; recover it, checked.
-            fn ms(self: &#nm) -> &MemorySnapshot {
-                return memory_snapshot_of(&*self.snap);
+            // PRIVILEGED tier (ADR 0039 D7): the store of this family's node
+            // profile, recovered checked.
+            fn ms(self: &#nm) -> &<#nd as StoreProfile>::Store {
+                return store_of::<<#nd as StoreProfile>::Store>(&*self.snap);
             }
             pub static fn create(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
-                let msr: &MemorySnapshot = memory_snapshot_of(&**snap);
+                let msr: &<#nd as StoreProfile>::Store = store_of::<<#nd as StoreProfile>::Store>(&**snap);
                 let lf: #lid = #lid::new_in(snap.snapshot_id());
                 {
                     let __mroot: *mut u8 = ctr_publish_meta_static(lf.block(), #(mexpr));
@@ -2678,17 +2678,17 @@ fn emit_btfl_family(name: &str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
             branch_bytes: u32,
         }
         impl #nm {
-            // PRIVILEGED tier (ADR 0039 D7): this family's engines are written
-            // against the in-memory model; recover it, checked.
-            fn ms(self: &#nm) -> &MemorySnapshot {
-                return memory_snapshot_of(&*self.snap);
+            // PRIVILEGED tier (ADR 0039 D7): the store of this family's node
+            // profile, recovered checked.
+            fn ms(self: &#nm) -> &<#nd as StoreProfile>::Store {
+                return store_of::<<#nd as StoreProfile>::Store>(&*self.snap);
             }
             pub static fn create(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
                 return #nm::create_with(snap, ctr_id, #(lbs), #(bbs));
             }
             pub static fn create_with(snap: &Arc<dyn Snapshot>, ctr_id: u64,
                                       leaf_bytes: u32, branch_bytes: u32) -> #nm {
-                let msr: &MemorySnapshot = memory_snapshot_of(&**snap);
+                let msr: &<#nd as StoreProfile>::Store = store_of::<<#nd as StoreProfile>::Store>(&**snap);
                 let t: Btfl<2, #nd> = btfl_create::<2, #nd>(msr, leaf_bytes, branch_bytes);
                 {
                     let __mroot: *mut u8 = ctr_publish_meta_static(t.root, #(mexpr));
@@ -3044,17 +3044,17 @@ fn emit_btvec_family(name: &str, vty: &str, mexpr: ExprBlob, cfg_src: &str) {
             pub fn leaf_idx(self: &#cid) -> u32 { return self.idx; }
         }
         impl #nm {
-            // PRIVILEGED tier (ADR 0039 D7): this family's engines are written
-            // against the in-memory model; recover it, checked.
-            fn ms(self: &#nm) -> &MemorySnapshot {
-                return memory_snapshot_of(&*self.snap);
+            // PRIVILEGED tier (ADR 0039 D7): the store of this family's node
+            // profile, recovered checked.
+            fn ms(self: &#nm) -> &<#nd as StoreProfile>::Store {
+                return store_of::<<#nd as StoreProfile>::Store>(&*self.snap);
             }
             pub static fn create(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
                 return #nm::create_with(snap, ctr_id, #(lbs), #(bbs));
             }
             pub static fn create_with(snap: &Arc<dyn Snapshot>, ctr_id: u64,
                                       leaf_bytes: u32, branch_bytes: u32) -> #nm {
-                let msr: &MemorySnapshot = memory_snapshot_of(&**snap);
+                let msr: &<#nd as StoreProfile>::Store = store_of::<<#nd as StoreProfile>::Store>(&**snap);
                 let t: Btvec<#nd> = btvec_create::<#nd>(msr, leaf_bytes, branch_bytes);
                 {
                     let __mroot: *mut u8 = ctr_publish_meta_static(t.root, #(mexpr));
