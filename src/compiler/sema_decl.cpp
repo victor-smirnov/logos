@@ -854,7 +854,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
             type_str(ret_type), type_str(ret_type), type_str(ret_type)));
     // (param check is below, once params is populated)
     // Reset impl-trait inference state for this function.
-    if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::ImplTrait)
+    if (ret_type && contains_impl_trait_(ret_type))   // top-level or nested `impl Trait`
         impl_ret_type_inferred_ = nullptr;
 
     // Put type params in scope for the duration of the function body.
@@ -1489,6 +1489,13 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
             }
             body.each_stmt([&](lir_view::StmtRef s){ prologue.push_back(s); });
             body = lir_mirror_block(*cur_prog_, prologue);
+        }
+        // A nested `impl Trait` in the return type takes its hidden type the same way.
+        if (ret_type && TypeRef(ret_type).kind() != LogosType::Kind::ImplTrait &&
+            contains_impl_trait_(ret_type) && impl_ret_type_inferred_) {
+            ret_type         = subst_nested_impl_(ret_type, impl_ret_type_inferred_);
+            fi_ptr->ret_type = ret_type;
+            ret_type_        = ret_type;
         }
         // Resolve impl Trait return type to the concrete type inferred from returns.
         if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::ImplTrait) {

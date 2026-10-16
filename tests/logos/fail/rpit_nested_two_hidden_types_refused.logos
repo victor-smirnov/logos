@@ -1,0 +1,9 @@
+// Two different hidden types under a nested `impl Trait` (rustc E0308).
+package rpit_nested_two_hidden_types_refused;
+trait Src { fn get(&self) -> i64; }
+struct A { v: i64 }
+struct B { v: i64 }
+impl Src for A { fn get(&self) -> i64 { self.v } }
+impl Src for B { fn get(&self) -> i64 { self.v * 10 } }
+fn bad(n: i64) -> Option<impl Src> { if n > 0 { return Some(A { v: n }); } return Some(B { v: n }); }
+fn main() -> i32 { return 0; }

@@ -9482,6 +9482,46 @@ private:
     // Set around fn-body lowering; cleared inside block-as-expression
     // contexts (match-arm-body, unsafe-block-as-expr, if-as-expr).
     bool tail_as_return_ = false;
+    // `-> Option<impl Tr>`: an `impl Trait` NESTED in the return type. One hidden type,
+    // read off the returns at the hole's position, then substituted (Rust's RPIT in any
+    // position of the return type).
+    static bool contains_impl_trait_(TypeRef t, int d = 0) {
+        if (!t || d > 24) return false;
+        if (t.kind() == LogosType::Kind::ImplTrait) return true;
+        for (auto a : t.type_args()) if (contains_impl_trait_(a, d + 1)) return true;
+        for (auto e : t.tuple_elems()) if (contains_impl_trait_(e, d + 1)) return true;
+        return contains_impl_trait_(t.pointee(), d + 1) || contains_impl_trait_(t.elem(), d + 1);
+    }
+    bool bind_nested_impl_hidden_(TypeRef pat, TypeRef val, TypeRef& hidden, int d = 0) {
+        if (!pat || !val || d > 24) return true;
+        using K = LogosType::Kind;
+        if (pat.kind() == K::ImplTrait) {
+            const auto vk = val.kind();
+            if (vk == K::ImplTrait || vk == K::Never || vk == K::Error || vk == K::InferredType ||
+                vk == K::TypeVar) return true;
+            if (!hidden) { hidden = val; return true; }
+            return types_equal(val, hidden);
+        }
+        if (pat.kind() != val.kind()) return true;   // the ordinary return check judges it
+        auto pa = pat.type_args(); auto va = val.type_args();
+        for (size_t i = 0; i < pa.size() && i < va.size(); ++i)
+            if (!bind_nested_impl_hidden_(pa[i], va[i], hidden, d + 1)) return false;
+        auto pe = pat.tuple_elems(); auto ve = val.tuple_elems();
+        for (size_t i = 0; i < pe.size() && i < ve.size(); ++i)
+            if (!bind_nested_impl_hidden_(pe[i], ve[i], hidden, d + 1)) return false;
+        return bind_nested_impl_hidden_(pat.pointee(), val.pointee(), hidden, d + 1) &&
+               bind_nested_impl_hidden_(pat.elem(), val.elem(), hidden, d + 1);
+    }
+    TypeRef subst_nested_impl_(TypeRef t, TypeRef hidden, int d = 0) {
+        if (!t || !hidden || d > 24 || !contains_impl_trait_(t)) return t;
+        if (t.kind() == LogosType::Kind::ImplTrait) return hidden;
+        auto b = t.to_builder();
+        for (auto& a : b.type_args) a = subst_nested_impl_(a, hidden, d + 1);
+        for (auto& e : b.tuple_elems) e = subst_nested_impl_(e, hidden, d + 1);
+        if (b.pointee) b.pointee = subst_nested_impl_(b.pointee, hidden, d + 1);
+        if (b.elem) b.elem = subst_nested_impl_(b.elem, hidden, d + 1);
+        return pool_->alloc(std::move(b));
+    }
     TypeRef impl_ret_type_inferred_ = nullptr;
     // CP-cm-14: when lowering a closure-arg whose params lack type
     // annotations (`|x| body` rather than `|x: T| body`), check this
