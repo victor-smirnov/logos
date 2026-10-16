@@ -1,0 +1,13 @@
+// The twin: a field borrowing a local still makes the returned literal dangle.
+package struct_lit_local_borrow_escapes_refused;
+use logos.mem.collections.vec;
+use logos.mem.string;
+struct Col<'d> { name: &'d str }
+struct Rel<'d> { name: &'d str, cols: Vec<Col<'d>> }
+fn mk<'d>(n: &'d str) -> Rel<'d> {
+    let local = String::from("x");
+    let mut cols: Vec<Col> = Vec::new();
+    cols.push(Col { name: local.as_str() });
+    return Rel { name: "lit", cols: cols };
+}
+fn main() -> i32 { return 0; }

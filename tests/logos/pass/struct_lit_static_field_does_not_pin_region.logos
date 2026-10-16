@@ -1,0 +1,14 @@
+// A string literal in a `&'d str` field only says `'static: 'd`: it does not pin the
+// literal's region to 'static, so `Rel { name: "lit", cols }` returns as `Rel<'d>` (rustc 1.98.1
+// prints "lit 1"). Reported by deem while threading 'd through the wql IR.
+package struct_lit_static_field_does_not_pin_region;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct Col<'d> { name: &'d str }
+struct Rel<'d> { name: &'d str, cols: Vec<Col<'d>> }
+fn mk<'d>(n: &'d str) -> Rel<'d> {
+    let mut cols: Vec<Col> = Vec::new();
+    cols.push(Col { name: n });
+    return Rel { name: "lit", cols: cols };
+}
+fn main() { let s = String::from("abc"); let r = mk(s.as_str()); println!("{} {}", r.name, r.cols.len()); }
