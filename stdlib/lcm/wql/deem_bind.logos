@@ -53,7 +53,7 @@ use logos.std.wql.ir;                 // vocabulary into the binding path, the
 
 // The FIRST parameter's name in a rendered parameter list (`w: &Hs…, …`) —
 // the source the override attaches to.
-fn param_name_of(params: str) -> str {
+fn param_name_of(params: &str) -> &str {
     let n: i64 = params.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -97,8 +97,8 @@ pub struct PlanCmp { pub col: str, pub op: i32, pub why: str,
 // — and through them the verdicts — are available; slice 3.1 starts reading
 // them. A leading `-` on `name` marks a non-pub query (the params.logos
 // convention).
-pub fn __deem_bind(name: str, params: str, query: str, family: str,
-                   spec: str, cfg_src: str, decl_pkg: str) -> ItemList {
+pub fn __deem_bind(name: &str, params: &str, query: &str, family: &str,
+                   spec: &str, cfg_src: &str, decl_pkg: &str) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 || family.len() == 0i64 {
         error("deem bind: empty query name or family (driver seam regression?)");
@@ -111,7 +111,7 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
     // here rather than imported from `logos.std.wql.params`: that module is the
     // macro parameter-list parser, and the binder needs one byte of it.
     let priv0: bool = str_byte_at(name, 0i64) == 45u8;
-    let vis_name: str = if priv0 { unsafe { cf_sub(name, 1i64, name.len()) } } else { name };
+    let vis_name: &str = if priv0 { unsafe { cf_sub(name, 1i64, name.len()) } } else { name };
 
     let facts: Writ = container_facts(family, spec);
     let froot: WAny = facts.root();
