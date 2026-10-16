@@ -1007,6 +1007,17 @@ private:
                 return;
             }
             if ((pk == K::Slice || pk == K::Array) && at.kind() == pk) {
+                // `&'d str` / `&'d [T]` is a Slice: its own region slot pairs like a
+                // `&`'s (structlit_lt_subst_'s fat arm). Unpaired, a callee binder
+                // reached only through a `&'d str` argument stayed unsolved.
+                if (pk == K::Slice) {
+                    std::string p(pt.lifetime()), a(at.lifetime());
+                    if (!p.empty() && !a.empty()) {
+                        cands[p].push_back(a);
+                        if (!ls.count(p)) ls.emplace(p, a);
+                    }
+                    if (!p.empty() && a.empty()) elided_offer.insert(p);
+                }
                 walk(pt.elem(), at.elem());
                 return;
             }

@@ -1,0 +1,15 @@
+// A callee binder reached only through a `&'d str` argument is instantiated from it: the
+// slice's own region slot pairs at the call like a `&`'s. P is invariant in 'd (Vec<&'d str>),
+// so an unsolved binder (it fell to 'static) was refused. rustc 1.98.1 prints "3". Reported by deem.
+package call_slice_arg_region_instantiates_binder;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.string;
+struct P<'d> { names: Vec<&'d str>, tp: &'d str, }
+fn p_new<'d>(s0: &'d str) -> P<'d> { return P { names: Vec::<&str>::new(), tp: s0 }; }
+fn f<'d>(s: &'d str) -> i64 {
+    let mut prm: P<'d> = p_new(s);
+    prm.tp = s;
+    return prm.tp.len() as i64 + prm.names.len() as i64;
+}
+fn main() { let mut s: String = String::new(); s.push_str("abc"); println!("{}", f(s.as_str())); }
