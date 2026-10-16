@@ -1,0 +1,18 @@
+// `RefCell::new(Box::new(x))` into `RefCell<Box<dyn Tr>>` (and Box<Box<dyn>>, Rc<Box<dyn>>):
+// the expectation fixes the generic formal at `Box<dyn Tr>`, so the argument is
+// the coercion site and `Box<X>` unsizes there, as in rustc. Matrix 11_42 and 1_20.
+package box_dyn_unsize_at_hinted_generic_arg;
+use logos.std.fmt;
+use logos.mem.boxed;
+use logos.lang.cell;
+use logos.lang.rc;
+trait C { fn p(&self) -> i32; }
+struct X { n: i32 }
+impl C for X { fn p(&self) -> i32 { self.n } }
+fn main() {
+    let a: RefCell<Box<dyn C>> = RefCell::new(Box::new(X { n: 2 }));
+    let b: Box<Box<dyn C>> = Box::new(Box::new(X { n: 3 }));
+    let c: Rc<Box<dyn C>> = Rc::new(Box::new(X { n: 4 }));
+    let d: Rc<RefCell<Box<dyn C>>> = Rc::new(RefCell::new(Box::new(X { n: 5 })));
+    println!("{} {} {} {}", a.borrow().p(), b.p(), c.p(), d.borrow().p());
+}

@@ -6984,9 +6984,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12307 -> 12309 (+2), NOIMPORTED 7748 -> 7750 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-16: pass/memoria_fork_isolates_{vector,multimap} (ADR 0039 M3v).
 #                ALL 12309 -> 12310 (+1), NOIMPORTED 7750 -> 7751 (+1), TIERCOMMIT 165 -> 165 (+0) — 2026-10-16: pass/memoria_store_of_other_model_abort (ADR 0039 M3b).
 #                ALL 12310 -> 12313 (+3), NOIMPORTED 7751 -> 7754 (+3), TIERCOMMIT 165 -> 165 (+0) — 2026-10-16: pass/struct_lit_static_field_does_not_pin_region, pass/lifetime_only_alias_elided, fail/struct_lit_local_borrow_escapes_refused.
-#                ALL 12313 -> 12315 (+2), NOIMPORTED 7754 -> 7756 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-16: merge main cdbda1d18 onto deem M4a: pass/memoria_merge_heads, pass/memoria_dag_topology (ADR 0039 M4a).
-REGISTRY-ALL         12315
-REGISTRY-NOIMPORTED  7756
+#                ALL 12313 -> 12314 (+1), NOIMPORTED 7754 -> 7755 (+1), TIERCOMMIT 165 -> 165 (+0) — 2026-10-16: pass/box_dyn_unsize_at_hinted_generic_arg.
+#                ALL 12314 -> 12316 (+2), NOIMPORTED 7755 -> 7757 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-16: merge main 1931b261a onto deem M4a: pass/memoria_merge_heads, pass/memoria_dag_topology (ADR 0039 M4a).
+REGISTRY-ALL         12316
+REGISTRY-NOIMPORTED  7757
 REGISTRY-TIERCOMMIT  165
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
