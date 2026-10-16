@@ -10,7 +10,7 @@
 //   (f) dropping the loser keeps the merge readable, and pack keeps the
 //       loser while the merge names it;
 //   (g) a saved and reloaded store keeps the merge's parents and its label.
-// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+// Prints ok iff every assertion holds; otherwise the first failure's code.
 package test;
 
 use logos.lcm.canon.container_item;
@@ -126,6 +126,10 @@ fn run() -> i32 {
 
 fn main() -> i32 {
     let r: i32 = run();
-    println!("{}", r);
-    return r;
+    if r != 0i32 {
+        println!("FAIL memoria_merge_heads: diagnostic code {}", r);
+        return 1i32;
+    }
+    println!("ok");
+    return 0i32;
 }

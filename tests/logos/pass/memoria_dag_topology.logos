@@ -6,7 +6,7 @@
 // parents, children, roots and heads answer the shape, and each commit still
 // reads its own write. (deem.data had a GENESIS commit above c0; here the
 // first commit is the root.)
-// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+// Prints ok iff every assertion holds; otherwise the first failure's code.
 package test;
 
 use logos.lcm.canon.container_item;
@@ -77,6 +77,10 @@ fn run() -> i32 {
 
 fn main() -> i32 {
     let r: i32 = run();
-    println!("{}", r);
-    return r;
+    if r != 0i32 {
+        println!("FAIL memoria_dag_topology: diagnostic code {}", r);
+        return 1i32;
+    }
+    println!("ok");
+    return 0i32;
 }
