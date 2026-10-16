@@ -467,8 +467,8 @@ fn eval_sexpr<'d>(e: SExpr, cat: &SchemaCatalog<'d>, env: &QEnv<'d>, lb: *const 
                 // regions as a declaration than as a mono instance, so
                 // `labels()` and `walk_type()` disagree and every call
                 // through it falls back to "?" — which matches everything.
-                let ap: *const RtVal = &argv[0i64] as *const RtVal;
-                let r: RtVal = f(unsafe { slice_from_raw::<RtVal>(ap, na) });
+                let ap: *const RtVal<'d> = &argv[0i64] as *const RtVal<'d>;
+                let r: RtVal<'d> = f(unsafe { slice_from_raw::<RtVal<'d>>(ap, na) });
                 return r;
             }
             return RtVal::Null;
