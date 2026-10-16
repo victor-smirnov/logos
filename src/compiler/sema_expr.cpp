@@ -18668,6 +18668,14 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                         else if (ak == LogosType::Kind::FloatLit &&
                                  (hk == LogosType::Kind::F64 || hk == LogosType::Kind::F32))
                             arg_exprs.back() = builder().cast(std::move(arg_exprs.back()), ah);
+                        // An owning `Box<X>` where the expectation fixes the formal at
+                        // `Box<dyn Tr>` (`RefCell::new(Box::new(x))` into `RefCell<Box<dyn Tr>>`):
+                        // the argument is the coercion site, as in rustc, so the generic
+                        // instantiates at the expected type instead of `Box<X>`.
+                        else if (hk == LogosType::Kind::TraitObject && TypeRef(ah).owning_trait_object() &&
+                                 is_stdlib_box(expr_type(arg_exprs.back())))
+                            expect_type(arg_exprs.back(), ah, CoercePos::CallArg,
+                                        std::format("call to '{}' arg {}:", mangled, i + 1));
                     }
                 }
             }
