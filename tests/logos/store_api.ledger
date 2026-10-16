@@ -1,17 +1,20 @@
 # ADR 0039 M1 — store API census. Regenerate: tests/logos/store_api_census.py . tests/logos/store_api.ledger --write
 # symbol	stack	area	uses	files	target
-MemoryStore	mem.bt	stdlib/mem/bt	86	1	VersionStore (in-memory model, D10)
+MemoryStore	mem.bt	stdlib/mem/bt	87	1	VersionStore (in-memory model, D10)
 MemoryStore	mem.bt	tests/logos/fail	12	12	VersionStore (in-memory model, D10)
 MemoryStore	mem.bt	tests/logos/pass	92	77	VersionStore (in-memory model, D10)
-MemorySnapshot	mem.bt	stdlib/lcm/canon	12	1	Snapshot + Workspace instance; NodeStore (D7)
-MemorySnapshot	mem.bt	stdlib/mem/bt	109	4	Snapshot + Workspace instance; NodeStore (D7)
-MemorySnapshot	mem.bt	tests/logos/pass	42	9	Snapshot + Workspace instance; NodeStore (D7)
+MemorySnapshot	mem.bt	stdlib/lcm/canon	6	1	Snapshot + Workspace instance; NodeStore (D7)
+MemorySnapshot	mem.bt	stdlib/mem/bt	122	4	Snapshot + Workspace instance; NodeStore (D7)
+MemorySnapshot	mem.bt	tests/logos/pass	35	9	Snapshot + Workspace instance; NodeStore (D7)
 dyn Snapshot	mem.bt	stdlib/lcm/canon	19	2	Snapshot (read) / Workspace (write) — split at M2
-dyn Snapshot	mem.bt	stdlib/mem/bt	11	1	Snapshot (read) / Workspace (write) — split at M2
+dyn Snapshot	mem.bt	stdlib/mem/bt	13	2	Snapshot (read) / Workspace (write) — split at M2
 dyn Snapshot	mem.bt	tests/logos/fail	11	11	Snapshot (read) / Workspace (write) — split at M2
-dyn Snapshot	mem.bt	tests/logos/pass	120	76	Snapshot (read) / Workspace (write) — split at M2
-MSDOWNCAST	mem.bt	stdlib/lcm/canon	6	1	NodeStore (D7) replaces the dyn_data downcast
-MSDOWNCAST	mem.bt	tests/logos/pass	7	5	NodeStore (D7) replaces the dyn_data downcast
+dyn Snapshot	mem.bt	tests/logos/pass	122	77	Snapshot (read) / Workspace (write) — split at M2
+NodeStore	mem.bt	stdlib/mem/bt	7	2	NodeStore (D7): node placement + the directory
+node_store_of	mem.bt	stdlib/mem/bt	2	2	NodeStore (D7): the checked step to the privileged tier
+memory_snapshot_of	mem.bt	stdlib/lcm/canon	6	1	M3b: engines generic over NodeStore, then delete
+memory_snapshot_of	mem.bt	stdlib/mem/bt	1	1	M3b: engines generic over NodeStore, then delete
+memory_snapshot_of	mem.bt	tests/logos/pass	7	5	M3b: engines generic over NodeStore, then delete
 store_new	mem.bt	stdlib/mem/bt	3	1	VersionStore construction (model)
 store_new	mem.bt	tests/logos/fail	12	12	VersionStore construction (model)
 store_new	mem.bt	tests/logos/pass	87	77	VersionStore construction (model)
@@ -70,7 +73,7 @@ create_ctr	deem.data	tests/logos/fail	1	1	Ctr: create in a Workspace
 create_ctr	deem.data	tests/logos/pass	33	24	Ctr: create in a Workspace
 create_ctr	mem.bt	stdlib/lcm/canon	1	1	Ctr: create in a Workspace
 create_ctr	mem.bt	tests/logos/fail	11	11	Ctr: create in a Workspace
-create_ctr	mem.bt	tests/logos/pass	111	73	Ctr: create in a Workspace
+create_ctr	mem.bt	tests/logos/pass	112	74	Ctr: create in a Workspace
 open_ctr	deem.data	stdlib/lcm/deem	1	1	Ctr: open in a Snapshot / Workspace
 open_ctr	deem.data	tests/logos/pass	35	11	Ctr: open in a Snapshot / Workspace
 open_ctr	mem.bt	stdlib/lcm/canon	1	1	Ctr: open in a Snapshot / Workspace
@@ -97,4 +100,4 @@ InsertError	deem.data	stdlib/lcm/deem	4	1	M4: delete
 InsertError	deem.data	tests/logos/pass	2	1	M4: delete
 # not counted (file is outside the stack)	Snap	?	stdlib/mem/version	16
 # not counted (file is outside the stack)	Snap	?	tests/logos/pass	21
-# totals	compiler=1	deem.data=219	mem.bt=1038
+# totals	compiler=1	deem.data=219	mem.bt=1054
