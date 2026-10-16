@@ -5,7 +5,7 @@ package two_phase_surprise_no_conflict;
 struct Map { n: i64 }
 struct SH<'a> { cx: &'a Map, k: i64 }
 impl<'a> SH<'a> {
-    fn demo(self: &mut SH) -> i64 {
+    fn demo(self: &mut Self) -> i64 {
         let mb: &mut SH = self;
         let acc: &Map = self.cx;
         mb.k = 1i64;

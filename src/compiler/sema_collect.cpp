@@ -4509,8 +4509,18 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                         // a second spelling — compare the
                                         // lifetime arguments only when some
                                         // were written. PROBES.md 2026-09-04a.
-                                        bool lt_written = !written.lifetime_args().empty();
-                                        if (same_adt && (!eq || (!eq_lt && lt_written)))
+                                        // An ELIDED list is a fresh region, not Self's: rustc
+                                        // refuses `self: &C` inside `impl<'a> C<'a>` (and inside
+                                        // `impl C<'_>`) with E0308 too. The old "elision asserts
+                                        // nothing" reading admitted a receiver whose region was
+                                        // unrelated to Self's, and a push through it dangled.
+                                        bool lt_checked = !written.lifetime_args().empty() ||
+                                                          !self_ty.lifetime_args().empty();
+                                        // types_equal_with_lifetimes reads an empty list as a
+                                        // wildcard; here it is the fresh region, so say so.
+                                        bool elided_vs_named = written.lifetime_args().empty() &&
+                                                               !self_ty.lifetime_args().empty();
+                                        if (same_adt && (!eq || (!eq_lt && lt_checked) || elided_vs_named))
                                             error(std::format(
                                                 "mismatched `self` parameter type: expected "
                                                 "'{}', found '{}'",

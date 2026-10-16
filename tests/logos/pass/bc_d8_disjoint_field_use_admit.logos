@@ -38,15 +38,15 @@ pub struct Rows { pub n: u64 }
 pub struct Bat<'a> { pub r: &'a Rows, pub base: u64 }
 
 impl<'a> Bat<'a> {
-    pub fn len(self: &Bat) -> u64 { return 4u64; }
-    pub fn at(self: &Bat, i: u64) -> u64 { return self.base + i; }
+    pub fn len(self: &Self) -> u64 { return 4u64; }
+    pub fn at(self: &Self, i: u64) -> u64 { return self.base + i; }
 }
 
 #[borrow_carrying]
 pub struct Walk<'a> { pub r: &'a Rows, pub at: u64 }
 
 impl<'a> Walk<'a> {
-    pub fn next_batch(self: &mut Walk) -> Option<Bat> {
+    pub fn next_batch(self: &mut Self) -> Option<Bat> {
         if self.at >= self.r.n { return Option::None; }
         let b: Bat = Bat { r: self.r, base: self.at };
         self.at = self.at + 4u64;
@@ -63,7 +63,7 @@ pub struct Arm<'a> { pub w: Walk<'a>, pub sc: Vec<u64>, pub tag2: u64 }
 pub struct Deep<'a> { pub a: Arm<'a>, pub b: Arm<'a>, pub tag: u64 }
 
 impl<'a> Deep<'a> {
-    pub fn step(self: &mut Deep) -> u64 {
+    pub fn step(self: &mut Self) -> u64 {
         let o = self.a.w.next_batch();
         if o.is_none() { return 0u64; }
         let b = o.unwrap();
