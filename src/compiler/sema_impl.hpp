@@ -1063,6 +1063,29 @@ private:
                 if (v && (*v == Variance::Co || *v == Variance::BiVar)) ls[lp] = "";
             }
         }
+        // An INVARIANT binder offered only 'static (`p_new("")` for `P<'d>` holding
+        // Vec<&'d str>): 'static is a lower bound, not the instantiation — pinned, a
+        // later `&mut P<'d>` use could never shrink it. It stays inferred, as the
+        // constrained-but-unnameable binders below (rustc infers it from the uses).
+        for (auto& lp : lifetime_params) {
+            auto it = cands.find(lp);
+            if (it == cands.end() || it->second.empty() || !ls.count(lp)) continue;
+            bool all_static = true;
+            for (auto& c : it->second) all_static = all_static && outlives_is_static(c);
+            if (!all_static) continue;
+            auto v = fn_binder_variance_(param_types, ret, lp);
+            if (!(v && *v != Variance::Co && *v != Variance::BiVar)) continue;
+            // The expected result names the region (`let x: P<'static> = p_new("")`):
+            // that is the instantiation. Otherwise it stays inferred.
+            std::string hinted;
+            if (TypeRef h = ret_hint_(); h && ret && TypeRef(h).kind() == TypeRef(ret).kind() &&
+                (TypeRef(h).kind() == LogosType::Kind::Struct || TypeRef(h).kind() == LogosType::Kind::Enum)) {
+                auto rl = TypeRef(ret).lifetime_args(); auto hl = TypeRef(h).lifetime_args();
+                for (size_t i = 0; i < rl.size() && i < hl.size(); ++i)
+                    if (rl[i] == lp && !hl[i].empty()) hinted = hl[i];
+            }
+            ls[lp] = hinted;
+        }
         std::unordered_set<std::string> mentioned;
         const bool three_way_ = logos::probe::arm_inst() || logos::probe::arm_subst();
         if (three_way_)

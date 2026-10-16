@@ -1,0 +1,16 @@
+// An invariant callee binder offered only 'static (`p_new("")` for P<'d> holding Vec<&'d str>)
+// is not pinned to 'static: a later `fill(s, &mut prm)` instantiates it at s's region, and an
+// expected P<'static> still gets 'static. rustc 1.98.1 prints "1". Reported by deem.
+package call_static_arg_does_not_pin_invariant_binder;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.string;
+struct P<'d> { names: Vec<&'d str>, tp: &'d str, }
+fn p_new<'d>(s0: &'d str) -> P<'d> { return P { names: Vec::<&str>::new(), tp: s0 }; }
+fn fill<'d>(p: &'d str, out: &mut P<'d>) { out.names.push(p); }
+fn f<'d>(s: &'d str) -> i64 {
+    let mut prm: P = p_new("");
+    fill(s, &mut prm);
+    return prm.tp.len() as i64 + prm.names.len() as i64;
+}
+fn main() { let x: P<'static> = p_new(""); let mut s: String = String::new(); s.push_str("abc"); println!("{}", f(s.as_str()) + x.tp.len() as i64); }
