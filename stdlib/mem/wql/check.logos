@@ -46,13 +46,13 @@ struct NameScope {
 }
 
 fn ns_new() -> NameScope {
-    return NameScope { vars: Vec::<str>::new(), anti: Vec::<bool>::new(), nv: 0i64,
+    return NameScope { vars: Vec::<&str>::new(), anti: Vec::<bool>::new(), nv: 0i64,
                        upto: 0i64, own: -1i64, grouped: false, comp: "",
-                       known: Vec::<str>::new() };
+                       known: Vec::<&str>::new() };
 }
 
 // The scope of a chain's base alone.
-fn ns_name_ok(nm: str, sc: &NameScope, prm: &MacroParams, clause: str) -> bool {
+fn ns_name_ok(nm: &str, sc: &NameScope, prm: &MacroParams, clause: &str) -> bool {
     if sc.comp.len() > 0i64 && name_refs(nm, sc.comp) { return true; }
     let mut k: i64 = -1i64;
     let mut i: i64 = 0i64;
@@ -80,7 +80,7 @@ fn ns_name_ok(nm: str, sc: &NameScope, prm: &MacroParams, clause: str) -> bool {
         error(string_as_str(&mu));
         return false;
     }
-    let v: str = sc.vars[k];
+    let v: &str = sc.vars[k];
     let mut m: String = String::new();
     if sc.grouped {
         if k == 0i64 { return true; }
@@ -106,7 +106,7 @@ fn ns_name_ok(nm: str, sc: &NameScope, prm: &MacroParams, clause: str) -> bool {
     return false;
 }
 
-fn ns_expr_ok(e: SExpr, sc: &mut NameScope, prm: &MacroParams, clause: str) -> bool {
+fn ns_expr_ok(e: SExpr, sc: &mut NameScope, prm: &MacroParams, clause: &str) -> bool {
     match e {
         SExpr::Var(v) => { return ns_name_ok(v.name, sc, prm, clause); }
         SExpr::Field(f) => {
@@ -133,7 +133,7 @@ fn ns_expr_ok(e: SExpr, sc: &mut NameScope, prm: &MacroParams, clause: str) -> b
         }
         // The head reads the comprehension's loop var; its source plan is its own.
         SExpr::Comp(cp) => {
-            let outer: str = sc.comp;
+            let outer: &str = sc.comp;
             sc.comp = cp.var;
             let ok: bool = ns_expr_ok(cp.head_expr(), sc, prm, clause);
             sc.comp = outer;
@@ -217,7 +217,7 @@ fn ns_ons_ok(sc: &mut NameScope, cl: &CClause, prm: &MacroParams) -> bool {
 
 // The `where` conditions (`label` names the clause in a diagnostic: `find`'s
 // predicate reads as `where`).
-fn ns_wheres_ok(sc: &mut NameScope, cl: &CClause, prm: &MacroParams, label: str) -> bool {
+fn ns_wheres_ok(sc: &mut NameScope, cl: &CClause, prm: &MacroParams, label: &str) -> bool {
     let bs: &[CLit] = cl.body.as_slice();
     let mut i: i64 = 0i64;
     while i < cl.body.len() {
@@ -303,7 +303,7 @@ pub fn core_scope_ok(p: &CProgram, prm: &MacroParams) -> bool {
     return rule_scope_ok(&p.entry, true, prm);
 }
 
-fn rel_err(rel: str, what: str) -> bool {
+fn rel_err(rel: &str, what: &str) -> bool {
     let mut m: String = String::new();
     m.push_str("wql!: rel '"); m.push_str(rel); m.push_str("': "); m.push_str(what);
     error(string_as_str(&m));
@@ -315,7 +315,7 @@ fn rel_err(rel: str, what: str) -> bool {
 // CORE, so every body shape gets it — the surface walker asked it of the
 // simple and join shapes only, and an aggregating body's `order by` / `limit`
 // / `select first` was silently dropped.
-fn rel_rule_ok(rel: str, ru: &CRule) -> bool {
+fn rel_rule_ok(rel: &str, ru: &CRule) -> bool {
     match &ru.env.mode {
         CMode::Find => { return rel_err(rel, "`find` is not allowed in a rel body — bodies produce relations (from/join/where/select only)"); }
         CMode::First => { return rel_err(rel, "`select first` is not allowed in a rel body — bodies produce relations (single-row modes are entry-query concerns)"); }
@@ -331,11 +331,11 @@ fn rel_rule_ok(rel: str, ru: &CRule) -> bool {
 // Every row var of a chain is unique (every shape: the surface asked it of the
 // join chains it stamped, not of an aggregate rel body's steps).
 fn chain_vars_ok(cl: &CClause) -> bool {
-    let mut seen: Vec<str> = Vec::<str>::new();
+    let mut seen: Vec<&str> = Vec::<&str>::new();
     let bs: &[CLit] = cl.body.as_slice();
     let mut i: i64 = 0i64;
     while i < cl.body.len() {
-        let v: str = match &bs[i] { CLit::Atom(a) => { a.var } CLit::Trav(t) => { t.var } CLit::Cond(_c) => { "" } };
+        let v: &str = match &bs[i] { CLit::Atom(a) => { a.var } CLit::Trav(t) => { t.var } CLit::Cond(_c) => { "" } };
         if v.len() > 0i64 {
             let mut k: i64 = 0i64;
             while k < seen.len() {

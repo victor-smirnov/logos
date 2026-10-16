@@ -81,7 +81,7 @@ pub type WritEdgeRowIn<'a> = (i64, &'a str, i64, i64, &'a str, i64, i64, &'a str
 // WHY 0 IS AVAILABLE AS "no parent node": no real node id is 0 — a Writ
 // container id is a live handle and a derived struct id is its address.
 pub const WG_ROOT_PARENT: i64 = 0i64;
-pub const WG_ROOT_KEY:    str = "";
+pub const WG_ROOT_KEY:    &str = "";
 pub const WG_ROOT_IDX:    i64 = 0i64 - 1i64;
 // The root edge's ORDINAL among the (absent) parent's children — the second
 // word the synthetic-leaf id rule hashes. Only the two producers that COMPUTE
@@ -108,7 +108,7 @@ fn wg_fnv2(a: i64, b: i64) -> i64 {
     return hh as i64;
 }
 
-fn wg_kind(v: WAny) -> str {
+fn wg_kind(v: WAny) -> &str {
     if v.is_map()     { return "map"; }
     if v.is_array()   { return "arr"; }
     if v.is_tinymap() { return "tom"; }
@@ -183,7 +183,7 @@ fn wg_vi(child: WAny) -> i64 {
     return vi;
 }
 
-fn wg_emit(out: &mut Vec<WritEdgeRow>, parent: WAny, key: str, idx: i64,
+fn wg_emit(out: &mut Vec<WritEdgeRow>, parent: WAny, key: &str, idx: i64,
            child: WAny, ord: i64) {
     out.push((parent.raw() as i64, key, idx,
               wg_node_id(parent.raw() as i64, child, ord), wg_kind(child),

@@ -1322,7 +1322,7 @@ for fname, pfx in (("wg_words", ""), ("rj_words", ""),
 # trace line's ground field; the prefixes stay distinct so the census can print
 # which vocabulary a ground belongs to and so that neither can be extracted by
 # accident when the other's shape changes.
-for tok, sent in re.findall(r'pub fn ((?:MG|AG)_\w+)\(\) -> str\s*\{ return "(.*?)"; \}', apl):
+for tok, sent in re.findall(r'pub fn ((?:MG|AG)_\w+)\(\) -> &?str\s*\{ return "(.*?)"; \}', apl):
     vocab[tok] = sent
 if len([k for k in vocab if k.startswith("MG_")]) < 8:
     bad("fewer than 8 MG_* grounds extracted — the materialization vocabulary "

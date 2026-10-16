@@ -122,10 +122,10 @@ pub fn sx_soff(e: SExpr) -> i64 {
 
 /// A type diagnostic about `e`, reported at `e`'s place in the query when the
 /// environment knows the query (ADR 0031 R4.3) — never at a generated line.
-pub fn ty_error(t: &ElTypes, e: SExpr, msg: str) { ty_error_off(t, sx_soff(e), msg); }
+pub fn ty_error(t: &ElTypes, e: SExpr, msg: &str) { ty_error_off(t, sx_soff(e), msg); }
 
 /// The same, at a byte offset in the query text (< 0 = no place).
-pub fn ty_error_off(t: &ElTypes, soff: i64, msg: str) {
+pub fn ty_error_off(t: &ElTypes, soff: i64, msg: &str) {
     if !t.src.on || soff < 0i64 { error(msg); return; }
     let loc: QueryLoc = qsrc_resolve(&t.src, soff);
     let mut out: String = qloc_prefix(&loc);
@@ -183,13 +183,13 @@ pub fn plan_trace_facts_on() -> bool {
 }
 
 /// One already-composed trace line, as is.
-pub fn plan_trace_raw(ln: str) {
+pub fn plan_trace_raw(ln: &str) {
     unsafe { write(2i32, ln.as_ptr(), ln.len()); }
 }
 
 /// One decision: what was concluded, about what, and the antecedent that
 /// decided it — which for a fallback is also the remedy.
-pub fn plan_trace(subject: str, verdict: str, about: str, why: str) {
+pub fn plan_trace(subject: &str, verdict: &str, about: &str, why: &str) {
     if !plan_trace_on() { return; }
     let mut ln: String = String::new();
     ln.push_str("[plan] "); ln.push_str(subject);
@@ -230,7 +230,7 @@ pub fn force_order_ix() -> i64 {
     unsafe {
         let v: *const u8 = getenv(c.as_ptr());
         if v == 0 as *const u8 { return -1i64; }
-        let s: str = str_from_cstr(v);
+        let s: &str = str_from_cstr(v);
         if s.len() == 0i64 { return -1i64; }
         let mut acc: i64 = 0i64;
         let mut i: i64 = 0i64;
@@ -256,7 +256,7 @@ pub fn order_census_on() -> bool {
 }
 
 /// `[wql-order] <query> ncand=<n> deferred=<0|1>` on stderr.
-pub fn order_census(fn_name: str, ncand: i64, deferred: bool) {
+pub fn order_census(fn_name: &str, ncand: i64, deferred: bool) {
     if !order_census_on() { return; }
     let mut ln: String = String::new();
     ln.push_str("[wql-order] ");
@@ -269,12 +269,12 @@ pub fn order_census(fn_name: str, ncand: i64, deferred: bool) {
     unsafe { write(2i32, ln.as_ptr(), ln.len()); }
 }
 
-pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
+pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> &str {
     match e {
         SExpr::Lit(l) => {
             // A literal names its suffix (`5i32`), or the representative of its
             // kind — it takes a real type from its context, not from here.
-            let sx: str = l.suffix();
+            let sx: &str = l.suffix();
             if sx.len() > 0i64 { return sx; }
             let v: WAny = l.val;
             if v.is_string() { return "str"; }
@@ -285,7 +285,7 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
         SExpr::Param(pp) => { return t.ty_name_of(pp.name); }
         SExpr::Var(vv)   => { return t.ty_name_of(vv.name); }
         SExpr::Field(f)  => {
-            let nm: str = field_ty_name(f, t);
+            let nm: &str = field_ty_name(f, t);
             if nm.len() > 0i64 { return nm; }
             return t.ty_name_of(f.name);
         }
@@ -297,9 +297,9 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
                || op == OP_GT() || op == OP_GE() { return "bool"; }
             if el_is_bit_op(op) {
                 // the operands' own integer type (a literal names none)
-                let bl: str = operand_named_ty(b.lhs_expr(), t);
+                let bl: &str = operand_named_ty(b.lhs_expr(), t);
                 if bl.len() > 0i64 { return bl; }
-                let br: str = operand_named_ty(b.rhs_expr(), t);
+                let br: &str = operand_named_ty(b.rhs_expr(), t);
                 if br.len() > 0i64 { return br; }
                 return "i64";
             }
@@ -313,7 +313,7 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
         SExpr::Un(u) => {
             if u.op == OP_NOT() {
                 // `!` over an integer is its bitwise complement, as in Rust
-                let an: str = infer_ty_name(u.arg_expr(), t);
+                let an: &str = infer_ty_name(u.arg_expr(), t);
                 if t.class_of_name(an) == EL_TY_INT() { return an; }
                 return "bool";
             }
@@ -372,14 +372,14 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
 /// the tower result back into the node's type. Until 2026-10-02 this answered the
 /// tower's type (SQL-style promotion), and `select s.w + 1` was a `Vec<i64>`.
 /// FLOAT arithmetic still answers the class representative (`f64`).
-pub fn infer_emit_ty(e: SExpr, t: &ElTypes) -> str {
+pub fn infer_emit_ty(e: SExpr, t: &ElTypes) -> &str {
     if el_computes_in_repr(e) {
         let c: i32 = infer_ty(e, t);
         if c == EL_TY_INT() { return arith_node_ty(e, t); }
         if c == EL_TY_FLT() { return float_node_ty(e, t); }
         return el_class_repr(c);
     }
-    let n: str = infer_ty_name(e, t);
+    let n: &str = infer_ty_name(e, t);
     if el_class_lookup(n) >= 0i32 { return n; }
     // A TUPLE type (a tuple `group by` key read as `key`) is printed as itself.
     if n.len() > 0i64 && str_byte_at(n, 0i64) == 40u8 { return n; }
@@ -457,14 +457,14 @@ pub fn arith_node_tower(e: SExpr, t: &ElTypes) -> i32 {
 /// operands naming DIFFERENT integer types (`i32 + i64`) are refused before any
 /// of this is asked (`check_operand_types_agree`); the tower answer for them below
 /// is what a caller that skipped the check would get, not a typing rule.
-pub fn arith_node_ty(e: SExpr, t: &ElTypes) -> str {
+pub fn arith_node_ty(e: SExpr, t: &ElTypes) -> &str {
     let tw: i32 = arith_node_tower(e, t);
-    let rep: str = el_tower_repr(tw);
-    let mut n: str = "";
+    let rep: &str = el_tower_repr(tw);
+    let mut n: &str = "";
     match e {
         SExpr::Bin(b) => {
-            let ln: str = arith_operand_ty(b.lhs_expr(), t);
-            let rn: str = arith_operand_ty(b.rhs_expr(), t);
+            let ln: &str = arith_operand_ty(b.lhs_expr(), t);
+            let rn: &str = arith_operand_ty(b.rhs_expr(), t);
             if ln.len() > 0i64 && rn.len() > 0i64 && !str_eq(ln, rn) { return rep; }
             n = if ln.len() > 0i64 { ln } else { rn };
         }
@@ -484,8 +484,8 @@ pub fn arith_node_ty(e: SExpr, t: &ElTypes) -> str {
 /// `check_operand_types_agree`); a node naming no type (`1.5 * 2.0`) is `f64`.
 /// Until 2026-10-02 every float node computed in f64 and an `f32` operand was
 /// widened into it.
-pub fn float_node_ty(e: SExpr, t: &ElTypes) -> str {
-    let mut n: str = "";
+pub fn float_node_ty(e: SExpr, t: &ElTypes) -> &str {
+    let mut n: &str = "";
     match e {
         SExpr::Bin(b) => {
             n = arith_operand_ty(b.lhs_expr(), t);
@@ -502,7 +502,7 @@ pub fn float_node_ty(e: SExpr, t: &ElTypes) -> str {
 /// `f64` — or "" for an unsuffixed one (or `-N` over either). A suffix makes a
 /// literal a TYPED operand like a column: `r.f * 1.0f64` over an `f32` is a
 /// mismatch, as in Rust, instead of the suffix being dropped.
-pub fn lit_suffix(e: SExpr) -> str {
+pub fn lit_suffix(e: SExpr) -> &str {
     match e {
         SExpr::Lit(l) => { return l.suffix(); }
         SExpr::Un(u) => { if u.op == OP_NEG() { return lit_suffix(u.arg_expr()); } return ""; }
@@ -513,7 +513,7 @@ pub fn lit_suffix(e: SExpr) -> str {
 /// The type ONE operand names for `arith_node_ty` — a literal's suffix ("" when
 /// it has none: it takes the other side's), the node's own type for a nested
 /// arithmetic node, and the declared type for everything else.
-fn arith_operand_ty(e: SExpr, t: &ElTypes) -> str {
+fn arith_operand_ty(e: SExpr, t: &ElTypes) -> &str {
     match e {
         SExpr::Lit(_) => { return lit_suffix(e); }
         _ => { }
@@ -527,7 +527,7 @@ fn arith_operand_ty(e: SExpr, t: &ElTypes) -> str {
 /// OPENING half, written before the checked tower call. Nothing is written when
 /// the node's type IS its tower's (`i64`, `u64`) or spans the whole tower
 /// (`isize`, `usize`, which only need the closing `as`).
-pub fn emit_arith_fit_open(out: &mut String, nt: str, tw: i32) {
+pub fn emit_arith_fit_open(out: &mut String, nt: &str, tw: i32) {
     if str_eq(nt, el_tower_repr(tw)) { return; }
     out.push_str("((");
     let ty: ElTy = el_ty(nt);
@@ -537,7 +537,7 @@ pub fn emit_arith_fit_open(out: &mut String, nt: str, tw: i32) {
 
 /// The CLOSING half: the range literals, the `?`, and the cast into the node's
 /// type — exact, because the check has just proved the value is in range.
-pub fn emit_arith_fit_close(out: &mut String, nt: str, tw: i32) {
+pub fn emit_arith_fit_close(out: &mut String, nt: &str, tw: i32) {
     if str_eq(nt, el_tower_repr(tw)) { return; }
     let ty: ElTy = el_ty(nt);
     if ty.bits >= 64i64 {
@@ -584,7 +584,7 @@ pub fn el_computes_in_repr(e: SExpr) -> bool {
 // leaf (a null-base SField — the EL parser's bare-ident node — or an SVar /
 // SParam), "" otherwise. The rel-binding lookups key off this (a rel row var
 // is always a direct scan binding, never a nested path).
-pub fn root_ident_name(e: SExpr) -> str {
+pub fn root_ident_name(e: SExpr) -> &str {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
@@ -612,20 +612,20 @@ pub fn root_ident_name(e: SExpr) -> str {
 ///            field whose base is a field — so the base's own DECLARED TYPE is
 ///            the key: `a.b` is an `Inner`, and (`Inner`, `c`) is as precise a
 ///            key as (`a`, `n`). `reflect::stamp_schema_by_type` fills it.
-pub fn field_ty_name(f: SField, t: &ElTypes) -> str {
+pub fn field_ty_name(f: SField, t: &ElTypes) -> &str {
     let base_ref: WRef<SExpr> = f.base;
     if base_ref.any().is_null() { return ""; }   // a BARE name, not a step
     let be: SExpr = f.base_expr();
-    let rn: str = root_ident_name(be);
+    let rn: &str = root_ident_name(be);
     if rn.len() > 0i64 && t.opt_is_live(rn) {
         let ok: i64 = t.ov_find(rn, f.name);
         if ok >= 0i64 { return t.ov_ty[ok].as_str(); }
     }
     if rn.len() > 0i64 {
-        let rc: str = t.rel_col_ty_name(rn, f.name);
+        let rc: &str = t.rel_col_ty_name(rn, f.name);
         if rc.len() > 0i64 || !is_index_name(f.name) { return rc; }
     }
-    let bt: str = infer_ty_name(be, t);
+    let bt: &str = infer_ty_name(be, t);
     if bt.len() == 0i64 { return ""; }
     // `t.N` over a TUPLE type is its N-th component's type (as in Rust).
     if is_index_name(f.name) && str_byte_at(bt, 0i64) == 40u8 { return tuple_component_ty(bt, index_of_name(f.name)); }
@@ -633,14 +633,14 @@ pub fn field_ty_name(f: SField, t: &ElTypes) -> str {
 }
 
 /// A field name that is a tuple index (`.0`, `.1`, …).
-pub fn is_index_name(n: str) -> bool {
+pub fn is_index_name(n: &str) -> bool {
     if n.len() == 0i64 { return false; }
     let mut i: i64 = 0i64;
     while i < n.len() { let c: u8 = str_byte_at(n, i); if c < 48u8 || c > 57u8 { return false; } i = i + 1i64; }
     return true;
 }
 
-fn index_of_name(n: str) -> i64 {
+fn index_of_name(n: &str) -> i64 {
     let mut v: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < n.len() { v = v * 10i64 + ((str_byte_at(n, i) - 48u8) as i64); i = i + 1i64; }
@@ -649,7 +649,7 @@ fn index_of_name(n: str) -> i64 {
 
 /// The `k`-th component of a tuple TYPE spelled `(A, B<C, D>, …)` — split at
 /// top-level commas; "" when there is no such component.
-pub fn tuple_component_ty(tt: str, k: i64) -> str {
+pub fn tuple_component_ty(tt: &str, k: i64) -> &str {
     let n: i64 = tt.len();
     let mut depth: i64 = 0i64;
     let mut idx: i64 = 0i64;
@@ -688,10 +688,10 @@ pub fn is_tuple_root(e: SExpr) -> bool {
 // Diagnose a tuple expression at a NON-select clause site (`where`, `on`,
 // `group by`, `having`, `order by`, aggregate args, `find`, trama contexts).
 // Returns false + surfaces the error when `e` is tuple-rooted.
-pub fn reject_tuple(e: SExpr, ctx: str) -> bool { return reject_tuple_in(e, &el_types_new(), ctx); }
+pub fn reject_tuple(e: SExpr, ctx: &str) -> bool { return reject_tuple_in(e, &el_types_new(), ctx); }
 
 /// `reject_tuple`, reported at the tuple's place in the query (ADR 0031 R4.3).
-pub fn reject_tuple_in(e: SExpr, t: &ElTypes, ctx: str) -> bool {
+pub fn reject_tuple_in(e: SExpr, t: &ElTypes, ctx: &str) -> bool {
     if !is_tuple_root(e) { return true; }
     let mut m: String = String::new();
     m.push_str(ctx);
@@ -741,7 +741,7 @@ pub fn reject_tuple_in(e: SExpr, t: &ElTypes, ctx: str) -> bool {
 // another query's variable is spelled with those bytes inside it. This codebase
 // has already paid for one `find` over generated text (the separator class,
 // `2bdd8f25`); the IR is right here and it answers exactly.
-pub fn sexpr_over_group_names(e: SExpr, names: &Vec<str>, nn: i64) -> bool {
+pub fn sexpr_over_group_names(e: SExpr, names: &Vec<&str>, nn: i64) -> bool {
     match e {
         SExpr::Lit(_) => { return true; }
         SExpr::Bin(b)   => { return sexpr_over_group_names(b.lhs_expr(), names, nn)
@@ -770,7 +770,7 @@ pub fn sexpr_over_group_names(e: SExpr, names: &Vec<str>, nn: i64) -> bool {
             return true;
         }
         _ => {
-            let rn: str = root_ident_name(e);
+            let rn: &str = root_ident_name(e);
             if rn.len() == 0i64 { return false; }
             if str_eq(rn, "key") { return true; }
             let mut k: i64 = 0i64;
@@ -834,7 +834,7 @@ pub fn tuple_has_flt(tp: STuple, t: &ElTypes) -> bool {
 //   • a field STEP (SField, base ≠ null)      → `<base>.<name>`;
 //   • SBin / SUn                 → parenthesised operator application.
 // `t` is the type dictionary; `var` is a fallback name for a comprehension SVar.
-pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
+pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: &str) {
     emit_sexpr_as(out, e, t, var, "");
 }
 
@@ -852,15 +852,15 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
 /// ⚠ NOT APPLIED TO A String-RETURNING CALL, which already produces an owned
 /// temporary — `returns_string` is that case and copying it again would be a
 /// second allocation for nothing.
-pub fn emit_proj_value(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
+pub fn emit_proj_value(out: &mut String, e: SExpr, t: &ElTypes, var: &str) {
     // A ROW selected whole where the plan did not fold the query to the
     // identity / head-row forms (which return the source's rows by reference):
     // the loop holds `&Row`, the result holds the row (#737) — copied when it is
     // `Copy`, cloned when it is `Clone`, as `.copied()` / `.cloned()` would need
     // in Rust; neither is refused here, at the select, where the copy is made.
-    let rv: str = root_ident_name(e);
+    let rv: &str = root_ident_name(e);
     if rv.len() > 0i64 && t.is_row_var(rv) {
-        let rt: str = infer_ty_name(e, t);
+        let rt: &str = infer_ty_name(e, t);
         if named_is_copy(rt) { out.push_str("(*"); out.push_str(rv); out.push_str(")"); return; }
         if !named_is_clone(rt) {
             let mut m: String = String::new();
@@ -903,10 +903,10 @@ pub fn el_owned_copy_needed(e: SExpr, t: &ElTypes) -> bool {
 /// `u64` column may be COMPARED (`s.v > 100u64` is emitted in u64 and is exact),
 /// projected, sorted by and grouped by — the tower is the only place the value has
 /// to become an i64.
-pub fn check_arith_operand(parent: SExpr, e: SExpr, t: &ElTypes, ctx: str) -> bool {
+pub fn check_arith_operand(parent: SExpr, e: SExpr, t: &ElTypes, ctx: &str) -> bool {
     if !el_computes_in_repr(parent) { return true; }
     if infer_ty(parent, t) != EL_TY_INT() { return true; }
-    let n: str = infer_ty_name(e, t);
+    let n: &str = infer_ty_name(e, t);
     // ── (1) THE OPERAND HAS NO TOWER AT ALL — u128/i128 ───────────────────
     // The only value-domain refusal left at this seam, and its ground is that
     // there is no 128-bit checked set to compute in, not that the type's values
@@ -983,17 +983,17 @@ fn int_lit_value(e: SExpr, out_v: &mut i64) -> bool {
 /// generated blob (`integer literal '300i8' is out of range for its suffix type`,
 /// naming no clause and no column), and in arithmetic the query compiled and
 /// failed with `Overflow` on every row.
-fn check_lit_fits(lit: SExpr, other: SExpr, op: i32, t: &ElTypes, ctx: str) -> bool {
+fn check_lit_fits(lit: SExpr, other: SExpr, op: i32, t: &ElTypes, ctx: &str) -> bool {
     let mut v: i64 = 0i64;
     if !int_lit_value(lit, &mut v) { return true; }
     // A SUFFIXED literal is checked against its own type (`300i8`); an
     // unsuffixed one against the type it takes from the other side.
-    let sfx: str = lit_suffix(lit);
+    let sfx: &str = lit_suffix(lit);
     let mut ov: i64 = 0i64;
     if sfx.len() == 0i64 && int_lit_value(other, &mut ov) && lit_suffix(other).len() == 0i64 {
         return true;   // two bare literals: no type to check against
     }
-    let on: str = if sfx.len() > 0i64 { sfx }
+    let on: &str = if sfx.len() > 0i64 { sfx }
                   else if el_computes_in_repr(other) && infer_ty(other, t) == EL_TY_INT()
                   { arith_node_ty(other, t) } else { infer_ty_name(other, t) };
     let ty: ElTy = el_ty(on);
@@ -1036,7 +1036,7 @@ fn check_lit_fits(lit: SExpr, other: SExpr, op: i32, t: &ElTypes, ctx: str) -> b
 /// The type an operand of a binary node NAMES for the agreement check — "" for a
 /// literal (it takes the other side's), a nested arithmetic node's own type, a
 /// declared type otherwise.
-fn operand_named_ty(e: SExpr, t: &ElTypes) -> str {
+fn operand_named_ty(e: SExpr, t: &ElTypes) -> &str {
     let mut v: i64 = 0i64;
     if int_lit_value(e, &mut v) { return lit_suffix(e); }
     match e {
@@ -1060,14 +1060,14 @@ fn operand_named_ty(e: SExpr, t: &ElTypes) -> str {
 /// `String` column compared with a `str` value is one comparison through its view.
 /// A literal names no type and is checked by `check_lit_fits` instead.
 fn check_operand_types_agree(node: SExpr, l: SExpr, r: SExpr, op: i32, t: &ElTypes,
-                             ctx: str) -> bool {
+                             ctx: &str) -> bool {
     if op == OP_OR() || op == OP_AND() { return true; }
-    let ln: str = operand_named_ty(l, t);
-    let rn: str = operand_named_ty(r, t);
+    let ln: &str = operand_named_ty(l, t);
+    let rn: &str = operand_named_ty(r, t);
     let lc: i32 = if ln.len() > 0i64 { t.class_of_name(ln) } else { -1i32 };
     let rc: i32 = if rn.len() > 0i64 { t.class_of_name(rn) } else { -1i32 };
-    let mut lk: str = ln;
-    let mut rk: str = rn;
+    let mut lk: &str = ln;
+    let mut rk: &str = rn;
     let mut bad: bool = false;
     if lc == EL_TY_NAMED() || rc == EL_TY_NAMED() {
         // A NAMED value meets only its own type: never a literal, never another
@@ -1136,7 +1136,7 @@ fn check_operand_types_agree(node: SExpr, l: SExpr, r: SExpr, op: i32, t: &ElTyp
 /// — asked of the root and of each component of a tuple projection. Without the
 /// check the host compiler refuses the generated push ("cannot move out of a
 /// borrow"), naming no clause.
-pub fn check_projection_copy(e: SExpr, t: &ElTypes, ctx: str) -> bool {
+pub fn check_projection_copy(e: SExpr, t: &ElTypes, ctx: &str) -> bool {
     match e {
         SExpr::Tuple(tp) => {
             let items: SExprArr = tp.items_arr();
@@ -1150,7 +1150,7 @@ pub fn check_projection_copy(e: SExpr, t: &ElTypes, ctx: str) -> bool {
         _ => { }
     }
     if infer_ty(e, t) != EL_TY_NAMED() { return true; }
-    let nm: str = infer_ty_name(e, t);
+    let nm: &str = infer_ty_name(e, t);
     if named_is_copy(nm) { return true; }
     let mut m: String = String::new();
     m.push_str(ctx);
@@ -1178,8 +1178,8 @@ fn is_lit_operand(e: SExpr) -> bool {
 /// or `Eq`, `<`…`>=` need `Ord`, and there is no arithmetic at all — each refused
 /// at the clause with the missing impl named, rather than as a host error on a
 /// generated line.
-fn check_named_operator(node: SExpr, nm: str, op: i32, t: &ElTypes, ctx: str) -> bool {
-    let mut need: str = "";
+fn check_named_operator(node: SExpr, nm: &str, op: i32, t: &ElTypes, ctx: &str) -> bool {
+    let mut need: &str = "";
     if el_computes_in_repr_op(op) {
         need = "no arithmetic — the EL has none for a struct or enum";
     } else if op == OP_EQ() || op == OP_NE() {
@@ -1209,13 +1209,13 @@ fn check_named_operator(node: SExpr, nm: str, op: i32, t: &ElTypes, ctx: str) ->
 /// an unsuffixed float literal any float type (its range is `check_lit_fits`'s);
 /// an integer widens by value into a wider one (DIVERGENCES A18); a `String`
 /// is stored through its `str` view. `want` is resolved by the caller.
-pub fn expr_reaches_ty(e: SExpr, t: &ElTypes, want: str) -> bool {
+pub fn expr_reaches_ty(e: SExpr, t: &ElTypes, want: &str) -> bool {
     let wc: i32 = el_ty(want).cls;
     if is_lit_operand(e) && lit_suffix(e).len() == 0i64 {
         let lc: i32 = lit_class(e);
         if lc >= 0i32 { return lc == wc; }
     }
-    let got: str = expr_ty(e, t);
+    let got: &str = expr_ty(e, t);
     if str_eq(got, want) { return true; }
     if str_eq(got, "String") && str_eq(want, "str") { return true; }
     return el_int_widens(got, want);
@@ -1223,7 +1223,7 @@ pub fn expr_reaches_ty(e: SExpr, t: &ElTypes, want: str) -> bool {
 
 /// Does an integer literal `e` (`N` / `-N`) fit integer type `want`? True for
 /// anything that is not one. The range half of a literal taking its slot's type.
-pub fn int_lit_fits(e: SExpr, want: str) -> bool {
+pub fn int_lit_fits(e: SExpr, want: &str) -> bool {
     if wide_lit_fits(e, want) { return true; }
     let mut v: i64 = 0i64;
     if !int_lit_value(e, &mut v) { return true; }
@@ -1239,7 +1239,7 @@ pub fn int_lit_fits(e: SExpr, want: str) -> bool {
 /// THE TYPE OF `e` as the query gave it — the declared name of a column or a
 /// parameter, an arithmetic node's operand type, a literal's suffix or kind
 /// representative. `infer_ty_name` with the arithmetic nodes typed as printed.
-pub fn expr_ty(e: SExpr, t: &ElTypes) -> str {
+pub fn expr_ty(e: SExpr, t: &ElTypes) -> &str {
     if el_computes_in_repr(e) && infer_ty(e, t) == EL_TY_INT() { return arith_node_ty(e, t); }
     if el_computes_in_repr(e) && infer_ty(e, t) == EL_TY_FLT() { return float_node_ty(e, t); }
     return infer_ty_name(e, t);
@@ -1268,18 +1268,18 @@ fn lit_digits(l: SLit, out: &mut String) { el_lit_digits(l.txt, l.suffix(), out)
 /// poison) — WHOSE WRITTEN VALUE FITS `want`, an unsigned type of 64 bits or
 /// more (ADR 0031 R4.4): `r.k == 18446744073709551615` over a `u64`, as Rust
 /// takes it. The value is read off the literal's spelling.
-pub fn wide_lit_fits(e: SExpr, want: str) -> bool {
+pub fn wide_lit_fits(e: SExpr, want: &str) -> bool {
     match e {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
             if v.is_string() || v.is_bool() || v.is_float() { return false; }
             if v.as_i64() != el_lit_poison() { return false; }
-            let sx: str = l.suffix();
+            let sx: &str = l.suffix();
             let ty: ElTy = el_ty(if sx.len() > 0i64 { sx } else { want });
             if ty.cls != EL_TY_INT() || ty.signed || ty.bits < 64i64 { return false; }
             let mut d: String = String::new();
             lit_digits(l, &mut d);
-            let max: str = if ty.bits >= 128i64 { "340282366920938463463374607431768211455" } else { "18446744073709551615" };
+            let max: &str = if ty.bits >= 128i64 { "340282366920938463463374607431768211455" } else { "18446744073709551615" };
             // no leading zeros past the first digit: compare by length, then bytes
             let mut k: i64 = 0i64;
             while k + 1i64 < d.len() && str_byte_at(string_as_str(&d), k) == 48u8 { k = k + 1i64; }
@@ -1314,7 +1314,7 @@ fn bare_unknown(e: SExpr, t: &ElTypes) -> bool {
     }
 }
 
-fn lit_class_name(c: i32) -> str {
+fn lit_class_name(c: i32) -> &str {
     if c == EL_TY_FLT() { return "a float literal"; }
     if c == EL_TY_STR() { return "a string literal"; }
     if c == EL_TY_BOOL() { return "a bool literal"; }
@@ -1340,23 +1340,23 @@ fn lit_kind(e: SExpr) -> i32 {
 // facts; every operation on it is a trait question. Here rather than in
 // `join_sel` because the operand checks below need it and `join_sel` imports
 // this module.
-fn TRAIT_PEQ()  -> str { return "logos.lang.cmp::PartialEq"; }
-fn TRAIT_EQ()   -> str { return "logos.lang.cmp::Eq"; }
-fn TRAIT_ORD()  -> str { return "logos.lang.cmp::Ord"; }
-fn TRAIT_COPY() -> str { return "logos.lang.clone::Copy"; }
+fn TRAIT_PEQ()  -> &str { return "logos.lang.cmp::PartialEq"; }
+fn TRAIT_EQ()   -> &str { return "logos.lang.cmp::Eq"; }
+fn TRAIT_ORD()  -> &str { return "logos.lang.cmp::Ord"; }
+fn TRAIT_COPY() -> &str { return "logos.lang.clone::Copy"; }
 
 /// `==` exists when the type implements `PartialEq` or `Eq` — in Logos each
 /// declares its own `eq`, and deriving both is refused today (squeue #682).
-pub fn named_has_eq(name: str) -> bool {
+pub fn named_has_eq(name: &str) -> bool {
     return has_trait_named(TRAIT_PEQ(), name) || has_trait_named(TRAIT_EQ(), name);
 }
 /// `Eq` itself — what a group key and a tuple `==` (`variadic__eq`) require.
-pub fn named_has_eq_strict(name: str) -> bool { return has_trait_named(TRAIT_EQ(), name); }
-pub fn named_has_ord(name: str) -> bool { return has_trait_named(TRAIT_ORD(), name); }
+pub fn named_has_eq_strict(name: &str) -> bool { return has_trait_named(TRAIT_EQ(), name); }
+pub fn named_has_ord(name: &str) -> bool { return has_trait_named(TRAIT_ORD(), name); }
 /// A NAMED value is copied out of a borrowed row — into an index, a group key
 /// vector, an output buffer — only when it is `Copy`.
-pub fn named_is_copy(name: str) -> bool { return has_trait_named(TRAIT_COPY(), name); }
-pub fn named_is_clone(name: str) -> bool { return has_trait_named("logos.lang.clone::Clone", name); }
+pub fn named_is_copy(name: &str) -> bool { return has_trait_named(TRAIT_COPY(), name); }
+pub fn named_is_clone(name: &str) -> bool { return has_trait_named("logos.lang.clone::Clone", name); }
 
 /// True iff `op` is one of the arithmetic operators (the binary half of
 /// `el_computes_in_repr`, for a caller that holds only the op id).
@@ -1372,11 +1372,11 @@ fn el_computes_in_repr_op(op: i32) -> bool {
 /// in Rust (`true as f64` is refused there too). Anything else would reach the
 /// host compiler as an `as` on a generated line, which is the anti-diagnostic this
 /// layer exists to prevent.
-fn check_cast(c: SCast, t: &ElTypes, ctx: str) -> bool {
+fn check_cast(c: SCast, t: &ElTypes, ctx: &str) -> bool {
     let to: ElTy = el_ty(c.ty);
-    let from_n: str = infer_emit_ty(c.arg_expr(), t);
+    let from_n: &str = infer_emit_ty(c.arg_expr(), t);
     let fc: i32 = el_class_lookup(from_n);
-    let mut why: str = "";
+    let mut why: &str = "";
     if to.cls != EL_TY_INT() && to.cls != EL_TY_FLT() {
         why = "the target is not a numeric type the EL knows (an integer `i8`…`u128`/`isize`/`usize` or a float `f32`/`f64`)";
     } else if fc == EL_TY_BOOL() && to.cls != EL_TY_INT() {
@@ -1426,11 +1426,11 @@ fn check_cast(c: SCast, t: &ElTypes, ctx: str) -> bool {
 /// host compiler — everything upstream believed the node had one type. The arms
 /// stay as they are (they are RIGHT once the branches agree) and this is the
 /// check that makes the antecedent true.
-pub fn check_cond_branches(c: SCond, t: &ElTypes, ctx: str) -> bool {
+pub fn check_cond_branches(c: SCond, t: &ElTypes, ctx: &str) -> bool {
     let te: SExpr = c.then_expr();
     let ee: SExpr = c.else_expr();
-    let tn: str = infer_emit_ty(te, t);
-    let en: str = infer_emit_ty(ee, t);
+    let tn: &str = infer_emit_ty(te, t);
+    let en: &str = infer_emit_ty(ee, t);
     if str_eq(tn, en) { return true; }
     let mut m: String = String::new();
     m.push_str(ctx);
@@ -1465,7 +1465,7 @@ fn is_neg_node(e: SExpr) -> bool {
 /// POSITIONAL tuple access (`s.0`), which names a slot and not the column the
 /// author wrote — and a diagnostic the author cannot map back to their own text
 /// is the anti-pattern this refusal exists to avoid, not a milder version of it.
-fn report_mixed_tower(parent: SExpr, t: &ElTypes, ctx: str) {
+fn report_mixed_tower(parent: SExpr, t: &ElTypes, ctx: &str) {
     let mut m: String = String::new();
     m.push_str(ctx);
     m.push_str(": arithmetic mixes a SIGNED and an UNSIGNED value, and the EL has no tower that holds both — ");
@@ -1513,7 +1513,7 @@ pub fn sexpr_display(out: &mut String, e: SExpr) {
             // A parsed number is shown as WRITTEN (`1.5`, `5i32`) — `txt` is the
             // token (#724); a literal the optimizer built has none and is shown
             // from its value.
-            let tx: str = l.txt;
+            let tx: &str = l.txt;
             if tx.len() > 0i64 && !v.is_string() && !v.is_bool() { out.push_str(tx); return; }
             if v.is_string() { out.push_str("\""); emit_str_spelling(out, v.as_wstr()); out.push_str("\""); return; }
             if v.is_bool()   { if v.as_bool() { out.push_str("true"); } else { out.push_str("false"); } return; }
@@ -1650,9 +1650,9 @@ pub fn sexpr_display(out: &mut String, e: SExpr) {
 /// separate open seam with its own bad diagnostic, pinned by
 /// `wql_agg_uda_f32_arg_fail`; closing it needs a reflected parameter type and a
 /// ruling on whether the check may refuse programs the host accepts.
-pub fn check_agg_arg_in_lattice(e: SExpr, t: &ElTypes, fname: str, ctx: str) -> bool {
+pub fn check_agg_arg_in_lattice(e: SExpr, t: &ElTypes, fname: &str, ctx: &str) -> bool {
     if el_computes_in_repr(e) { return true; }
-    let n: str = infer_ty_name(e, t);
+    let n: &str = infer_ty_name(e, t);
     if n.len() == 0i64 { return true; }
     if el_class_lookup(n) >= 0i32 { return true; }
     let mut m: String = String::new();
@@ -1668,8 +1668,8 @@ pub fn check_agg_arg_in_lattice(e: SExpr, t: &ElTypes, fname: str, ctx: str) -> 
     return false;
 }
 
-pub fn check_agg_operand(e: SExpr, t: &ElTypes, want: str, fname: str, ctx: str) -> bool {
-    let et: str = infer_emit_ty(e, t);
+pub fn check_agg_operand(e: SExpr, t: &ElTypes, want: &str, fname: &str, ctx: &str) -> bool {
+    let et: &str = infer_emit_ty(e, t);
     let ty: ElTy = el_ty(et);
     // Lenient on an out-of-lattice name, exactly as `el_arith_ok` is: nothing is
     // known about it, and the host compiler is the documented oracle there.
@@ -1744,8 +1744,8 @@ pub fn check_agg_operand(e: SExpr, t: &ElTypes, want: str, fname: str, ctx: str)
 /// is already the representative (both normalize at their own site) and for a
 /// column read is the column's declared type. Asking the query's name here would
 /// have wrapped an already-normalized call in a second, redundant cast.
-pub fn emit_norm_operand(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: str) {
-    let et: str = infer_emit_ty(e, t);
+pub fn emit_norm_operand(out: &mut String, e: SExpr, t: &ElTypes, var: &str, want: &str) {
+    let et: &str = infer_emit_ty(e, t);
     let ec: i32 = el_class_lookup(et);
     let wc: i32 = el_class_lookup(want);
     let numeric: bool = (ec == EL_TY_INT() || ec == EL_TY_FLT())
@@ -1767,13 +1767,13 @@ pub fn emit_norm_operand(out: &mut String, e: SExpr, t: &ElTypes, var: str, want
 /// names an integer type.
 /// The emitted float TYPE NAME of `e` — `f32` when that is what its generated
 /// text has, `f64` otherwise. The target of the int→float promotion beside it.
-fn float_side_ty(e: SExpr, t: &ElTypes) -> str {
-    let n: str = infer_emit_ty(e, t);
+fn float_side_ty(e: SExpr, t: &ElTypes) -> &str {
+    let n: &str = infer_emit_ty(e, t);
     if str_eq(n, "f32") { return "f32"; }
     return "f64";
 }
 
-pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: str) {
+pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: &str, want: &str) {
     match e {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
@@ -1819,11 +1819,11 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
         SExpr::Var(vv) => {
             // A comprehension-bound row variable: emit its own name, falling back
             // to the caller's `var` (the wql!/trama! row/loop binding) if empty.
-            let nm: str = vv.name;
+            let nm: &str = vv.name;
             if nm.len() > 0i64 { out.push_str(nm); } else { out.push_str(var); }
         }
         SExpr::Field(f) => {
-            let name: str = f.name;
+            let name: &str = f.name;
             let base_ref: WRef<SExpr> = f.base;
             let base: WAny = base_ref.any();
             let is_root: bool = base.is_null();
@@ -1836,7 +1836,7 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
                 // the column map lives in the ElTypes rel-binding table). A
                 // 1-COLUMN rel stores SCALAR rows — its (only) column reads the
                 // whole row through the binding: `(*s)`.
-                let rn: str = root_ident_name(be);
+                let rn: &str = root_ident_name(be);
                 // An OUTER join's optional var: its step bound the field to a
                 // local `Option<T>` (`__ov_<var>_<col>`), Some on a match.
                 if rn.len() > 0i64 && t.opt_is_live(rn) {
@@ -1893,8 +1893,8 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
             // comparison or arithmetic between a column and a literal is where
             // the width actually matters, and the column is the side that has
             // a type to give.
-            let want_l: str = infer_ty_name(rhs, t);
-            let want_r: str = infer_ty_name(lhs, t);
+            let want_l: &str = infer_ty_name(rhs, t);
+            let want_r: &str = infer_ty_name(lhs, t);
             if res_int {
                 // ⚠ THE OPERANDS OF THE CHECKED TOWER ARE i64, NOT THE COLUMN'S
                 // TYPE. `el_add` takes i64, so a `u32` column reaches it through
@@ -1913,10 +1913,10 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
                 // tower is a property of the NODE — a node mixing the two is
                 // refused at `check_arith_operand`, so exactly one applies here.
                 let tw: i32 = arith_node_tower(e, t);
-                let ir: str = el_tower_repr(tw);
+                let ir: &str = el_tower_repr(tw);
                 // The node's OWN type (Rust typing): computed in the tower, then
                 // range-checked back into it.
-                let nt: str = arith_node_ty(e, t);
+                let nt: &str = arith_node_ty(e, t);
                 emit_arith_fit_open(out, nt, tw);
                 // ADR 0026 F12: `/` / `%` by a POSITIVE integer literal cannot
                 // divide by zero nor overflow (`MIN / -1` needs -1), so the
@@ -1943,7 +1943,7 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
             // it; a shift's AMOUNT is checked against the width (`el_shamt`), as
             // Rust's `checked_shl` does — the shifted bits themselves wrap off.
             if el_is_bit_op(op) {
-                let bt: str = infer_ty_name(e, t);
+                let bt: &str = infer_ty_name(e, t);
                 out.push_str("(");
                 emit_sexpr_as(out, lhs, t, var, bt);
                 if op == OP_SHL() || op == OP_SHR() {
@@ -1973,7 +1973,7 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
             // `f32` operands stay `f32`, and a float literal beside them is
             // printed `2.5f32` by the same normalization path.
             if is_arith && (lt == EL_TY_FLT() || rt == EL_TY_FLT()) {
-                let fr: str = float_node_ty(e, t);
+                let fr: &str = float_node_ty(e, t);
                 out.push_str("(");
                 emit_norm_operand(out, lhs, t, var, fr);
                 out.push_str(emit_binop(op));
@@ -1985,8 +1985,8 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
             let cast_r: bool = rt == EL_TY_INT() && lt == EL_TY_FLT();
             // The cast's TARGET is the float side's own emitted type — an `f32`
             // column compared against an integer is met at f32, not at f64.
-            let ft_l: str = float_side_ty(rhs, t);
-            let ft_r: str = float_side_ty(lhs, t);
+            let ft_l: &str = float_side_ty(rhs, t);
+            let ft_r: &str = float_side_ty(lhs, t);
             out.push_str("(");
             if cast_l { out.push_str("(("); }
             emit_sexpr_as(out, lhs, t, var, want_l);
@@ -2006,7 +2006,7 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
             if op == OP_NEG() && infer_ty(arg, t) == EL_TY_INT() {
                 // Signed only (unsigned negation is refused at the check), so the
                 // tower is i64 or i128.
-                let nt: str = arith_node_ty(e, t);
+                let nt: &str = arith_node_ty(e, t);
                 let tw: i32 = if arith_node_tower(e, t) == EL_TOW_I128() { EL_TOW_I128() } else { EL_TOW_I64() };
                 emit_arith_fit_open(out, nt, tw);
                 if tw == EL_TOW_I128() { out.push_str("el_negq("); } else { out.push_str("el_neg("); }
@@ -2067,7 +2067,7 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
 }
 
 /// The width in bits of an integer type name (`isize`/`usize` are 64).
-pub fn el_int_bits(n: str) -> i64 {
+pub fn el_int_bits(n: &str) -> i64 {
     if str_eq(n, "isize") || str_eq(n, "usize") { return 64i64; }
     if n.len() < 2i64 { return 64i64; }
     let mut w: i64 = 0i64;
@@ -2083,10 +2083,10 @@ pub fn el_int_bits(n: str) -> i64 {
 
 /// The type `min(a, b)` / `max(a, b)` is in: the one its non-literal
 /// argument names (a literal names none).
-pub fn minmax_ty(args: SExprArr, t: &ElTypes) -> str {
-    let a: str = operand_named_ty(args.arg_at(0i64), t);
+pub fn minmax_ty(args: SExprArr, t: &ElTypes) -> &str {
+    let a: &str = operand_named_ty(args.arg_at(0i64), t);
     if a.len() > 0i64 { return a; }
-    let b: str = operand_named_ty(args.arg_at(1i64), t);
+    let b: &str = operand_named_ty(args.arg_at(1i64), t);
     if b.len() > 0i64 { return b; }
     return infer_ty_name(args.arg_at(0i64), t);
 }
@@ -2096,8 +2096,8 @@ pub fn minmax_ty(args: SExprArr, t: &ElTypes) -> str {
 // emits a fully-qualified stdlib call over its materialized args (`SExprArr`).
 // An unknown name or wrong arity emits a `0i64` placeholder (the wql!/trama!
 // handler reports the error at the block site via `call_diagnostic`).
-pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
-    let name: str = c.fn_name;
+pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: &str) {
+    let name: &str = c.fn_name;
     let bfn: i32 = builtin_of_name(name);
     let args: SExprArr = c.args_arr();
     let argc: i64 = args.len();
@@ -2123,7 +2123,7 @@ pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
         return;
     }
     if bfn == BFN_UNWRAP_OR() {
-        let inner: str = el_option_inner(infer_ty_name(args.arg_at(0i64), t));
+        let inner: &str = el_option_inner(infer_ty_name(args.arg_at(0i64), t));
         out.push_str("((");
         emit_sexpr(out, args.arg_at(0i64), t, var);
         out.push_str(").unwrap_or(");
@@ -2134,7 +2134,7 @@ pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
     if bfn == BFN_MIN() || bfn == BFN_MAX() {
         // `if a <= b { a } else { b }` (`>=` for max), each side in the type
         // the two share — a literal takes it, as beside a comparison
-        let ty: str = minmax_ty(args, t);
+        let ty: &str = minmax_ty(args, t);
         out.push_str("(if (");
         emit_sexpr_as(out, args.arg_at(0i64), t, var, ty);
         out.push_str(if bfn == BFN_MIN() { ") <= (" } else { ") >= (" });
@@ -2217,8 +2217,8 @@ pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
 // str / bool / String / f64 / i64 returns emit bare. Unknown names, arity
 // mismatches, and out-of-lattice returns emit the safe `0i64` placeholder —
 // the handler surfaces the REAL diagnostic via `check_calls` beforehand.
-fn emit_udf_call(out: &mut String, name: str, args: SExprArr, argc: i64,
-                 t: &ElTypes, var: str) {
+fn emit_udf_call(out: &mut String, name: &str, args: SExprArr, argc: i64,
+                 t: &ElTypes, var: &str) {
     let ui: i64 = t.udf_find(name);
     if ui < 0i64 || argc != t.udf_arity[ui] || t.udf_class(ui) < 0i32 {
         out.push_str("0i64");
@@ -2253,13 +2253,13 @@ fn emit_udf_call(out: &mut String, name: str, args: SExprArr, argc: i64,
         while j < argc { if j > 0i64 { out.push_str(", "); } out.push_str("__ua"); out.push_i64(j); j = j + 1i64; }
         out.push_str("); let __od: i32 = wql_oracle_append(\"");
         out.push_str(string_as_str(&odir)); out.push_str("/udf_"); out.push_str(name); out.push_str(".facts\"); ");
-        let kv: str = string_as_str(&ks);
+        let kv: &str = string_as_str(&ks);
         j = 0i64;
         while j <= argc {
             if j > 0i64 { out.push_str("wql_oracle_tab(__od); "); }
             let mut ex: String = String::new();
             if j < argc { ex.push_str("__ua"); ex.push_i64(j); } else { ex.push_str("__ur"); }
-            let kj: str = unsafe { str_from_raw(((kv.as_ptr() as i64) + j) as *const u8, 1i64) };
+            let kj: &str = unsafe { str_from_raw(((kv.as_ptr() as i64) + j) as *const u8, 1i64) };
             oracle_cell_text(out, kj, string_as_str(&ex));
             j = j + 1i64;
         }
@@ -2345,10 +2345,10 @@ pub fn call_diagnostic(e: SExpr, t: &ElTypes) -> bool {
 // The message spells the UDF ground rules: builtin list, the declared-in-the-
 // trigger-module requirement (imported fns are outside `oview_module_ast`'s
 // reach), and — on arity — the expected/got counts.
-pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
+pub fn check_calls(e: SExpr, t: &ElTypes, ctx: &str) -> bool {
     match e {
         SExpr::Call(c) => {
-            let name: str = c.fn_name;
+            let name: &str = c.fn_name;
             let bfn: i32 = builtin_of_name(name);
             let args: SExprArr = c.args_arr();
             let argc: i64 = args.len();
@@ -2421,10 +2421,10 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                 if (bfn == BFN_SUBSTR() && argc == 3i64) || (bfn == BFN_TO_STRING() && argc == 1i64)
                    || (bfn == BFN_TO_NUMBER() && argc == 1i64) || (bfn == BFN_POW() && argc == 2i64) {
                     // integers that hold in i64; substr's first argument a string
-                    let mut bad: str = "";
+                    let mut bad: &str = "";
                     let mut ai: i64 = 0i64;
                     while ai < argc {
-                        let an: str = infer_ty_name(args.arg_at(ai), t);
+                        let an: &str = infer_ty_name(args.arg_at(ai), t);
                         let ac: i32 = t.class_of_name(an);
                         let want_str: bool = (bfn == BFN_SUBSTR() || bfn == BFN_TO_NUMBER()) && ai == 0i64;
                         if want_str && ac != EL_TY_STR() { bad = an; }
@@ -2515,7 +2515,7 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
             if !br.any().is_null() {
                 if !check_calls(f.base_expr(), t, ctx) { return false; }
                 if is_index_name(f.name) {
-                    let bt: str = infer_ty_name(f.base_expr(), t);
+                    let bt: &str = infer_ty_name(f.base_expr(), t);
                     if bt.len() > 0i64 && str_byte_at(bt, 0i64) == 40u8 && tuple_component_ty(bt, index_of_name(f.name)).len() == 0i64 {
                         let mut m: String = String::new();
                         m.push_str(ctx);
@@ -2570,9 +2570,9 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
 // literal shape as well.
 fn push_f64_lit(out: &mut String, v: f64) { push_float_lit(out, v, "f64"); }
 
-fn push_float_lit(out: &mut String, v: f64, suffix: str) {
+fn push_float_lit(out: &mut String, v: f64, suffix: &str) {
     let s: String = v.to_string();
-    let sv: str = string_as_str(&s);
+    let sv: &str = string_as_str(&s);
     out.push_str(sv);
     // Bare-integer print (no '.', no exponent) → force the decimal point.
     let n: i64 = sv.len();
@@ -2602,14 +2602,14 @@ fn push_float_lit(out: &mut String, v: f64, suffix: str) {
 //          __ci = __ci + 1i64;
 //      }
 //      __cv })
-pub fn emit_comp(out: &mut String, cp: SComp, t: &ElTypes, var: str) {
+pub fn emit_comp(out: &mut String, cp: SComp, t: &ElTypes, var: &str) {
     let head: SExpr = cp.head_expr();
     // A tuple comprehension head is out of the scalar comprehension lattice
     // (Vec<HeadTy> is typed off EL_TY_*) — clean diagnostic, not a broken chunk.
     if !reject_tuple(head, "wql!/trama!: comprehension head") { out.push_str("0i64"); return; }
     let plan: RExpr = cp.plan_expr();
     // Decompose the plan into (scan, optional guard).
-    let mut src_name: str = "";
+    let mut src_name: &str = "";
     let mut has_guard: bool = false;
     match plan {
         RExpr::Scan(sc) => { src_name = sc.src_name; }
@@ -2624,9 +2624,9 @@ pub fn emit_comp(out: &mut String, cp: SComp, t: &ElTypes, var: str) {
     }
     // The element's TYPE — the head's own (E4.4); the class representative here
     // made `[n * 2 for n in xs]` over `u8` a `Vec<i64>`.
-    let head_ty: str = infer_emit_ty(head, t);
+    let head_ty: &str = infer_emit_ty(head, t);
     // The comprehension var name — off the SComp node (self-describing IR).
-    let vname: str = cp.var;
+    let vname: &str = cp.var;
 
     out.push_str("({ let mut __cv: Vec<");
     out.push_str(head_ty);
@@ -2671,7 +2671,7 @@ pub fn emit_comp(out: &mut String, cp: SComp, t: &ElTypes, var: str) {
 // The value-type is the codegen `infer_ty` (schema-reflected fields included), so
 // `{% if c.flag %}` over a `bool` field stays bare while `{% if c.n %}` over an
 // `i64` field gets the `!= 0` guard — no annotation needed.
-pub fn emit_truthy(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
+pub fn emit_truthy(out: &mut String, e: SExpr, t: &ElTypes, var: &str) {
     let ty: i32 = infer_ty(e, t);
     if ty == EL_TY_BOOL() {
         emit_sexpr(out, e, t, var);
@@ -2721,7 +2721,7 @@ fn is_pos_int_lit(e: SExpr) -> bool {
 // `el_remu` did not exist at all. A separate `el_uint_op_fn` beside this one is
 // two places for "which ops does the EL have", which is how the unsigned set came
 // to be missing two of five in the first place.
-pub fn el_int_op_fn(op: i32, tw: i32) -> str {
+pub fn el_int_op_fn(op: i32, tw: i32) -> &str {
     if tw == EL_TOW_I128() {
         if op == OP_ADD() { return "el_addq"; }
         if op == OP_SUB() { return "el_subq"; }
@@ -2751,7 +2751,7 @@ pub fn el_int_op_fn(op: i32, tw: i32) -> str {
 }
 
 // SBin op id (el.logos CEL canon) → Logos infix operator text (spaces padded).
-pub fn emit_binop(op: i32) -> str {
+pub fn emit_binop(op: i32) -> &str {
     if op == OP_OR()  { return " || "; }
     if op == OP_AND() { return " && "; }
     if op == OP_EQ()  { return " == "; }
@@ -2777,7 +2777,7 @@ pub fn emit_binop(op: i32) -> str {
 // `"` `\` and the control bytes, so the emitted `"…"` parses back. For a
 // VALUE (Trama literal-text runs); an EL string literal is a spelling and goes
 // through `emit_str_spelling`.
-pub fn emit_str_escaped(out: &mut String, s: str) {
+pub fn emit_str_escaped(out: &mut String, s: &str) {
     let n: i64 = s.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -2788,7 +2788,7 @@ pub fn emit_str_escaped(out: &mut String, s: str) {
         else if c == 13u8 { out.push_str("\\r"); }
         else if c == 9u8  { out.push_str("\\t"); }
         else {
-            let one: str = unsafe { str_from_raw((s.as_ptr() as i64 + i) as *const u8, 1i64) };
+            let one: &str = unsafe { str_from_raw((s.as_ptr() as i64 + i) as *const u8, 1i64) };
             out.push_str(one);
         }
         i = i + 1i64;
@@ -2807,7 +2807,7 @@ pub fn emit_str_escaped(out: &mut String, s: str) {
 // byte (a literal spanning lines) is written as its escape. Synthesized
 // literals (gpath `.key` / `{kind}` names) are identifiers, so their spelling
 // and value coincide.
-pub fn emit_str_spelling(out: &mut String, s: str) {
+pub fn emit_str_spelling(out: &mut String, s: &str) {
     let n: i64 = s.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -2816,7 +2816,7 @@ pub fn emit_str_spelling(out: &mut String, s: str) {
         else if c == 13u8 { out.push_str("\\r"); }
         else if c == 9u8  { out.push_str("\\t"); }
         else {
-            let one: str = unsafe { str_from_raw((s.as_ptr() as i64 + i) as *const u8, 1i64) };
+            let one: &str = unsafe { str_from_raw((s.as_ptr() as i64 + i) as *const u8, 1i64) };
             out.push_str(one);
         }
         i = i + 1i64;
@@ -2828,8 +2828,8 @@ pub fn emit_str_spelling(out: &mut String, s: str) {
 // String concatenation `a + b` is FLATTENED into successive pushes (sound, no
 // intermediate `String` temporary / borrow): `{{ a + b }}` → push(a); push(b).
 // A non-concat str expression is pushed whole. `indent` prefixes each line.
-pub fn emit_push_str(out: &mut String, indent: str, target: str,
-                     e: SExpr, t: &ElTypes, var: str) {
+pub fn emit_push_str(out: &mut String, indent: &str, target: &str,
+                     e: SExpr, t: &ElTypes, var: &str) {
     match e {
         SExpr::Bin(b) => {
             // str `+` str → flatten to two appends (the only str-producing op).
@@ -2847,8 +2847,8 @@ pub fn emit_push_str(out: &mut String, indent: str, target: str,
 // Emit one `<target>.push_str(<expr>);` for a single (non-flattened) str expr.
 // An `upper`/`lower` call yields an OWNED `String`, so it is borrowed via
 // `.as_str()` to feed `push_str(str)`; all other str exprs push verbatim.
-fn emit_push_str_one(out: &mut String, indent: str, target: str,
-                     e: SExpr, t: &ElTypes, var: str) {
+fn emit_push_str_one(out: &mut String, indent: &str, target: &str,
+                     e: SExpr, t: &ElTypes, var: &str) {
     out.push_str(indent);
     out.push_str(target);
     out.push_str(".push_str(");
@@ -2864,7 +2864,7 @@ fn emit_push_str_one(out: &mut String, indent: str, target: str,
 
 // `e` as a `str` view: an owned `String` (a builtin's or a concatenation's
 // value, or a `String` column) through `.as_str()`.
-fn emit_str_view(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
+fn emit_str_view(out: &mut String, e: SExpr, t: &ElTypes, var: &str) {
     let own: bool = returns_string(e, t) || str_eq(infer_ty_name(e, t), "String");
     if own { out.push_str("("); }
     emit_sexpr(out, e, t, var);

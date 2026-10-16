@@ -61,7 +61,7 @@ impl Copy for TrTokCell {}
 
 pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, TrMemoCell>, pub tbuf: Vec<TrTokCell>, pub far: Token, pub base: i64 }
 
-pub fn lexer_new(src: str) -> Lexer {
+pub fn lexer_new(src: &str) -> Lexer {
     let mut tb: Vec<TrTokCell> = vec_new::<TrTokCell>();
     let sent: TrTokCell = TrTokCell { tk: 0i32, tstart: 0i64, tlen: 0i64, tline: 0i64, endpos: 0i64 - 1i64, endline: 0i64, intag_after: false };
     let mut i: i64 = 0i64;
@@ -271,7 +271,7 @@ impl Lexer {
 
 const TrNULLP: *const u8 = 0i64 as *const u8;
 // Intern a str into the arena; return the raw WString pointer (0 never).
-fn wstr_p(doc: &Writ, s: str) -> *const u8 {
+fn wstr_p(doc: &Writ, s: &str) -> *const u8 {
     let ws: &WString = doc.wstring(s);
     return ws as *const WString as *const u8;
 }
@@ -348,7 +348,7 @@ fn wstr_unquote(doc: &Writ, p: *const u8) -> *const u8 {
     let s: &str = wstr_as_str(p);
     let n: i64 = s.len();
     if n < 2i64 { return wstr_p(doc, s); }
-    let inner: str = unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };
+    let inner: &str = unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };
     return wstr_p(doc, inner);
 }
 
@@ -356,7 +356,7 @@ fn wstr_unquote(doc: &Writ, p: *const u8) -> *const u8 {
 // close-tag delimiter (}} / %}) at/after `pos`; -1 if none. The embedded
 // expression occupies [pos, close) (a trailing `-` trim marker excluded
 // by the caller). Mirrors the hand TrParser's find_close_expr/stmt.
-fn embed_find_close(src: str, pos: i64, len: i64) -> i64 {
+fn embed_find_close(src: &str, pos: i64, len: i64) -> i64 {
     let mut p: i64 = pos;
     while p + 1i64 < len {
         if (str_byte_at(src, p) == 125u8 && str_byte_at(src, p + 1i64) == 125u8) || (str_byte_at(src, p) == 37u8 && str_byte_at(src, p + 1i64) == 125u8) { return p; }
@@ -803,7 +803,7 @@ fn alt_expr_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     if ecl_cap1 < 0i64 { lex.reset(sp, sln); return TrNULLP; }
     let mut eend_cap1: i64 = ecl_cap1;
     if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
-    let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
+    let esub_cap1: &str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
     let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr_at(esub_cap1, doc, lex.base + est_cap1);
     lex.reset(eend_cap1, lex.save_line());
     let cap1: *const u8 = if eroot_cap1.is_null() { TrNULLP } else { eroot_cap1.raw() as *const u8 };
@@ -832,17 +832,17 @@ fn rule_expr(lex: &mut Lexer, doc: &Writ) -> *const u8 {
 
 // ── Public entry points (one per %export rule) ─────────────────────────────
 
-pub fn parse_tpl(src: str, doc: &Writ) -> WAny {
+pub fn parse_tpl(src: &str, doc: &Writ) -> WAny {
     return parse_tpl_at(src, doc, 0i64);
 }
-pub fn parse_tpl_at(src: str, doc: &Writ, base: i64) -> WAny {
+pub fn parse_tpl_at(src: &str, doc: &Writ, base: i64) -> WAny {
     let mut lex: Lexer = lexer_new(src);
     lex.base = base;
     let root: *const u8 = rule_tpl(&mut lex, doc);
     if !lex.at_eof() { return unsafe { WAny::ref_to(TrNULLP) }; }
     return unsafe { WAny::ref_to(root) };
 }
-pub fn parse_tpl_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {
+pub fn parse_tpl_far(src: &str, doc: &Writ, out_root: &mut WAny) -> i64 {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_tpl(&mut lex, doc);
     if !lex.at_eof() { *out_root = unsafe { WAny::ref_to(TrNULLP) }; return lex.far.line; }

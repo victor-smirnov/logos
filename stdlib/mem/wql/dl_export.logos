@@ -50,10 +50,10 @@ extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 extern fn close(fd: i32) -> i32;
 extern fn mkdir(path: *const u8, mode: i32) -> i32;
 
-fn dx_view(s: &String) -> str { return unsafe { str_from_raw(s.as_ptr(), s.len()) }; }
+fn dx_view(s: &String) -> &str { return unsafe { str_from_raw(s.as_ptr(), s.len()) }; }
 
 // A Logos type name as a Soufflé attribute type ("" = outside the fragment).
-fn dl_ty(tn: str) -> str {
+fn dl_ty(tn: &str) -> &str {
     if str_eq(tn, "isize") || str_eq(tn, "bool") { return "number"; }
     // `i<N>` up to 64 bits and `u<N>` below 64 hold in Soufflé's 64-bit
     // `number` (the odd widths too: i24, u56, …)
@@ -70,9 +70,9 @@ fn dl_ty(tn: str) -> str {
     // rounds to single precision, so an f32 column stays opaque
     if str_eq(tn, "f64") { return "float"; }
     // `Option<T>` over a number / symbol / unsigned: the ADT `Opt_<t>`
-    let inner: str = dx_option_inner(tn);
+    let inner: &str = dx_option_inner(tn);
     if inner.len() > 0i64 {
-        let it: str = dl_ty(inner);
+        let it: &str = dl_ty(inner);
         if str_eq(it, "number") { return "Opt_number"; }
         if str_eq(it, "symbol") { return "Opt_symbol"; }
         if str_eq(it, "unsigned") { return "Opt_unsigned"; }
@@ -84,11 +84,11 @@ fn dl_ty(tn: str) -> str {
 // Option<i64>;`, #744): a spelling with the same export type and dump kind
 // (the alias's own spelling lives in a local String): 1-5 by the carried
 // kind (i b s S U), 0 for anything else.
-fn dx_alias_opt_kind(view: &OView, tn: str) -> i32 {
+fn dx_alias_opt_kind(view: &OView, tn: &str) -> i32 {
     let mut sp: String = String::new();
     if !resolve_alias_spelling(view, tn, &mut sp) { return 0i32; }
     if dl_ty(dx_view(&sp)).len() == 0i64 { return 0i32; }
-    let k: str = dx_kind(dx_option_inner(dx_view(&sp)));
+    let k: &str = dx_kind(dx_option_inner(dx_view(&sp)));
     if str_eq(k, "i") { return 1i32; }
     if str_eq(k, "b") { return 2i32; }
     if str_eq(k, "s") { return 3i32; }
@@ -98,7 +98,7 @@ fn dx_alias_opt_kind(view: &OView, tn: str) -> i32 {
 }
 
 // `T` of a type spelled `Option<T>`, else "".
-fn dx_option_inner(tn: str) -> str {
+fn dx_option_inner(tn: &str) -> &str {
     if tn.len() > 8i64 && str_eq(dx_slice(tn, 0i64, 7i64), "Option<") && str_byte_at(tn, tn.len() - 1i64) == 62u8 {
         return dx_slice(tn, 7i64, tn.len() - 1i64);
     }
@@ -106,7 +106,7 @@ fn dx_option_inner(tn: str) -> str {
 }
 
 // The N of an integer type name `iN` / `uN` (1..128), else 0.
-fn dx_int_width(tn: str) -> i64 {
+fn dx_int_width(tn: &str) -> i64 {
     if tn.len() < 2i64 { return 0i64; }
     let c0: u8 = str_byte_at(tn, 0i64);
     if c0 != 105u8 && c0 != 117u8 { return 0i64; }
@@ -127,20 +127,20 @@ fn dx_int_width(tn: str) -> i64 {
 // opaque column is declared and dumped as 0 so the program around it can still
 // be checked; a term that READS it is refused (`dx_term`), so its placeholder
 // value never reaches an answer.
-fn dl_col_ty(tn: str) -> str {
+fn dl_col_ty(tn: &str) -> &str {
     if dx_w128(tn) { return "symbol"; }
-    let t: str = dl_ty(tn);
+    let t: &str = dl_ty(tn);
     if t.len() == 0i64 { return "number"; }
     return t;
 }
-fn dx_opaque(tn: str) -> bool { return dl_ty(tn).len() == 0i64; }
+fn dx_opaque(tn: &str) -> bool { return dl_ty(tn).len() == 0i64; }
 
 // A 128-bit integer column is Soufflé's `symbol`, its value in decimal: two
 // such values are equal exactly when their spellings are. So a term may read
 // one only where equality is all that is asked of it — a projection, or `==`
 // / `!=` against another 128-bit column (`DxClause.w128`); arithmetic, order,
 // a literal or an aggregate over it is outside the fragment.
-fn dx_w128(tn: str) -> bool { return str_eq(tn, "i128") || str_eq(tn, "u128"); }
+fn dx_w128(tn: &str) -> bool { return str_eq(tn, "i128") || str_eq(tn, "u128"); }
 
 // An unsigned integer literal written into a 128-bit column: its decimal
 // spelling as the `symbol` (true), else nothing written (false).
@@ -192,8 +192,8 @@ fn dx_cond_bind(out: &mut String, c: SExpr, t: SExpr, e: SExpr, konst: bool, env
     cl.body.push_str(dx_view(&saved));
     cl.udf_ok = saved_udf;
     if !ok { return false; }
-    let b0: str = dx_view(&br.as_slice()[0]);
-    let b1: str = dx_view(&br.as_slice()[1]);
+    let b0: &str = dx_view(&br.as_slice()[0]);
+    let b1: &str = dx_view(&br.as_slice()[1]);
     cl.body.push_str(", (");
     cl.body.push_str(dx_slice(b0, 2i64, b0.len()));
     cl.body.push_str(" ; ");
@@ -232,7 +232,7 @@ fn dx_term_lty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
 fn dx_bit_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
     match e {
         SExpr::Bin(b) => {
-            let l: str = dx_bit_ty(b.lhs.any().view::<SExpr>(), env, cl);
+            let l: &str = dx_bit_ty(b.lhs.any().view::<SExpr>(), env, cl);
             if l.len() > 0i64 { return l; }
             return dx_bit_ty(b.rhs.any().view::<SExpr>(), env, cl);
         }
@@ -244,7 +244,7 @@ fn dx_bit_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
 
 // `v` reduced to a `w`-bit integer of type `ty`, as Deem's type holds it:
 // `v band (2^w-1)`, sign-extended back for a signed type.
-fn dx_wrap_width(out: &mut String, v: str, ty: str, w: i64) {
+fn dx_wrap_width(out: &mut String, v: &str, ty: &str, w: i64) {
     let mut m: i64 = 1i64;
     let mut k: i64 = 0i64;
     while k < w { m = m * 2i64; k = k + 1i64; }
@@ -286,10 +286,10 @@ fn dx_is_w128_col(e: SExpr, env: &DxEnv, cl: &DxClause) -> bool {
 // handle matches a retraction on, so the replay and the handle agree),
 // 'u' a `u64`/`usize` bit-cast to i64, 'z' 0 for anything else (a named or
 // 128-bit type), where the gate's duplicate-row check sees the collapse.
-fn dx_kind(tn: str) -> str {
-    let dt: str = dl_ty(tn);
+fn dx_kind(tn: &str) -> &str {
+    let dt: &str = dl_ty(tn);
     if dt.len() > 0i64 && str_byte_at(dt, 0i64) == 79u8 {                           // 'O': Opt_<t>
-        let ik: str = dx_kind(dx_option_inner(tn));
+        let ik: &str = dx_kind(dx_option_inner(tn));
         if str_eq(ik, "i") { return "oi"; }
         if str_eq(ik, "b") { return "ob"; }
         if str_eq(ik, "s") { return "os"; }
@@ -310,11 +310,11 @@ fn dx_kind(tn: str) -> str {
 }
 
 // One dump cell: `wql_oracle_<k>(__od, <expr>);`
-fn dx_cell(out: &mut String, kind: str, expr: str) {
+fn dx_cell(out: &mut String, kind: &str, expr: &str) {
     if kind.len() == 2i64 && str_byte_at(kind, 0i64) == 111u8 {                     // 'o': Option<T>, Soufflé's ADT
         out.push_str("match &("); out.push_str(expr);
-        let ik: str = dx_slice(kind, 1i64, 2i64);
-        let br: str = dx_opt_branch(ik);
+        let ik: &str = dx_slice(kind, 1i64, 2i64);
+        let br: &str = dx_opt_branch(ik);
         out.push_str(") { Option::Some(__oc) => { wql_oracle_str(__od, \"$Some"); out.push_str(br); out.push_str("(\"); ");
         dx_cell(out, ik, "(*__oc)");
         out.push_str("wql_oracle_str(__od, \")\"); } Option::None => { wql_oracle_str(__od, \"$None"); out.push_str(br); out.push_str("\"); } } ");
@@ -334,9 +334,9 @@ fn DX_MAX_ARITY() -> i64 { return 22i64; }
 // 1 = Vec, 2 = the slice/array family) and element type name.
 struct DxCols { pub n: i64, pub names: Vec<str>, pub tys: Vec<str>,
                 pub coll: Vec<str>, pub ckind: Vec<i32>, pub celem: Vec<str> }
-fn dx_struct_cols(view: &OView, tn: str) -> DxCols {
-    let mut c: DxCols = DxCols { n: 0i64, names: Vec::<str>::new(), tys: Vec::<str>::new(),
-                                 coll: Vec::<str>::new(), ckind: Vec::<i32>::new(), celem: Vec::<str>::new() };
+fn dx_struct_cols(view: &OView, tn: &str) -> DxCols {
+    let mut c: DxCols = DxCols { n: 0i64, names: Vec::<&str>::new(), tys: Vec::<&str>::new(),
+                                 coll: Vec::<&str>::new(), ckind: Vec::<i32>::new(), celem: Vec::<&str>::new() };
     if view.holder == (0 as *mut u8) { return c; }
     let decl: WAny = find_struct_decl(view, tn);
     if decl.is_null() { return c; }
@@ -344,7 +344,7 @@ fn dx_struct_cols(view: &OView, tn: str) -> DxCols {
     let mut i: u64 = 0 as u64;
     while i < nf {
         let fld: WAny = view.ast_struct_field(decl, i);
-        let fname: str = reflect_field_name(view, fld);
+        let fname: &str = reflect_field_name(view, fld);
         let tk: i32 = field_traversal_kind(view, decl, fname);
         if tk > 0i32 {
             c.coll.push(fname); c.ckind.push(tk); c.celem.push(field_traversal_elem(view, decl, fname));
@@ -363,7 +363,7 @@ fn dx_struct_cols(view: &OView, tn: str) -> DxCols {
     return c;
 }
 
-fn dx_fieldless_enum(view: &OView, tn: str) -> bool {
+fn dx_fieldless_enum(view: &OView, tn: &str) -> bool {
     if dl_ty(tn).len() > 0i64 { return false; }
     let decl: WAny = find_decl_by_name(view, tn);
     if decl.is_null() { return false; }
@@ -409,11 +409,11 @@ pub struct DxEnv {
 }
 
 // Add source `nm` with its columns.
-fn dx_env_add(env: &mut DxEnv, nm: str, names: Vec<str>, tys: Vec<str>) {
+fn dx_env_add(env: &mut DxEnv, nm: &str, names: Vec<&str>, tys: Vec<&str>) {
     dx_env_add_rows(env, nm, names, tys, false, -1i64, "");
 }
-fn dx_env_add_rows(env: &mut DxEnv, nm: str, names: Vec<str>, tys: Vec<str>, byval: bool,
-                   parent: i64, field: str) {
+fn dx_env_add_rows(env: &mut DxEnv, nm: &str, names: Vec<&str>, tys: Vec<&str>, byval: bool,
+                   parent: i64, field: &str) {
     env.byval.push(byval);
     env.parent.push(parent);
     env.field.push(field);
@@ -424,7 +424,7 @@ fn dx_env_add_rows(env: &mut DxEnv, nm: str, names: Vec<str>, tys: Vec<str>, byv
     env.n = env.n + 1i64;
 }
 
-fn dx_find(env: &DxEnv, nm: str) -> i64 {
+fn dx_find(env: &DxEnv, nm: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < env.n {
         if env.parent[i] < 0i64 && str_eq(env.src[i], nm) { return i; }
@@ -434,23 +434,23 @@ fn dx_find(env: &DxEnv, nm: str) -> i64 {
 }
 
 // The Logos type of column `col` of source `si` ("" when absent).
-fn dx_col_ty<'a>(env: &'a DxEnv, si: i64, col: str) -> &'a str {
+fn dx_col_ty<'a>(env: &'a DxEnv, si: i64, col: &str) -> &'a str {
     let mut k: i64 = 0i64;
     while k < env.cn[si] {
-        if str_eq(env.cnames[si][k], col) { let t: str = env.ctys[si][k]; return unsafe { str_from_raw(t.as_ptr(), t.len()) }; }
+        if str_eq(env.cnames[si][k], col) { let t: &str = env.ctys[si][k]; return unsafe { str_from_raw(t.as_ptr(), t.len()) }; }
         k = k + 1i64;
     }
     return "";
 }
 // Why a read of an opaque column is refused, by the type's family.
-fn dx_opaque_why(tn: str) -> str {
+fn dx_opaque_why(tn: &str) -> &str {
     if str_eq(tn, "f64") || str_eq(tn, "f32") { return "reads a float column"; }
     if str_eq(tn, "u64") || str_eq(tn, "usize") { return "reads a u64 column"; }
     if str_eq(tn, "i128") || str_eq(tn, "u128") { return "reads a 128-bit column"; }
     return "reads a column of a named type";
 }
 
-fn dx_col_opaque(env: &DxEnv, si: i64, col: str) -> bool {
+fn dx_col_opaque(env: &DxEnv, si: i64, col: &str) -> bool {
     let mut k: i64 = 0i64;
     while k < env.cn[si] {
         if str_eq(env.cnames[si][k], col) { return dx_opaque(env.ctys[si][k]); }
@@ -462,16 +462,16 @@ fn dx_col_opaque(env: &DxEnv, si: i64, col: str) -> bool {
 // Why source `src` is not in the environment: a native left out (its own
 // reason), else a source the exporter never declared (a writ graph, a Memoria
 // container read through a door, a `__`-prefixed engine relation, …).
-fn dx_skip_why<'a>(env: &'a DxEnv, src: str) -> &'a str {
+fn dx_skip_why<'a>(env: &'a DxEnv, src: &str) -> &'a str {
     let mut i: i64 = 0i64;
     while i < env.nsk {
-        if str_eq(env.skn[i], src) { let w: str = env.skw[i]; return unsafe { str_from_raw(w.as_ptr(), w.len()) }; }
+        if str_eq(env.skn[i], src) { let w: &str = env.skw[i]; return unsafe { str_from_raw(w.as_ptr(), w.len()) }; }
         i = i + 1i64;
     }
     return "source outside the fragment";
 }
 
-fn dx_is_scalar(env: &DxEnv, nm: str) -> bool {
+fn dx_is_scalar(env: &DxEnv, nm: &str) -> bool {
     let mut i: i64 = 0i64;
     while i < env.ns {
         if str_eq(env.scalars[i], nm) { return true; }
@@ -522,30 +522,30 @@ struct DxClause {
 }
 
 // Refuse with a reason: the first one set wins, which is the innermost.
-fn dx_no(cl: &mut DxClause, w: str) -> bool {
+fn dx_no(cl: &mut DxClause, w: &str) -> bool {
     if cl.why.len() == 0i64 { cl.why = w; }
     return false;
 }
-fn dx_set(why: &mut String, w: str) -> bool {
+fn dx_set(why: &mut String, w: &str) -> bool {
     if why.len() == 0i64 { why.push_str(w); }
     return false;
 }
 
 fn dx_new_clause() -> DxClause {
-    return DxClause { body: String::new(), ok: true, nv: 0i64, vars: Vec::<str>::new(), vsrc: Vec::<i64>::new(),
-                      nparams: 0i64, params: Vec::<str>::new(), consts: Vec::<str>::new(), nal: 0i64, al_names: Vec::<str>::new(),
-                      al_vars: Vec::<str>::new(), al_tys: Vec::<str>::new(), al_kinds: Vec::<str>::new(),
-                      kc_var: Vec::<str>::new(), kc_fld: Vec::<str>::new(), kc_out: Vec::<str>::new(), why: "",
+    return DxClause { body: String::new(), ok: true, nv: 0i64, vars: Vec::<&str>::new(), vsrc: Vec::<i64>::new(),
+                      nparams: 0i64, params: Vec::<&str>::new(), consts: Vec::<&str>::new(), nal: 0i64, al_names: Vec::<&str>::new(),
+                      al_vars: Vec::<&str>::new(), al_tys: Vec::<&str>::new(), al_kinds: Vec::<&str>::new(),
+                      kc_var: Vec::<&str>::new(), kc_fld: Vec::<&str>::new(), kc_out: Vec::<&str>::new(), why: "",
                       udf_ok: false, w128: false, nudf: 0i64, udf_used: Vec::<i64>::new(), auxp: String::new(), extra: String::new() };
 }
 
 // Start the clause's alias list over with `key` → `gk`.
-fn dx_alias_key(cl: &mut DxClause, ty: str, kind: str) {
+fn dx_alias_key(cl: &mut DxClause, ty: &str, kind: &str) {
     cl.al_names.clear(); cl.al_vars.clear(); cl.al_tys.clear(); cl.al_kinds.clear();
     cl.al_names.push("key"); cl.al_vars.push("gk"); cl.al_tys.push(ty); cl.al_kinds.push(kind);
     cl.nal = 1i64;
 }
-fn dx_alias_add(cl: &mut DxClause, nm: str, var: str, ty: str, kind: str) {
+fn dx_alias_add(cl: &mut DxClause, nm: &str, var: &str, ty: &str, kind: &str) {
     cl.al_names.push(nm); cl.al_vars.push(var); cl.al_tys.push(ty); cl.al_kinds.push(kind);
     cl.nal = cl.nal + 1i64;
 }
@@ -553,22 +553,22 @@ fn dx_alias_add(cl: &mut DxClause, nm: str, var: str, ty: str, kind: str) {
 // A tuple group key's component `i`: its alias name (`key.i` is looked up
 // by the index's digits) and its Datalog variable. Static spellings: a rel row
 // holds at most 12 columns, so a key has at most 12 components.
-fn dx_kdig(i: i64) -> str {
+fn dx_kdig(i: i64) -> &str {
     let d: [str; 12] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"];
     return d[i];
 }
-fn dx_kvar(i: i64) -> str {
+fn dx_kvar(i: i64) -> &str {
     let v: [str; 12] = ["gk0", "gk1", "gk2", "gk3", "gk4", "gk5", "gk6", "gk7", "gk8", "gk9", "gk10", "gk11"];
     return v[i];
 }
-fn dx_digits(n: str) -> bool {
+fn dx_digits(n: &str) -> bool {
     if n.len() == 0i64 { return false; }
     let mut i: i64 = 0i64;
     while i < n.len() { let c: u8 = str_byte_at(n, i); if c < 48u8 || c > 57u8 { return false; } i = i + 1i64; }
     return true;
 }
 
-fn dx_alias(cl: &DxClause, nm: str) -> i64 {
+fn dx_alias(cl: &DxClause, nm: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < cl.nal {
         if str_eq(cl.al_names[i], nm) { return i; }
@@ -577,11 +577,11 @@ fn dx_alias(cl: &DxClause, nm: str) -> i64 {
     return -1i64;
 }
 
-fn dx_bind(cl: &mut DxClause, v: str, si: i64) {
+fn dx_bind(cl: &mut DxClause, v: &str, si: i64) {
     cl.vars.push(v); cl.vsrc.push(si); cl.nv = cl.nv + 1i64;
 }
 
-fn dx_var_src(cl: &DxClause, v: str) -> i64 {
+fn dx_var_src(cl: &DxClause, v: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < cl.nv {
         if str_eq(cl.vars[i], v) { return cl.vsrc[i]; }
@@ -590,7 +590,7 @@ fn dx_var_src(cl: &DxClause, v: str) -> i64 {
     return -1i64;
 }
 
-fn dx_note_param(cl: &mut DxClause, p: str) {
+fn dx_note_param(cl: &mut DxClause, p: &str) {
     let mut i: i64 = 0i64;
     while i < cl.nparams {
         if str_eq(cl.params[i], p) { return; }
@@ -601,19 +601,19 @@ fn dx_note_param(cl: &mut DxClause, p: str) {
 
 // A const or static some module declares, of a type the fragment holds: its
 // value is dumped as the one-row relation `__c_<name>` (`dx_consts`).
-fn dx_const_ty(nm: str) -> str {
-    let t: str = value_type_name(nm);
+fn dx_const_ty(nm: &str) -> &str {
+    let t: &str = value_type_name(nm);
     if t.len() == 0i64 || dl_ty(t).len() == 0i64 { return ""; }
     return t;
 }
-fn dx_note_const(cl: &mut DxClause, c: str) {
+fn dx_note_const(cl: &mut DxClause, c: &str) {
     let mut i: i64 = 0i64;
     while i < cl.consts.len() { if str_eq(cl.consts[i], c) { return; } i = i + 1i64; }
     cl.consts.push(c);
 }
 
 // The Soufflé variable of row var `v`'s column `c`.
-fn dx_push_var(out: &mut String, v: str, c: str) {
+fn dx_push_var(out: &mut String, v: &str, c: &str) {
     out.push_str("v_"); out.push_str(v); out.push_str("_"); out.push_str(c);
 }
 
@@ -629,7 +629,7 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
                 // the value cannot reach the TSV facts either, so it is out
                 let mut val: String = String::new();
                 el_str_unescape(v.as_wstr(), &mut val);
-                let vv: str = dx_view(&val);
+                let vv: &str = dx_view(&val);
                 let mut k: i64 = 0i64;
                 out.push_str("\"");
                 while k < vv.len() {
@@ -724,7 +724,7 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
                 }
                 // a `<<` in a type narrower than Soufflé's 64-bit word drops the
                 // bits Deem's type drops: masked (and sign-extended back if signed)
-                let bty: str = dx_bit_ty(e, env, cl);
+                let bty: &str = dx_bit_ty(e, env, cl);
                 let bw: i64 = if bty.len() == 0i64 { 64i64 } else { dx_int_width(bty) };
                 if bw == 0i64 { return dx_no(cl, "bitwise operator over a value outside the fragment"); }
                 let mut inner: String = String::new();
@@ -769,9 +769,9 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
         SExpr::Un(u) => {
             if u.op == OP_NOT() {
                 // `!` over an integer: Soufflé's bnot (over a bool it is no term)
-                let ak: str = dx_term_kind(u.arg.any().view::<SExpr>(), env, cl);
+                let ak: &str = dx_term_kind(u.arg.any().view::<SExpr>(), env, cl);
                 if str_eq(ak, "i") || str_eq(ak, "U") {
-                    let nty: str = dx_bit_ty(u.arg.any().view::<SExpr>(), env, cl);
+                    let nty: &str = dx_bit_ty(u.arg.any().view::<SExpr>(), env, cl);
                     let nw: i64 = if nty.len() == 0i64 { 64i64 } else { dx_int_width(nty) };
                     if nw == 0i64 { return dx_no(cl, "bitwise operator over a value outside the fragment"); }
                     let mut inner: String = String::new();
@@ -795,7 +795,7 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             // a cast that keeps the value: an integer widened within Soufflé's
             // `number`, or an integer of at most 32 bits to f64 (`to_float`
             // is exact below 2^53)
-            let st: str = dx_term_lty(c.arg.any().view::<SExpr>(), env, cl);
+            let st: &str = dx_term_lty(c.arg.any().view::<SExpr>(), env, cl);
             let ws: i64 = dx_int_width(st);
             if ws > 0i64 && str_eq(dl_ty(st), "number") {
                 let wt: i64 = dx_int_width(c.ty);
@@ -819,7 +819,7 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             return dx_cond_bind(out, cd.c.any().view::<SExpr>(), cd.t.any().view::<SExpr>(), cd.e.any().view::<SExpr>(), false, env, cl);
         }
         SExpr::Call(c) => {
-            let ob: str = dx_opt_arg_branch(e, env, cl);
+            let ob: &str = dx_opt_arg_branch(e, env, cl);
             if ob.len() > 0i64 && builtin_of_name(c.fn_name) == BFN_UNWRAP_OR() {
                 // `unwrap_or(c, d)` over an Option column (Opt_<t>): a fresh
                 // variable bound in each disjunct, `(c = $Some(v), r = v ; c = $None(), r = d)`
@@ -910,7 +910,7 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
 
 // Soufflé types `number`, `unsigned` and `float` apart: an operator over two of
 // them is a type error unless one side is a literal (constants adapt).
-fn dx_numeric(t: str) -> bool { return str_eq(t, "number") || str_eq(t, "unsigned") || str_eq(t, "float"); }
+fn dx_numeric(t: &str) -> bool { return str_eq(t, "number") || str_eq(t, "unsigned") || str_eq(t, "float"); }
 // An integer literal adapts to number / unsigned / float; a float literal is
 // `to_float(…)`, a float, and adapts to nothing.
 fn dx_is_lit(e: SExpr) -> bool {
@@ -920,8 +920,8 @@ fn dx_is_lit(e: SExpr) -> bool {
     }
 }
 fn dx_mixed_sign(l: SExpr, r: SExpr, env: &DxEnv, cl: &DxClause) -> bool {
-    let lt: str = dx_term_ty(l, env, cl);
-    let rt: str = dx_term_ty(r, env, cl);
+    let lt: &str = dx_term_ty(l, env, cl);
+    let rt: &str = dx_term_ty(r, env, cl);
     if dx_is_lit(l) || dx_is_lit(r) { return false; }
     if !dx_numeric(lt) || !dx_numeric(rt) { return false; }
     return !str_eq(lt, rt);
@@ -951,7 +951,7 @@ fn dx_pred_p(e: SExpr, env: &DxEnv, cl: &mut DxClause, neg: bool) -> bool {
                 return dx_pred_p(r, env, cl, neg);
             }
             if op == OP_AND() || op == OP_OR() { return dx_disj(l, r, env, cl, neg); }
-            let mut sym: str = "";
+            let mut sym: &str = "";
             if op == OP_EQ() { sym = if neg { " != " } else { " = " }; }
             else if op == OP_NE() { sym = if neg { " = " } else { " != " }; }
             else if op == OP_LT() { sym = if neg { " >= " } else { " < " }; }
@@ -997,7 +997,7 @@ fn dx_pred_p(e: SExpr, env: &DxEnv, cl: &mut DxClause, neg: bool) -> bool {
                 cl.body.push_str(dx_view(&t));
                 return true;
             }
-            let pb: str = dx_opt_arg_branch(e, env, cl);
+            let pb: &str = dx_opt_arg_branch(e, env, cl);
             if pb.len() > 0i64 && (builtin_of_name(c.fn_name) == BFN_IS_SOME() || builtin_of_name(c.fn_name) == BFN_IS_NONE()) {
                 let mut x: String = String::new();
                 if !dx_term(&mut x, c.args_arr().arg_at(0i64), env, cl) { return false; }
@@ -1017,8 +1017,8 @@ fn dx_pred_p(e: SExpr, env: &DxEnv, cl: &mut DxClause, neg: bool) -> bool {
                 let mut px: String = String::new();
                 if !dx_term(&mut sx, args.arg_at(0i64), env, cl) { return false; }
                 if !dx_term(&mut px, args.arg_at(1i64), env, cl) { return false; }
-                let sv: str = dx_view(&sx);
-                let pv: str = dx_view(&px);
+                let sv: &str = dx_view(&sx);
+                let pv: &str = dx_view(&px);
                 let mut t: String = String::new();
                 t.push_str("strlen("); t.push_str(sv); t.push_str(") >= strlen("); t.push_str(pv); t.push_str("), substr(");
                 t.push_str(sv); t.push_str(", 0, strlen("); t.push_str(pv); t.push_str(")) ");
@@ -1076,7 +1076,7 @@ fn dx_disj(l: SExpr, r: SExpr, env: &DxEnv, cl: &mut DxClause, neg: bool) -> boo
 }
 
 // A positive atom `s(v_v_f1, …)` for row var `v` over source `s`.
-fn dx_atom(cl: &mut DxClause, env: &DxEnv, src: str, v: str) -> bool {
+fn dx_atom(cl: &mut DxClause, env: &DxEnv, src: &str, v: &str) -> bool {
     let si: i64 = dx_find(env, src);
     if si < 0i64 { return dx_no(cl, dx_skip_why(env, src)); }
     dx_bind(cl, v, si);
@@ -1096,11 +1096,11 @@ fn dx_atom(cl: &mut DxClause, env: &DxEnv, src: str, v: str) -> bool {
 // The relation a traversal step reads: `<base's source>__<field>`, declared
 // when the base's source has that collection (−1 otherwise, and for a path of
 // more than one segment).
-fn dx_trav_src(env: &DxEnv, cl: &DxClause, base: str, path: &Vec<str>) -> i64 {
+fn dx_trav_src(env: &DxEnv, cl: &DxClause, base: &str, path: &Vec<&str>) -> i64 {
     if path.len() != 1i64 { return -1i64; }
     let vs: i64 = dx_var_src(cl, base);
     if vs < 0i64 { return -1i64; }
-    let seg: str = path.get(0i64);
+    let seg: &str = path.get(0i64);
     let mut i: i64 = 0i64;
     while i < env.n {
         if env.parent[i] == vs && str_eq(env.field[i], seg) { return i; }
@@ -1119,7 +1119,7 @@ fn dx_rel_name(out: &mut String, env: &DxEnv, i: i64) {
 
 // The atom of traversal row var `v` over collection relation `cs`, joined to
 // its base row var `base` on the parent row index.
-fn dx_edge_atom(cl: &mut DxClause, env: &DxEnv, cs: i64, base: str, v: str) {
+fn dx_edge_atom(cl: &mut DxClause, env: &DxEnv, cs: i64, base: &str, v: &str) {
     dx_bind(cl, v, cs);
     if cl.body.len() > 0i64 { cl.body.push_str(", "); }
     dx_rel_name(&mut cl.body, env, cs);
@@ -1138,7 +1138,7 @@ fn dx_edge_atom(cl: &mut DxClause, env: &DxEnv, cs: i64, base: str, v: str) {
 
 // The column `s.f` an equality conjunct of `on` binds for the negated row var
 // `v`: the other side's term, or "" when no conjunct binds it.
-fn dx_neg_arg(on: SExpr, v: str, col: str, env: &DxEnv, cl: &mut DxClause, out: &mut String) -> bool {
+fn dx_neg_arg(on: SExpr, v: &str, col: &str, env: &DxEnv, cl: &mut DxClause, out: &mut String) -> bool {
     match on {
         SExpr::Bin(b) => {
             if b.op == OP_AND() {
@@ -1156,7 +1156,7 @@ fn dx_neg_arg(on: SExpr, v: str, col: str, env: &DxEnv, cl: &mut DxClause, out: 
     }
 }
 
-fn dx_is_col(e: SExpr, v: str, col: str) -> bool {
+fn dx_is_col(e: SExpr, v: &str, col: &str) -> bool {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
@@ -1175,7 +1175,7 @@ fn dx_is_col(e: SExpr, v: str, col: str) -> bool {
 
 // Every conjunct of an anti join's `on` must be an equality on one of the
 // negated source's columns: Soufflé's `!s(…)` binds by position only.
-fn dx_neg_only_eqs(on: SExpr, v: str) -> bool {
+fn dx_neg_only_eqs(on: SExpr, v: &str) -> bool {
     match on {
         SExpr::Bin(b) => {
             if b.op == OP_AND() {
@@ -1189,7 +1189,7 @@ fn dx_neg_only_eqs(on: SExpr, v: str) -> bool {
     }
 }
 
-fn dx_names_var(e: SExpr, v: str) -> bool {
+fn dx_names_var(e: SExpr, v: &str) -> bool {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
@@ -1221,7 +1221,7 @@ fn dx_whole_row(sel: SExpr, env: &DxEnv, cl: &DxClause) -> i64 {
     }
 }
 
-fn dx_head(name: str, sel: SExpr, arity: i64, env: &DxEnv, cl: &mut DxClause, out: &mut String) -> bool {
+fn dx_head(name: &str, sel: SExpr, arity: i64, env: &DxEnv, cl: &mut DxClause, out: &mut String) -> bool {
     out.push_str(name);
     out.push_str("(");
     let wr: i64 = dx_whole_row(sel, env, cl);
@@ -1282,7 +1282,7 @@ struct DxOcc {
     pub ni: i64, pub itok: Vec<str>, pub isc: Vec<i64>, pub icnt: Vec<i64>,
 }
 
-fn dx_occ_add(o: &mut DxOcc, t: str, sc: i64) {
+fn dx_occ_add(o: &mut DxOcc, t: &str, sc: i64) {
     let mut i: i64 = 0i64;
     if sc == 0i64 {
         while i < o.no {
@@ -1299,26 +1299,26 @@ fn dx_occ_add(o: &mut DxOcc, t: str, sc: i64) {
     o.itok.push(t); o.isc.push(sc); o.icnt.push(1i64); o.ni = o.ni + 1i64;
 }
 
-fn dx_occ_outer(o: &DxOcc, t: str) -> i64 {
+fn dx_occ_outer(o: &DxOcc, t: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < o.no { if str_eq(o.otok[i], t) { return o.ocnt[i]; } i = i + 1i64; }
     return 0i64;
 }
 
-fn dx_occ_inner(o: &DxOcc, t: str, sc: i64) -> i64 {
+fn dx_occ_inner(o: &DxOcc, t: &str, sc: i64) -> i64 {
     let mut i: i64 = 0i64;
     while i < o.ni { if str_eq(o.itok[i], t) && o.isc[i] == sc { return o.icnt[i]; } i = i + 1i64; }
     return 0i64;
 }
 
-fn dx_occ_any_inner(o: &DxOcc, t: str) -> bool {
+fn dx_occ_any_inner(o: &DxOcc, t: &str) -> bool {
     let mut i: i64 = 0i64;
     while i < o.ni { if str_eq(o.itok[i], t) { return true; } i = i + 1i64; }
     return false;
 }
 
 // Does `s` contain the identifier `t` as a whole token?
-fn dx_has_token(s: str, t: str) -> bool {
+fn dx_has_token(s: &str, t: &str) -> bool {
     let n: i64 = s.len();
     let m: i64 = t.len();
     let mut i: i64 = 0i64;
@@ -1331,10 +1331,10 @@ fn dx_has_token(s: str, t: str) -> bool {
     return false;
 }
 
-fn dx_wild(cl: str) -> String {
+fn dx_wild(cl: &str) -> String {
     // pass 1: count
-    let mut o: DxOcc = DxOcc { no: 0i64, otok: Vec::<str>::new(), ocnt: Vec::<i64>::new(),
-                               ni: 0i64, itok: Vec::<str>::new(), isc: Vec::<i64>::new(), icnt: Vec::<i64>::new() };
+    let mut o: DxOcc = DxOcc { no: 0i64, otok: Vec::<&str>::new(), ocnt: Vec::<i64>::new(),
+                               ni: 0i64, itok: Vec::<&str>::new(), isc: Vec::<i64>::new(), icnt: Vec::<i64>::new() };
     let n: i64 = cl.len();
     let mut i: i64 = 0i64;
     let mut sc: i64 = 0i64;
@@ -1380,7 +1380,7 @@ fn dx_wild(cl: str) -> String {
            && (i == 0i64 || !dx_is_id(str_byte_at(cl, i - 1i64))) {
             let t0: i64 = i;
             while i < n && dx_is_id(str_byte_at(cl, i)) { i = i + 1i64; }
-            let t: str = dx_slice(cl, t0, i);
+            let t: &str = dx_slice(cl, t0, i);
             let mut wild: bool = false;
             if sc == 0i64 { wild = dx_occ_outer(&o, t) == 1i64 && !dx_occ_any_inner(&o, t); }
             else { wild = dx_occ_inner(&o, t, sc) == 1i64 && dx_occ_outer(&o, t) == 0i64; }
@@ -1394,7 +1394,7 @@ fn dx_wild(cl: str) -> String {
 }
 
 // One query → one clause `head :- body.` appended to `out`.
-fn dx_rule(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, out: &mut String,
+fn dx_rule(p: &CProgram, ru: &CRule, head: &str, arity: i64, env: &DxEnv, out: &mut String,
            why: &mut String) -> bool {
     let mut cl: DxClause = dx_new_clause();
     if dx_rule_in(p, ru, head, arity, env, out, &mut cl, why) { return true; }
@@ -1404,7 +1404,7 @@ fn dx_rule(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, out: &m
 // One rule of the core as one Datalog clause (or, grouped, as the three of
 // `dx_aggr_rule`). A rel body's envelope must be the default one; the entry's
 // is the caller's (`__out`'s first/limit comments).
-fn dx_rule_in(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, out: &mut String,
+fn dx_rule_in(p: &CProgram, ru: &CRule, head: &str, arity: i64, env: &DxEnv, out: &mut String,
               cl0: &mut DxClause, why: &mut String) -> bool {
     let cl: &mut DxClause = cl0;
     cl.udf_ok = true;
@@ -1427,7 +1427,7 @@ fn dx_rule_in(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, out:
     cl.auxp.push_str(head); cl.auxp.push_str("_"); cl.auxp.push_i64(out.len());
     if !dx_core_body(p, cl, env, &ru.clause.body) { return false; }
     if findm {
-        let fv: str = dx_find_var(ru);
+        let fv: &str = dx_find_var(ru);
         let si: i64 = dx_var_src(cl, fv);
         if si < 0i64 || env.byval[si] || env.cn[si] != arity { return dx_no(cl, "find over a row outside the fragment"); }
         hd.push_str(head); hd.push_str("(");
@@ -1451,11 +1451,11 @@ fn dx_udf_decls(env: &DxEnv, cl: &DxClause, out: &mut String) {
     let mut i: i64 = 0i64;
     while i < cl.udf_used.len() {
         let ui: i64 = cl.udf_used.get(i);
-        let un: str = env.udf[ui];
+        let un: &str = env.udf[ui];
         let mut d: String = String::new();
         d.push_str(".decl udf_"); d.push_str(un); d.push_str("(");
         if !dx_contains(dx_view(out), dx_view(&d)) {
-            let kv: str = dx_view(&env.udfk.as_slice()[ui]);
+            let kv: &str = dx_view(&env.udfk.as_slice()[ui]);
             let mut k: i64 = 0i64;
             while k < kv.len() {
                 if k > 0i64 { d.push_str(", "); }
@@ -1474,7 +1474,7 @@ fn dx_udf_decls(env: &DxEnv, cl: &DxClause, out: &mut String) {
     }
 }
 
-fn dx_contains(hay: str, needle: str) -> bool {
+fn dx_contains(hay: &str, needle: &str) -> bool {
     let mut i: i64 = 0i64;
     while i + needle.len() <= hay.len() {
         if str_eq(dx_slice(hay, i, i + needle.len()), needle) { return true; }
@@ -1595,7 +1595,7 @@ fn dx_core_lit(p: &CProgram, cl: &mut DxClause, env: &DxEnv, lit: &CLit) -> bool
                         cl.body.push_str("__unit(_)");
                     }
                     _ => {
-                        let src: str = dx_src_name(p, &a.src);
+                        let src: &str = dx_src_name(p, &a.src);
                         if a.neg {
                             if a.conds.len() == 0i64 { return dx_no(cl, "anti join without on"); }
                             let si: i64 = dx_find(env, src);
@@ -1670,10 +1670,10 @@ fn dx_core_lit(p: &CProgram, cl: &mut DxClause, env: &DxEnv, lit: &CLit) -> bool
 
 // The entry's optional variables: the outer atom's, and for `full join` also
 // the source it is joined to (the body's first plain atom).
-fn dx_opt_vars(c: &CClause) -> Vec<str> {
-    let mut ov: Vec<str> = Vec::<str>::new();
+fn dx_opt_vars(c: &CClause) -> Vec<&str> {
+    let mut ov: Vec<&str> = Vec::<&str>::new();
     let bs: &[CLit] = c.body.as_slice();
-    let mut first: str = "";
+    let mut first: &str = "";
     let mut i: i64 = 0i64;
     while i < c.body.len() {
         match &bs[i] {
@@ -1690,14 +1690,14 @@ fn dx_opt_vars(c: &CClause) -> Vec<str> {
     return ov;
 }
 
-fn dx_ov_index(ov: &Vec<str>, v: str) -> i64 {
+fn dx_ov_index(ov: &Vec<&str>, v: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < ov.len() { if str_eq(ov[i], v) { return i; } i = i + 1i64; }
     return -1i64;
 }
 
 // `v.c` with `v` optional: its index in `ov`, else -1.
-fn dx_opt_col(e: SExpr, ov: &Vec<str>) -> i64 {
+fn dx_opt_col(e: SExpr, ov: &Vec<&str>) -> i64 {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
@@ -1716,7 +1716,7 @@ fn dx_opt_col(e: SExpr, ov: &Vec<str>) -> i64 {
 
 // `unwrap_or(v.c, t)` / `is_some(v.c)` / `is_none(v.c)` over an optional column:
 // the builtin and the column's index in `ov`, else (BFN_UNKNOWN, -1).
-fn dx_opt_call(e: SExpr, ov: &Vec<str>) -> (i32, i64) {
+fn dx_opt_call(e: SExpr, ov: &Vec<&str>) -> (i32, i64) {
     match e {
         SExpr::Call(c) => {
             let b: i32 = builtin_of_name(c.fn_name);
@@ -1732,7 +1732,7 @@ fn dx_opt_call(e: SExpr, ov: &Vec<str>) -> (i32, i64) {
     }
 }
 
-fn dx_names_any(e: SExpr, ov: &Vec<str>) -> bool {
+fn dx_names_any(e: SExpr, ov: &Vec<&str>) -> bool {
     let mut i: i64 = 0i64;
     while i < ov.len() { if dx_names_var(e, ov[i]) { return true; } i = i + 1i64; }
     return false;
@@ -1740,10 +1740,10 @@ fn dx_names_any(e: SExpr, ov: &Vec<str>) -> bool {
 
 // A head term of one clause: `some[i]` says whether optional variable `i` is
 // matched in it.
-fn dx_oterm(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause, ov: &Vec<str>, some: &Vec<bool>) -> bool {
+fn dx_oterm(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause, ov: &Vec<&str>, some: &Vec<bool>) -> bool {
     let i: i64 = dx_opt_col(e, ov);
     if i >= 0i64 {
-        let br: str = dx_opt_branch(dx_term_kind(e, env, cl));
+        let br: &str = dx_opt_branch(dx_term_kind(e, env, cl));
         if !some[i] { out.push_str("$None"); out.push_str(br); out.push_str("()"); return true; }
         out.push_str("$Some"); out.push_str(br); out.push_str("(");
         if !dx_term(out, e, env, cl) { return false; }
@@ -1766,7 +1766,7 @@ fn dx_oterm(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause, ov: &Vec
 
 // A condition after the join: 1 holds in this clause, 0 drops the clause,
 // 2 an ordinary constraint, -1 outside the fragment.
-fn dx_ocond(e: SExpr, ov: &Vec<str>, some: &Vec<bool>) -> i32 {
+fn dx_ocond(e: SExpr, ov: &Vec<&str>, some: &Vec<bool>) -> i32 {
     let bc: (i32, i64) = dx_opt_call(e, ov);
     if bc.0 == BFN_IS_SOME() { if some[bc.1] { return 1i32; } return 0i32; }
     if bc.0 == BFN_IS_NONE() { if some[bc.1] { return 0i32; } return 1i32; }
@@ -1812,11 +1812,11 @@ fn dx_outer_atom(p: &CProgram, cl: &mut DxClause, env: &DxEnv, a: &CAtom) -> boo
 // argument is a value column, computed where the optional columns are known.
 struct DxOAgg { pub on: bool, pub kes: Vec<SExpr>, pub vals: Vec<SExpr>, pub lvars: Vec<str>, pub lsrc: Vec<i64> }
 fn dx_oagg_none() -> DxOAgg {
-    return DxOAgg { on: false, kes: Vec::<SExpr>::new(), vals: Vec::<SExpr>::new(), lvars: Vec::<str>::new(), lsrc: Vec::<i64>::new() };
+    return DxOAgg { on: false, kes: Vec::<SExpr>::new(), vals: Vec::<SExpr>::new(), lvars: Vec::<&str>::new(), lsrc: Vec::<i64>::new() };
 }
 
 // A constant of Soufflé type `t`: an absent row's column in `__ab`.
-fn dx_fill(t: str) -> str {
+fn dx_fill(t: &str) -> &str {
     if str_eq(t, "float") { return "0.0"; }
     if str_eq(t, "symbol") { return "\"\""; }
     if str_eq(t, "Opt_number") { return "$None_n()"; }
@@ -1827,10 +1827,10 @@ fn dx_fill(t: str) -> str {
 
 // The Soufflé type of a term over the outer entry's variables: `unwrap_or` is
 // its column's, a bare optional column `Opt_<t>`; "" outside the fragment.
-fn dx_oterm_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause, ov: &Vec<str>) -> &'a str {
+fn dx_oterm_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause, ov: &Vec<&str>) -> &'a str {
     if dx_opt_call(e, ov).0 == BFN_UNWRAP_OR() { return dx_opt_arg_ty(e, env, cl); }
     if dx_opt_col(e, ov) >= 0i64 {
-        let t: str = dx_term_ty(e, env, cl);
+        let t: &str = dx_term_ty(e, env, cl);
         if str_eq(t, "number") { return "Opt_number"; }
         if str_eq(t, "symbol") { return "Opt_symbol"; }
         if str_eq(t, "unsigned") { return "Opt_unsigned"; }
@@ -1844,8 +1844,8 @@ fn dx_oterm_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause, ov: &Vec<str>) -> &'
 // is matched: the matched clause has every one; a kept side's partner is
 // replaced by `!<mname>(<mvars>)`, and for a right-kept `full` clause the
 // partner is the driving atom.
-fn dx_outer_clause(p: &CProgram, c: &CClause, head: str, arity: i64, env: &DxEnv, oi: i64, ov: &Vec<str>,
-                   some: &Vec<bool>, mname: str, mvars: str, ag: &DxOAgg, out: &mut String, why: &mut String) -> bool {
+fn dx_outer_clause(p: &CProgram, c: &CClause, head: &str, arity: i64, env: &DxEnv, oi: i64, ov: &Vec<&str>,
+                   some: &Vec<bool>, mname: &str, mvars: &str, ag: &DxOAgg, out: &mut String, why: &mut String) -> bool {
     let mut cl: DxClause = dx_new_clause();
     let r: i32 = dx_outer_body(p, c, env, oi, ov, some, mname, mvars, &mut cl, why);
     if r < 0i32 { return false; }
@@ -1899,8 +1899,8 @@ fn dx_outer_clause(p: &CProgram, c: &CClause, head: str, arity: i64, env: &DxEnv
 
 // The body of one outer clause into `cl`: 1 built, 0 the clause keeps nothing
 // (an `is_some` / `is_none` that is false in it), -1 outside the fragment.
-fn dx_outer_body(p: &CProgram, c: &CClause, env: &DxEnv, oi: i64, ov: &Vec<str>, some: &Vec<bool>,
-                 mname: str, mvars: str, cl0: &mut DxClause, why: &mut String) -> i32 {
+fn dx_outer_body(p: &CProgram, c: &CClause, env: &DxEnv, oi: i64, ov: &Vec<&str>, some: &Vec<bool>,
+                 mname: &str, mvars: &str, cl0: &mut DxClause, why: &mut String) -> i32 {
     let cl: &mut DxClause = cl0;
     cl.udf_ok = true;
     let bs: &[CLit] = c.body.as_slice();
@@ -1946,7 +1946,7 @@ fn dx_outer_body(p: &CProgram, c: &CClause, env: &DxEnv, oi: i64, ov: &Vec<str>,
     return 1i32;
 }
 
-fn dx_names_any_lit(lit: &CLit, ov: &Vec<str>) -> bool {
+fn dx_names_any_lit(lit: &CLit, ov: &Vec<&str>) -> bool {
     match lit {
         CLit::Atom(a) => {
             let cs: &[WAny] = a.conds.as_slice();
@@ -1961,7 +1961,7 @@ fn dx_names_any_lit(lit: &CLit, ov: &Vec<str>) -> bool {
 
 // `__m_<side>(<vars>) :- <the literals before the outer atom>, <outer atom>, <on>.`
 // (`side` 0: the left rows that matched; 1, `full` only: the right rows).
-fn dx_outer_match(p: &CProgram, c: &CClause, env: &DxEnv, oi: i64, side: i64, mname: str, mvars: str,
+fn dx_outer_match(p: &CProgram, c: &CClause, env: &DxEnv, oi: i64, side: i64, mname: &str, mvars: &str,
                   out: &mut String, why: &mut String) -> bool {
     let mut cl: DxClause = dx_new_clause();
     cl.udf_ok = true;
@@ -2039,12 +2039,12 @@ fn dx_outer_index(c: &CClause, why: &mut String) -> i64 {
 
 // A clause with an outer atom: its clauses, as above (`ag.on`: the rows of a
 // group's `__ab`, named `head`).
-fn dx_outer_rules(p: &CProgram, c: &CClause, head: str, arity: i64, env: &DxEnv, ag: &DxOAgg, out: &mut String,
+fn dx_outer_rules(p: &CProgram, c: &CClause, head: &str, arity: i64, env: &DxEnv, ag: &DxOAgg, out: &mut String,
                   why: &mut String) -> bool {
     let bs: &[CLit] = c.body.as_slice();
     let oi: i64 = dx_outer_index(c, why);
     if oi < 0i64 { return false; }
-    let ov: Vec<str> = dx_opt_vars(c);
+    let ov: Vec<&str> = dx_opt_vars(c);
     let mut i: i64 = 0i64;
     // the left side's variables (every literal before the outer atom)
     let mut lv: String = String::new();
@@ -2092,9 +2092,9 @@ fn dx_param_atoms(cl: &mut DxClause) {
 // declared once and dumped as a one-row relation. The dump is PREPENDED: the
 // rest of it ends with the run and the answer's write, and a const's value is
 // in scope of the generated fn anyway (the query names it).
-fn dx_consts(out: &mut String, dump: &mut String, ddir: str) {
-    let txt: str = dx_view(out);
-    let mut names: Vec<str> = Vec::<str>::new();
+fn dx_consts(out: &mut String, dump: &mut String, ddir: &str) {
+    let txt: &str = dx_view(out);
+    let mut names: Vec<&str> = Vec::<&str>::new();
     let n: i64 = txt.len();
     let mut i: i64 = 0i64;
     while i + 4i64 < n {
@@ -2104,7 +2104,7 @@ fn dx_consts(out: &mut String, dump: &mut String, ddir: str) {
             let mut e: i64 = s0;
             while e < n && dx_is_id(str_byte_at(txt, e)) { e = e + 1i64; }
             if e < n && str_byte_at(txt, e) == 40u8 && e > s0 {          // '('
-                let nm: str = dx_slice(txt, s0, e);
+                let nm: &str = dx_slice(txt, s0, e);
                 let mut seen: bool = false;
                 let mut k: i64 = 0i64;
                 while k < names.len() { if str_eq(names[k], nm) { seen = true; } k = k + 1i64; }
@@ -2119,7 +2119,7 @@ fn dx_consts(out: &mut String, dump: &mut String, ddir: str) {
     let mut pre: String = String::new();
     let mut q: i64 = 0i64;
     while q < names.len() {
-        let ct: str = dx_const_ty(names[q]);
+        let ct: &str = dx_const_ty(names[q]);
         decls.push_str(".decl __c_"); decls.push_str(names[q]); decls.push_str("(v: ");
         decls.push_str(dl_ty(ct)); decls.push_str(")\n.input __c_"); decls.push_str(names[q]); decls.push_str("\n");
         pre.push_str("    { let __od: i32 = wql_oracle_open(\""); pre.push_str(ddir); pre.push_str("/__c_");
@@ -2146,7 +2146,7 @@ fn dx_consts(out: &mut String, dump: &mut String, ddir: str) {
 // measured 9 for Deem's 18), and named single-use variables inside the braces
 // abort Soufflé 2.5 (wql_gpath_e2e::kind_hist). `key` and the aggregate names
 // in select/having are the variables gk / a_<a>.
-fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, env: &DxEnv,
+fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: &str, arity: i64, env: &DxEnv,
                 out: &mut String, why: &mut String) -> bool {
     // The key's components: one, or each of a tuple key's (`group by (a, b)`
     // groups by every component — one Datalog variable each).
@@ -2166,7 +2166,7 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
     if nk > 12i64 { return dx_set(why, "group key wider than 12 components"); }
     // over an outer join, `kb` is the matched clause (its variables are the
     // `__ab` layout; the rows themselves are `dx_outer_rules`')
-    let ov: Vec<str> = dx_opt_vars(c);
+    let ov: Vec<&str> = dx_opt_vars(c);
     let outer: bool = ov.len() > 0i64;
     let mut kb: DxClause = dx_new_clause();
     if outer {
@@ -2177,12 +2177,12 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
         if dx_outer_body(p, c, env, oi, &ov, &all, "", "", &mut kb, why) <= 0i32 { return dx_set(why, "outer join: a group with no matched rows"); }
     } else if !dx_core_body(p, &mut kb, env, &c.body) { return dx_set(why, kb.why); }
     let mut kts: Vec<String> = Vec::<String>::new();
-    let mut ktys: Vec<str> = Vec::<str>::new();
+    let mut ktys: Vec<&str> = Vec::<&str>::new();
     let mut kj: i64 = 0i64;
     while kj < nk {
         kts.push(String::new());
         if !outer && !dx_term(&mut kts[kj], kes[kj], env, &mut kb) { return dx_set(why, kb.why); }
-        let kty: str = if outer { dx_oterm_ty(kes[kj], env, &kb, &ov) } else { dx_term_ty(kes[kj], env, &kb) };
+        let kty: &str = if outer { dx_oterm_ty(kes[kj], env, &kb, &ov) } else { dx_term_ty(kes[kj], env, &kb) };
         if kty.len() == 0i64 { return dx_set(why, "group key type"); }
         ktys.push(kty);
         kj = kj + 1i64;
@@ -2220,7 +2220,7 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
                 Option::Some(x) => {
                     if !str_eq(ags0[q].func, "count") {
                         let ae: SExpr = (*x).view::<SExpr>();
-                        let aty: str = dx_oterm_ty(ae, env, &kb, &ov);
+                        let aty: &str = dx_oterm_ty(ae, env, &kb, &ov);
                         if !dx_numeric(aty) { return dx_set(why, "aggregate argument not numeric"); }
                         decl.push_str(", v"); decl.push_i64(oag.vals.len()); decl.push_str(": "); decl.push_str(aty);
                         oag.vals.push(ae);
@@ -2316,7 +2316,7 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
     let mut i: i64 = 0i64;
     while i < g.aggs.len() {
         let ag: &CAgg = &ags[i];
-        let f: str = ag.func;
+        let f: &str = ag.func;
         if !str_eq(f, "count") && !str_eq(f, "sum") && !str_eq(f, "min") && !str_eq(f, "max") && !str_eq(f, "avg") { return dx_set(why, "aggregate other than count/sum/min/max/avg (a user-defined aggregate)"); }
         let mut argt: String = String::new();
         let mut abd: DxClause = dx_new_clause();
@@ -2329,7 +2329,7 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
             let mut q: i64 = 0i64;
             while q < i { if !str_eq(ags[q].func, "count") { match &ags[q].arg { Option::Some(_x) => { vn = vn + 1i64; } Option::None => { } } } q = q + 1i64; }
             if vn >= oag.vals.len() { return dx_set(why, "aggregate without an argument"); }
-            let aat: str = dx_oterm_ty(oag.vals[vn], env, &kb, &ov);
+            let aat: &str = dx_oterm_ty(oag.vals[vn], env, &kb, &ov);
             if str_eq(aat, "float") && (str_eq(f, "sum") || str_eq(f, "avg")) { return dx_set(why, "float sum/avg (rounding depends on fold order)"); }
             if str_eq(aat, "float") { out.push_str("// nan-sensitive\n"); }
             argt.push_str("ov"); argt.push_i64(vn);
@@ -2337,7 +2337,7 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
             let arg: WAny = match &ag.arg { Option::Some(x) => { *x } Option::None => { WAny::null() } };
             if arg.is_null() { return dx_set(why, "aggregate without an argument"); }
             if !dx_term(&mut argt, arg.view::<SExpr>(), env, &mut abd) { return dx_set(why, abd.why); }
-            let aat: str = dx_term_ty(arg.view::<SExpr>(), env, &abd);
+            let aat: &str = dx_term_ty(arg.view::<SExpr>(), env, &abd);
             // a float `sum` rounds in fold order, which the two engines do not share
             if str_eq(aat, "float") && (str_eq(f, "sum") || str_eq(f, "avg")) { return dx_set(why, "float sum/avg (rounding depends on fold order)"); }
             // an integer `avg` is Deem's f64 running total over the count, and
@@ -2350,7 +2350,7 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
             if abd.nparams > 0i64 { return dx_set(why, "parameter inside an aggregate"); }
         }
         // the one atom: the columns the argument names, `_` for the rest
-        let at: str = dx_view(&argt);
+        let at: &str = dx_view(&argt);
         hb.push_str(", a_"); hb.push_str(ag.name); hb.push_str(" = ");
         // Soufflé's `mean` folds floats: the integer argument goes through
         // `to_float`, exact for the integers a double holds
@@ -2397,7 +2397,7 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
 fn dx_lattice_dir(g: &CGroup) -> i32 {
     if g.aggs.len() != 1i64 { return 0i32; }
     match &g.having { Option::Some(_h) => { return 0i32; } Option::None => { } }
-    let f: str = g.aggs.as_slice()[0i64].func;
+    let f: &str = g.aggs.as_slice()[0i64].func;
     if str_eq(f, "min") { return -1i32; }
     if str_eq(f, "max") { return 1i32; }
     return 0i32;
@@ -2405,7 +2405,7 @@ fn dx_lattice_dir(g: &CGroup) -> i32 {
 
 // One recursive min/max body as a plain clause `rel(key…, arg) :- body.`: the
 // candidate rows; the rel's subsumption clause keeps the best one per key.
-fn dx_lattice_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, env: &DxEnv,
+fn dx_lattice_rule(p: &CProgram, c: &CClause, g: &CGroup, head: &str, arity: i64, env: &DxEnv,
                    out: &mut String, why: &mut String) -> bool {
     let arg: WAny = match &g.aggs.as_slice()[0i64].arg { Option::Some(x) => { *x } Option::None => { WAny::null() } };
     if arg.is_null() { return dx_set(why, "recursive aggregate without an argument"); }
@@ -2441,7 +2441,7 @@ fn dx_lattice_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64,
 
 // `subsume a by b where P` as Soufflé's subsumptive clause
 // `r(a…) <= r(b…) :- P.` — Soufflé deletes the dominated tuples itself.
-fn dx_subsume(name: str, s: &CSub, env: &DxEnv, out: &mut String, why: &mut String) -> bool {
+fn dx_subsume(name: &str, s: &CSub, env: &DxEnv, out: &mut String, why: &mut String) -> bool {
     let mut cl: DxClause = dx_new_clause();
     if !dx_atom(&mut cl, env, name, s.a) { return dx_set(why, cl.why); }
     let mut c1: String = String::new();
@@ -2453,7 +2453,7 @@ fn dx_subsume(name: str, s: &CSub, env: &DxEnv, out: &mut String, why: &mut Stri
     if !dx_pred(s.pred.view::<SExpr>(), env, &mut cl) { return dx_set(why, cl.why); }
     dx_param_atoms(&mut cl);
     // the constraints are appended `, c` each — the first comma is the atoms'
-    let bv: str = dx_view(&cl.body);
+    let bv: &str = dx_view(&cl.body);
     let cut: i64 = if bv.len() >= 2i64 && str_byte_at(bv, 0i64) == 44u8 { 2i64 } else { 0i64 };
     c1.push_str(" :- "); c1.push_str(unsafe { str_from_raw(((bv.as_ptr() as i64) + cut) as *const u8, bv.len() - cut) }); c1.push_str(".\n");
     out.push_str(dx_view(&dx_wild(dx_view(&c1))));
@@ -2470,7 +2470,7 @@ fn dx_out_cols(sel: SExpr, env: &DxEnv, cl: &DxClause, out: &mut String) -> i64 
             while i < items.len() {
                 if i > 0i64 { out.push_str(", "); }
                 out.push_str("c"); out.push_i64(i); out.push_str(": ");
-                let ty: str = dx_term_ty(items.arg_at(i), env, cl);
+                let ty: &str = dx_term_ty(items.arg_at(i), env, cl);
                 if ty.len() == 0i64 { return -1i64; }
                 out.push_str(ty);
                 i = i + 1i64;
@@ -2479,7 +2479,7 @@ fn dx_out_cols(sel: SExpr, env: &DxEnv, cl: &DxClause, out: &mut String) -> i64 
         }
         _ => {
             out.push_str("c0: ");
-            let ty0: str = dx_term_ty(sel, env, cl);
+            let ty0: &str = dx_term_ty(sel, env, cl);
             if ty0.len() == 0i64 { return -1i64; }
             out.push_str(ty0);
             return 1i64;
@@ -2495,7 +2495,7 @@ fn dx_opt_arg_branch<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
             if builtin_of_name(c.fn_name) == BFN_UNKNOWN() { return ""; }
             let args: SExprArr = c.args_arr();
             if args.len() < 1i64 { return ""; }
-            let t: str = dx_term_ty(args.arg_at(0i64), env, cl);
+            let t: &str = dx_term_ty(args.arg_at(0i64), env, cl);
             if str_eq(t, "Opt_number") { return "_n"; }
             if str_eq(t, "Opt_symbol") { return "_s"; }
             if str_eq(t, "Opt_unsigned") { return "_u"; }
@@ -2504,7 +2504,7 @@ fn dx_opt_arg_branch<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
         _ => { return ""; }
     }
 }
-fn dx_opt_inner_ty(t: str) -> str {
+fn dx_opt_inner_ty(t: &str) -> &str {
     if str_eq(t, "Opt_symbol") { return "symbol"; }
     if str_eq(t, "Opt_unsigned") { return "unsigned"; }
     return "number";
@@ -2522,23 +2522,23 @@ fn dx_is_strlen(e: SExpr, env: &DxEnv, cl: &DxClause) -> bool {
     }
 }
 
-fn dx_udf_idx(env: &DxEnv, name: str) -> i64 {
+fn dx_udf_idx(env: &DxEnv, name: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < env.udf.len() { if str_eq(env.udf[i], name) { return i; } i = i + 1i64; }
     return -1i64;
 }
 
 // A UDF's result: its dump kind (the last of its kinds) and Soufflé type.
-fn dx_udf_kind(env: &DxEnv, i: i64) -> str {
-    let ks: str = dx_view(&env.udfk.as_slice()[i]);
-    let k: str = dx_slice(ks, ks.len() - 1i64, ks.len());
+fn dx_udf_kind(env: &DxEnv, i: i64) -> &str {
+    let ks: &str = dx_view(&env.udfk.as_slice()[i]);
+    let k: &str = dx_slice(ks, ks.len() - 1i64, ks.len());
     if str_eq(k, "i") { return "i"; }
     if str_eq(k, "b") { return "b"; }
     if str_eq(k, "s") { return "s"; }
     if str_eq(k, "S") { return "S"; }
     return "U";
 }
-fn dx_kind_ty(k: str) -> str {
+fn dx_kind_ty(k: &str) -> &str {
     if str_eq(k, "s") || str_eq(k, "S") { return "symbol"; }
     if str_eq(k, "U") { return "unsigned"; }
     return "number";
@@ -2546,7 +2546,7 @@ fn dx_kind_ty(k: str) -> str {
 
 // `dx_out_cols` for an outer entry: an optional column is `Opt_<t>`, an
 // `unwrap_or` over one is its column's type.
-fn dx_out_cols_o(sel: SExpr, env: &DxEnv, cl: &DxClause, ov: &Vec<str>, out: &mut String) -> i64 {
+fn dx_out_cols_o(sel: SExpr, env: &DxEnv, cl: &DxClause, ov: &Vec<&str>, out: &mut String) -> i64 {
     let n: i64 = dx_sel_len(sel);
     let mut i: i64 = 0i64;
     while i < n {
@@ -2554,7 +2554,7 @@ fn dx_out_cols_o(sel: SExpr, env: &DxEnv, cl: &DxClause, ov: &Vec<str>, out: &mu
         if i > 0i64 { out.push_str(", "); }
         out.push_str("c"); out.push_i64(i); out.push_str(": ");
         let bc: (i32, i64) = dx_opt_call(it, ov);
-        let ty: str = if bc.0 == BFN_UNWRAP_OR() { dx_opt_arg_ty(it, env, cl) } else { dx_term_ty(it, env, cl) };
+        let ty: &str = if bc.0 == BFN_UNWRAP_OR() { dx_opt_arg_ty(it, env, cl) } else { dx_term_ty(it, env, cl) };
         if ty.len() == 0i64 { return -1i64; }
         if dx_opt_col(it, ov) >= 0i64 {
             if !str_eq(ty, "number") && !str_eq(ty, "symbol") && !str_eq(ty, "unsigned") { return -1i64; }
@@ -2571,18 +2571,18 @@ fn dx_opt_arg_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
 }
 
 // The ADT branch suffix of an optional column of dump kind `k`.
-fn dx_opt_branch(k: str) -> str {
+fn dx_opt_branch(k: &str) -> &str {
     if str_eq(k, "s") || str_eq(k, "S") { return "_s"; }
     if str_eq(k, "U") { return "_u"; }
     return "_n";
 }
 
 // The dump kind of an output item (`o<k>` for an optional column).
-fn dx_item_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause, ov: &Vec<str>) -> &'a str {
+fn dx_item_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause, ov: &Vec<&str>) -> &'a str {
     if dx_opt_call(e, ov).0 == BFN_UNWRAP_OR() {
         match e { SExpr::Call(c) => { return dx_term_kind(c.args_arr().arg_at(0i64), env, cl); } _ => { return ""; } }
     }
-    let k: str = dx_term_kind(e, env, cl);
+    let k: &str = dx_term_kind(e, env, cl);
     if dx_opt_col(e, ov) < 0i64 { return k; }
     if str_eq(k, "i") { return "oi"; }
     if str_eq(k, "b") { return "ob"; }
@@ -2595,7 +2595,7 @@ fn dx_item_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause, ov: &Vec<str>) -> &
 // A term's Soufflé type: a column's declared type, a literal's kind, number
 // for arithmetic.
 // A column's Soufflé type when a term may read it ("" when opaque).
-fn dl_col_ty_known(tn: str) -> str { if dx_w128(tn) { return "symbol"; } return dl_ty(tn); }
+fn dl_col_ty_known(tn: &str) -> &str { if dx_w128(tn) { return "symbol"; } return dl_ty(tn); }
 
 fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
     if dx_opt_arg_branch(e, env, cl).len() > 0i64 {
@@ -2609,8 +2609,8 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
             if bm == BFN_SUBSTR() || bm == BFN_TO_STRING() { return "symbol"; }
             if bm == BFN_TO_NUMBER() || bm == BFN_POW() { return "number"; }
             if (bm == BFN_MIN() || bm == BFN_MAX()) && c.args_arr().len() == 2i64 {
-                let t0: str = dx_term_ty(c.args_arr().arg_at(0i64), env, cl);
-                let t1: str = dx_term_ty(c.args_arr().arg_at(1i64), env, cl);
+                let t0: &str = dx_term_ty(c.args_arr().arg_at(0i64), env, cl);
+                let t1: &str = dx_term_ty(c.args_arr().arg_at(1i64), env, cl);
                 if str_eq(t0, "unsigned") || str_eq(t1, "unsigned") { return "unsigned"; }
                 return t0;
             }
@@ -2628,8 +2628,8 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
             if dx_is_pred_op(b.op) { return "number"; }
             // a literal adapts (Soufflé's numeric constants are polymorphic);
             // an `unsigned` operand makes the whole term unsigned
-            let blt: str = dx_term_ty(b.lhs.any().view::<SExpr>(), env, cl);
-            let brt: str = dx_term_ty(b.rhs.any().view::<SExpr>(), env, cl);
+            let blt: &str = dx_term_ty(b.lhs.any().view::<SExpr>(), env, cl);
+            let brt: &str = dx_term_ty(b.rhs.any().view::<SExpr>(), env, cl);
             if b.op == OP_ADD() && (str_eq(blt, "symbol") || str_eq(brt, "symbol")) { return "symbol"; }
             if str_eq(blt, "float") || str_eq(brt, "float") { return "float"; }
             if str_eq(blt, "unsigned") || str_eq(brt, "unsigned") { return "unsigned"; }
@@ -2644,8 +2644,8 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
                 if bs >= 0i64 && env.byval[bs] { return dl_ty(env.ctys[bs][1]); }
                 let ai: i64 = dx_alias(cl, f.name);
                 // static literals (dl_ty's), re-viewed so the answer does not borrow `cl`
-                if ai >= 0i64 { let t: str = cl.al_tys[ai]; return unsafe { str_from_raw(t.as_ptr(), t.len()) }; }
-                if !dx_is_scalar(env, f.name) { let ct: str = dx_const_ty(f.name); if ct.len() > 0i64 { return dl_ty(ct); } }
+                if ai >= 0i64 { let t: &str = cl.al_tys[ai]; return unsafe { str_from_raw(t.as_ptr(), t.len()) }; }
+                if !dx_is_scalar(env, f.name) { let ct: &str = dx_const_ty(f.name); if ct.len() > 0i64 { return dl_ty(ct); } }
                 return dx_scalar_ty(env, f.name);
             }
             let b: SExpr = br.any().view::<SExpr>();
@@ -2656,7 +2656,7 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
                         // `key.N` over a tuple key: the component's alias
                         if str_eq(bf.name, "key") && dx_digits(f.name) {
                             let ki: i64 = dx_alias(cl, f.name);
-                            if ki >= 0i64 { let t: str = cl.al_tys[ki]; return unsafe { str_from_raw(t.as_ptr(), t.len()) }; }
+                            if ki >= 0i64 { let t: &str = cl.al_tys[ki]; return unsafe { str_from_raw(t.as_ptr(), t.len()) }; }
                         }
                         return "";
                     }
@@ -2681,7 +2681,7 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
         match e {
             SExpr::Call(c) => {
                 if builtin_of_name(c.fn_name) == BFN_UNWRAP_OR() {
-                    let ak: str = dx_term_kind(c.args_arr().arg_at(0i64), env, cl);
+                    let ak: &str = dx_term_kind(c.args_arr().arg_at(0i64), env, cl);
                     if ak.len() == 2i64 { return dx_slice(ak, 1i64, 2i64); }
                 }
             }
@@ -2712,7 +2712,7 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
             return "i";
         }
         SExpr::Bin(_b) => {
-            let bt: str = dx_term_ty(e, env, cl);
+            let bt: &str = dx_term_ty(e, env, cl);
             if str_eq(bt, "symbol") { return "S"; }   // a concatenation is an owned String
             if str_eq(bt, "unsigned") { return "U"; }
             if str_eq(bt, "float") { return "F"; }
@@ -2726,8 +2726,8 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
                 let bs: i64 = dx_var_src(cl, f.name);
                 if bs >= 0i64 && env.byval[bs] { return dx_kind(env.ctys[bs][1]); }
                 let ai: i64 = dx_alias(cl, f.name);
-                if ai >= 0i64 { let k: str = cl.al_kinds[ai]; return unsafe { str_from_raw(k.as_ptr(), k.len()) }; }
-                if !dx_is_scalar(env, f.name) { let ct: str = dx_const_ty(f.name); if ct.len() > 0i64 { return dx_kind(ct); } }
+                if ai >= 0i64 { let k: &str = cl.al_kinds[ai]; return unsafe { str_from_raw(k.as_ptr(), k.len()) }; }
+                if !dx_is_scalar(env, f.name) { let ct: &str = dx_const_ty(f.name); if ct.len() > 0i64 { return dx_kind(ct); } }
                 return dx_kind(dx_scalar_lty(env, f.name));
             }
             let b: SExpr = br.any().view::<SExpr>();
@@ -2738,7 +2738,7 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
                         // `key.N` over a tuple key: the component's alias
                         if str_eq(bf.name, "key") && dx_digits(f.name) {
                             let ki: i64 = dx_alias(cl, f.name);
-                            if ki >= 0i64 { let k: str = cl.al_kinds[ki]; return unsafe { str_from_raw(k.as_ptr(), k.len()) }; }
+                            if ki >= 0i64 { let k: &str = cl.al_kinds[ki]; return unsafe { str_from_raw(k.as_ptr(), k.len()) }; }
                         }
                         return "";
                     }
@@ -2760,7 +2760,7 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
     }
 }
 
-fn dx_scalar_lty<'a>(env: &'a DxEnv, nm: str) -> &'a str {
+fn dx_scalar_lty<'a>(env: &'a DxEnv, nm: &str) -> &'a str {
     let mut i: i64 = 0i64;
     while i < env.ns {
         if str_eq(env.scalars[i], nm) { return env.sltys[i]; }
@@ -2769,7 +2769,7 @@ fn dx_scalar_lty<'a>(env: &'a DxEnv, nm: str) -> &'a str {
     return "";
 }
 
-fn dx_scalar_ty<'a>(env: &'a DxEnv, nm: str) -> &'a str {
+fn dx_scalar_ty<'a>(env: &'a DxEnv, nm: &str) -> &'a str {
     let mut i: i64 = 0i64;
     while i < env.ns {
         if str_eq(env.scalars[i], nm) { return env.stys[i]; }
@@ -2803,7 +2803,7 @@ fn dx_entry_vars(p: &CProgram, ru: &CRule, env: &DxEnv, cl: &mut DxClause) {
     }
     // an outer join's optional columns: `unwrap_or` is its column's type, a
     // bare one `Opt_<t>` (with none, these are `dx_term_ty` / `dx_term_kind`)
-    let ov: Vec<str> = dx_opt_vars(&ru.clause);
+    let ov: Vec<&str> = dx_opt_vars(&ru.clause);
     match &ru.clause.group {
         Option::Some(g) => {
             let key: SExpr = g.key.view::<SExpr>();
@@ -2815,15 +2815,15 @@ fn dx_entry_vars(p: &CProgram, ru: &CRule, env: &DxEnv, cl: &mut DxClause) {
                     let items: SExprArr = t.items.any().view::<SExprArr>();
                     let mut j: i64 = 0i64;
                     while j < items.len() && j < 12i64 {
-                        let cty: str = dx_oterm_ty(items.arg_at(j), env, cl, &ov);
-                        let ckd: str = dx_item_kind(items.arg_at(j), env, cl, &ov);
+                        let cty: &str = dx_oterm_ty(items.arg_at(j), env, cl, &ov);
+                        let ckd: &str = dx_item_kind(items.arg_at(j), env, cl, &ov);
                         dx_alias_add(cl, dx_kdig(j), dx_kvar(j), cty, ckd);
                         j = j + 1i64;
                     }
                 }
                 _ => {
-                    let kty: str = dx_oterm_ty(key, env, cl, &ov);
-                    let kkd: str = dx_item_kind(key, env, cl, &ov);
+                    let kty: &str = dx_oterm_ty(key, env, cl, &ov);
+                    let kkd: &str = dx_item_kind(key, env, cl, &ov);
                     dx_alias_key(cl, kty, kkd);
                 }
             }
@@ -2832,8 +2832,8 @@ fn dx_entry_vars(p: &CProgram, ru: &CRule, env: &DxEnv, cl: &mut DxClause) {
             while a < g.aggs.len() {
                 let ag: &CAgg = &ags[a];
                 let arg: WAny = match &ag.arg { Option::Some(x) => { *x } Option::None => { WAny::null() } };
-                let mut aty: str = "number";
-                let mut akd: str = "i";
+                let mut aty: &str = "number";
+                let mut akd: &str = "i";
                 if (str_eq(ag.func, "min") || str_eq(ag.func, "max")) && !arg.is_null() {
                     aty = dx_oterm_ty(arg.view::<SExpr>(), env, cl, &ov);
                     akd = dx_item_kind(arg.view::<SExpr>(), env, cl, &ov);
@@ -2886,26 +2886,26 @@ fn dx_entry_struct_result(ru: &CRule) -> bool {
     return ru.env.result_ty.len() > 0i64;
 }
 
-fn dx_slice(s: str, a: i64, b: i64) -> str {
+fn dx_slice(s: &str, a: i64, b: i64) -> &str {
     return unsafe { str_from_raw(((s.as_ptr() as i64) + a) as *const u8, b - a) };
 }
 
-fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String,
-              dump: &mut String, ddir: str, nparams: &mut Vec<str>, nn: &mut i64) -> bool {
+fn dx_natives(natspec: &str, env: &mut DxEnv, prm: &MacroParams, out: &mut String,
+              dump: &mut String, ddir: &str, nparams: &mut Vec<&str>, nn: &mut i64) -> bool {
     let n: i64 = natspec.len();
     let mut i: i64 = 0i64;
     while i < n {
         let s0: i64 = i;
         while i < n && str_byte_at(natspec, i) != 61u8 { i = i + 1i64; }            // '='
-        let reg: str = dx_slice(natspec, s0, i);
+        let reg: &str = dx_slice(natspec, s0, i);
         i = i + 1i64;
         let s1: i64 = i;
         while i < n && str_byte_at(natspec, i) != 33u8 && str_byte_at(natspec, i) != 35u8
               && str_byte_at(natspec, i) != 64u8 && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }
-        let mat: str = dx_slice(natspec, s1, i);
+        let mat: &str = dx_slice(natspec, s1, i);
         let mut iter: bool = false;
         if i < n && str_byte_at(natspec, i) == 33u8 { iter = true; }               // '!' flags: a stream producer
-        let mut marg2: str = "";
+        let mut marg2: &str = "";
         while i < n && str_byte_at(natspec, i) != 58u8 {                             // to ':'
             if str_byte_at(natspec, i) == 35u8 {                                     // '#'
                 let a0: i64 = i + 1i64;
@@ -2918,15 +2918,15 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
         i = i + 1i64;                                                                // ':'
         let s3: i64 = i;
         while i < n && str_byte_at(natspec, i) != 40u8 { i = i + 1i64; }            // '('
-        let marg: str = dx_slice(natspec, s3, i);
+        let marg: &str = dx_slice(natspec, s3, i);
         i = i + 1i64;
-        let mut cn: Vec<str> = Vec::<str>::new();
-        let mut ct: Vec<str> = Vec::<str>::new();
+        let mut cn: Vec<&str> = Vec::<&str>::new();
+        let mut ct: Vec<&str> = Vec::<&str>::new();
         let mut nc: i64 = 0i64;
         loop {
             let c0: i64 = i;
             while i < n && str_byte_at(natspec, i) != 32u8 { i = i + 1i64; }
-            let cname: str = dx_slice(natspec, c0, i);
+            let cname: &str = dx_slice(natspec, c0, i);
             i = i + 1i64;
             let t0: i64 = i;
             while i < n && str_byte_at(natspec, i) != 44u8 && str_byte_at(natspec, i) != 41u8 { i = i + 1i64; }
@@ -2938,7 +2938,7 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
         i = i + 1i64;
         nparams.push(marg); *nn = *nn + 1i64;
         // left out of the fragment, with the reason `dx_atom` will give
-        let mut skw: str = "";
+        let mut skw: &str = "";
         // ⚠ A STREAM PRODUCER IS NOT DRAINED A SECOND TIME, and that is
         // measured: re-invoking it for the dump changes what the program
         // observes (8 fixtures count pulls or producer calls and failed under
@@ -2997,13 +2997,13 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
 //
 // `ps` is the parent's environment index; `cf`/`ck` the fields and traversal
 // kinds from the source down to the parent (empty for the source itself).
-fn dx_children(view: &OView, src: str, c: &DxCols, env: &mut DxEnv, out: &mut String,
-               dump: &mut String, ddir: str, ps: i64, cf: &Vec<str>, ck: &Vec<i32>) {
+fn dx_children(view: &OView, src: &str, c: &DxCols, env: &mut DxEnv, out: &mut String,
+               dump: &mut String, ddir: &str, ps: i64, cf: &Vec<&str>, ck: &Vec<i32>) {
     let mut f: i64 = 0i64;
     while f < c.coll.len() {
-        let el: str = c.celem[f];
-        let mut cn: Vec<str> = Vec::<str>::new();
-        let mut ct: Vec<str> = Vec::<str>::new();
+        let el: &str = c.celem[f];
+        let mut cn: Vec<&str> = Vec::<&str>::new();
+        let mut ct: Vec<&str> = Vec::<&str>::new();
         cn.push("__p"); ct.push("i64");
         let mut byval: bool = false;
         let mut ok: bool = true;
@@ -3036,7 +3036,7 @@ fn dx_children(view: &OView, src: str, c: &DxCols, env: &mut DxEnv, out: &mut St
             }
             out.push_str(")\n.input "); out.push_str(dx_view(&nm)); out.push_str("\n");
             // the dump: the nested loops from the source down to this field
-            let mut lf: Vec<str> = Vec::<str>::new();
+            let mut lf: Vec<&str> = Vec::<&str>::new();
             let mut lk: Vec<i32> = Vec::<i32>::new();
             let mut q2: i64 = 0i64;
             while q2 < cf.len() { lf.push(cf[q2]); lk.push(ck[q2]); q2 = q2 + 1i64; }
@@ -3106,21 +3106,21 @@ fn dx_children(view: &OView, src: str, c: &DxCols, env: &mut DxEnv, out: &mut St
     }
 }
 
-fn dx_is_native_param(nparams: &Vec<str>, nn: i64, nm: str) -> bool {
+fn dx_is_native_param(nparams: &Vec<&str>, nn: i64, nm: &str) -> bool {
     let mut i: i64 = 0i64;
     while i < nn { if str_eq(nparams[i], nm) { return true; } i = i + 1i64; }
     return false;
 }
 
-pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String, dump: &mut String,
-                 ddir: str, incrows: &mut String, incsnap: &mut String, why: &mut String,
+pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: &str, out: &mut String, dump: &mut String,
+                 ddir: &str, incrows: &mut String, incsnap: &mut String, why: &mut String,
                  has_coll: &mut bool) -> bool {
     let view: OView = oview_module_ast();
-    let mut env: DxEnv = DxEnv { n: 0i64, src: Vec::<str>::new(), cn: Vec::<i64>::new(), cnames: Vec::<Vec<str>>::new(),
-                                 ctys: Vec::<Vec<str>>::new(), scalars: Vec::<str>::new(), stys: Vec::<str>::new(),
-                                 sltys: Vec::<str>::new(), ns: 0i64, skn: Vec::<str>::new(), skw: Vec::<str>::new(), nsk: 0i64,
-                                 byval: Vec::<bool>::new(), parent: Vec::<i64>::new(), field: Vec::<str>::new(),
-                                 udf: Vec::<str>::new(), udfk: Vec::<String>::new(), odir: "" };
+    let mut env: DxEnv = DxEnv { n: 0i64, src: Vec::<&str>::new(), cn: Vec::<i64>::new(), cnames: Vec::<Vec<&str>>::new(),
+                                 ctys: Vec::<Vec<&str>>::new(), scalars: Vec::<&str>::new(), stys: Vec::<&str>::new(),
+                                 sltys: Vec::<&str>::new(), ns: 0i64, skn: Vec::<&str>::new(), skw: Vec::<&str>::new(), nsk: 0i64,
+                                 byval: Vec::<bool>::new(), parent: Vec::<i64>::new(), field: Vec::<&str>::new(),
+                                 udf: Vec::<&str>::new(), udfk: Vec::<String>::new(), odir: "" };
     // Option<T> as Soufflé's ADT; a branch name is global, so one pair per carried type
     out.push_str(".type Opt_number = None_n {} | Some_n {v: number}\n.type Opt_symbol = None_s {} | Some_s {v: symbol}\n");
     out.push_str(".type Opt_unsigned = None_u {} | Some_u {v: unsigned}\n");
@@ -3135,12 +3135,12 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
     let mut ui: i64 = 0i64;
     while ui < ut.udf_n {
         let mut ks: String = String::new();
-        let un: str = ut.udf_names[ui];
+        let un: &str = ut.udf_names[ui];
         if udf_oracle_kinds(&view, un, &mut ks) { env.udf.push(un); env.udfk.push(ks); }
         ui = ui + 1i64;
     }
     // native sources first: their params are not scalars
-    let mut nparams: Vec<str> = Vec::<str>::new();
+    let mut nparams: Vec<&str> = Vec::<&str>::new();
     let mut nn: i64 = 0i64;
     if !dx_natives(natspec, &mut env, prm, out, dump, ddir, &mut nparams, &mut nn) { return dx_set(why, "native source spec"); }
     // params
@@ -3160,7 +3160,7 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
             if nested { out.push_str("__i: number"); }
             let mut k: i64 = 0i64;
             while k < c.n {
-                let ty: str = dl_col_ty(c.tys[k]);
+                let ty: &str = dl_col_ty(c.tys[k]);
                 if k > 0i64 || nested { out.push_str(", "); }
                 out.push_str(c.names[k]); out.push_str(": "); out.push_str(ty);
                 k = k + 1i64;
@@ -3174,7 +3174,7 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
             if nested { dx_cell(dump, "i", "__oi"); }
             let mut kc: i64 = 0i64;
             while kc < c.n {
-                let fk: str = dx_kind(c.tys[kc]);
+                let fk: &str = dx_kind(c.tys[kc]);
                 if fk.len() == 0i64 { return dx_set(why, "input column type"); }
                 if kc > 0i64 || nested { dump.push_str("wql_oracle_tab(__od); "); }
                 let mut fx: String = String::new();
@@ -3198,8 +3198,8 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
                 kr = kr + 1i64;
             }
             incrows.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } }\n");
-            let mut en: Vec<str> = Vec::<str>::new();
-            let mut et: Vec<str> = Vec::<str>::new();
+            let mut en: Vec<&str> = Vec::<&str>::new();
+            let mut et: Vec<&str> = Vec::<&str>::new();
             if nested { en.push("__i"); et.push("i64"); }
             let mut ke: i64 = 0i64;
             while ke < c.n { en.push(c.names[ke]); et.push(c.tys[ke]); ke = ke + 1i64; }
@@ -3207,17 +3207,17 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
             if nested {
                 *has_coll = true;
                 let pe: i64 = env.n - 1i64;
-                dx_children(&view, prm.names[i], &c, &mut env, out, dump, ddir, pe, &Vec::<str>::new(), &Vec::<i32>::new());
+                dx_children(&view, prm.names[i], &c, &mut env, out, dump, ddir, pe, &Vec::<&str>::new(), &Vec::<i32>::new());
             }
         } else {
-            let st: str = dl_ty(prm.tys[i]);
+            let st: &str = dl_ty(prm.tys[i]);
             if st.len() == 0i64 { return dx_set(why, "scalar parameter type"); }
             out.push_str(".decl __p_"); out.push_str(prm.names[i]); out.push_str("(v: ");
             out.push_str(st); out.push_str(")\n.input __p_"); out.push_str(prm.names[i]); out.push_str("\n");
             env.scalars.push(prm.names[i]);
             env.stys.push(st);
             env.sltys.push(prm.tys[i]);
-            let sk: str = dx_kind(prm.tys[i]);
+            let sk: &str = dx_kind(prm.tys[i]);
             if sk.len() == 0i64 { return dx_set(why, "scalar parameter type"); }
             dump.push_str("    { let __od: i32 = wql_oracle_open(\"");
             dump.push_str(ddir); dump.push_str("/__p_"); dump.push_str(prm.names[i]);
@@ -3235,15 +3235,15 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
     while r < p.rels.len() {
         let rel: &CRel = &rels[r];
         out.push_str(".decl "); out.push_str(rel.name); out.push_str("(");
-        let mut rn: Vec<str> = Vec::<str>::new();
-        let mut rt: Vec<str> = Vec::<str>::new();
+        let mut rn: Vec<&str> = Vec::<&str>::new();
+        let mut rt: Vec<&str> = Vec::<&str>::new();
         let cols: &[CCol] = rel.cols.as_slice();
         let mut k: i64 = 0i64;
         while k < rel.cols.len() {
             let ak: i32 = dx_alias_opt_kind(&view, cols[k].ty);
-            let cty: str = if ak == 1i32 { "Option<i64>" } else if ak == 2i32 { "Option<bool>" } else if ak == 3i32 { "Option<str>" }
+            let cty: &str = if ak == 1i32 { "Option<i64>" } else if ak == 2i32 { "Option<bool>" } else if ak == 3i32 { "Option<str>" }
                            else if ak == 4i32 { "Option<String>" } else if ak == 5i32 { "Option<u64>" } else { cols[k].ty };
-            let ty: str = dl_col_ty(cty);
+            let ty: &str = dl_col_ty(cty);
             if k > 0i64 { out.push_str(", "); }
             out.push_str(cols[k].name); out.push_str(": "); out.push_str(ty);
             rn.push(cols[k].name); rt.push(cty);
@@ -3282,7 +3282,7 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
         }
         if lat_dir != 0i32 {
             let cols2: &[CCol] = rel2.cols.as_slice();
-            let vty: str = dl_col_ty(cols2[rel2.cols.len() - 1i64].ty);
+            let vty: &str = dl_col_ty(cols2[rel2.cols.len() - 1i64].ty);
             if !str_eq(vty, "number") && !str_eq(vty, "unsigned") {
                 return dx_set(why, "recursive aggregate over a non-numeric value (Soufflé orders symbols by table ordinal)");
             }
@@ -3310,7 +3310,7 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
     let mut cl0: DxClause = dx_new_clause();
     dx_entry_vars(p, entry, &env, &mut cl0);
     let mut cols: String = String::new();
-    let ov: Vec<str> = dx_opt_vars(&entry.clause);
+    let ov: Vec<&str> = dx_opt_vars(&entry.clause);
     // `find`: the first row variable's whole row (`dx_rule_in`)
     let mut wr: i64 = -1i64;
     if findm {
@@ -3378,7 +3378,7 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
     let mut a: i64 = 0i64;
     while a < arity {
         let mut ox: String = String::new();
-        let mut kd: str = "";
+        let mut kd: &str = "";
         if wr >= 0i64 {
             // a whole row: its fields, by name
             ox.push_str("(*__orow)."); ox.push_str(env.cnames[wr][a]);
@@ -3425,7 +3425,7 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
 /// the fragment, and `<dir>/<name>.skip` (one line, the reason) when it is not:
 /// the gate counts which deems it could check and why it could not check the
 /// rest.
-pub fn dl_export(core: &CProgram, name: str, natspec: str, prm: &mut MacroParams) {
+pub fn dl_export(core: &CProgram, name: &str, natspec: &str, prm: &mut MacroParams) {
     let mut ev: String = String::new();
     ev.push_str("LOGOS_DEEM_ORACLE");
     ev.push_u8(0u8);

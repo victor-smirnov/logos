@@ -120,7 +120,7 @@ extern fn getenv(name: *const u8) -> *const u8;   // LOGOS_DEEM_NO_DEMAND
 /// missing binding name, an empty/malformed `params` list, or a query that fails
 /// to parse.
 // &String → str view (metaprog error() takes str).
-fn gp_err_str(s: &String) -> str {
+fn gp_err_str(s: &String) -> &str {
     return unsafe { str_from_raw(s.as_ptr(), s.len()) };
 }
 
@@ -135,7 +135,7 @@ fn gp_err_str(s: &String) -> str {
 // its slot's own address, so a foreign slot may point at a local node and vice
 // versa. Both arenas are never-move for the duration of the dispatch loop.
 #[token_macro]
-pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
+pub fn deem(name: &str, params: &str, enrich: &str, natspec: &str, tparams: &str,
             ir: *const u8) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
@@ -168,8 +168,8 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // (`crewrite::core_fuse`, applied to the core below, ADR 0031 R3.5).
     // After it the spliced rels are indistinguishable from hand-written ones:
     // SCC, recursion and `**` all apply.
-    let mut fu_old: Vec<str> = Vec::<str>::new();
-    let mut fu_new: Vec<str> = Vec::<str>::new();
+    let mut fu_old: Vec<&str> = Vec::<&str>::new();
+    let mut fu_new: Vec<&str> = Vec::<&str>::new();
     let mut fu_lo: Vec<i64> = Vec::<i64>::new();
     let mut fu_hi: Vec<i64> = Vec::<i64>::new();
     if enrich.len() > 0i64 {
@@ -178,11 +178,11 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
         while i < en {
             let s0: i64 = i;                                       // old name
             while i < en && str_byte_at(enrich, i) != 61u8 { i = i + 1i64; }   // '='
-            let old_name: str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + s0) as *const u8, i - s0) };
+            let old_name: &str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + s0) as *const u8, i - s0) };
             i = i + 1i64;
             let s1: i64 = i;                                       // new name
             while i < en && str_byte_at(enrich, i) != 64u8 { i = i + 1i64; }   // '@'
-            let new_name: str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + s1) as *const u8, i - s1) };
+            let new_name: &str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + s1) as *const u8, i - s1) };
             i = i + 1i64;
             let mut lo: i64 = 0i64;                                // lo
             while i < en && str_byte_at(enrich, i) != 45u8 {       // '-'
@@ -201,11 +201,11 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
                 i = i + 1i64;
                 let m0: i64 = i;
                 while i < en && str_byte_at(enrich, i) != 47u8 { i = i + 1i64; }
-                let mask: str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + m0) as *const u8, i - m0) };
+                let mask: &str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + m0) as *const u8, i - m0) };
                 i = i + 1i64;
                 let n0: i64 = i;
                 while i < en && str_byte_at(enrich, i) != 59u8 { i = i + 1i64; }
-                let mname: str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + n0) as *const u8, i - n0) };
+                let mname: &str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + n0) as *const u8, i - n0) };
                 let mut k: i64 = 0i64;
                 while k < hi - lo {
                     prm.set_fused(lo + k, mname, k < mask.len() && str_byte_at(mask, k) == 48u8);   // '0'
@@ -297,7 +297,7 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     }
     let mut pi: i64 = 0i64;
     while pi < nrel0 {
-        let rn: str = pc.rels.as_slice()[pi].name;
+        let rn: &str = pc.rels.as_slice()[pi].name;
         let dead: bool = prm.rel_dead.has(pi);
         let kept: bool = fal.has(pi);
         if dead {
@@ -319,7 +319,7 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     let mut nat: String = String::new();
     nat.push_str(natspec);
     if core_desugar_facts(&mut pc) { nat.push_str(UNIT_NATSPEC()); }
-    let natspec2: str = unsafe { str_from_raw(nat.as_ptr(), nat.len()) };
+    let natspec2: &str = unsafe { str_from_raw(nat.as_ptr(), nat.len()) };
     let _ok: bool = walk_program_params(root, pc, name, params, natspec2, &mut prm, &h);
     return out;
 }

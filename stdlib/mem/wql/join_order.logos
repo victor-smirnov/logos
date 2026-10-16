@@ -328,7 +328,7 @@ fn jo_ground(g: i32, ax: i32) -> JoinOrder {
 /// compare. Such a side reports no size here, exactly like a STREAMED source
 /// (whose length costs draining the iterator, the one thing streaming exists to
 /// avoid).
-fn size_expr_of(prm: &MacroParams, src: str, out: &mut String, at: &mut i64) -> bool {
+fn size_expr_of(prm: &MacroParams, src: &str, out: &mut String, at: &mut i64) -> bool {
     *at = -1i64;
     if prep_size_reason(prm, src) != SZ_OK() { return false; }
     let ri: i64 = prm.rel_find_src(src);
@@ -394,7 +394,7 @@ fn size_expr_of(prm: &MacroParams, src: str, out: &mut String, at: &mut i64) -> 
 /// holds rather than a new one: `reg_native` sets it on exactly the sources whose
 /// operations arrive from a natspec, which is exactly the set that can carry a
 /// `size <rel> = <fn>;` line. A parse-side `rel` block is everything else.
-fn prep_size_reason(prm: &MacroParams, src: str) -> i32 {
+fn prep_size_reason(prm: &MacroParams, src: &str) -> i32 {
     // ⚠ A SURVIVOR OF ADR 0025 S2f/S2g, AND ON PURPOSE — do not rewrite this to
     // the plan's node. S1's gate correction: `rel_stream` is the PLAN'S DECISION
     // that this source may be consumed in place, and a source consumed in place
@@ -484,7 +484,7 @@ fn prep_size_reason(prm: &MacroParams, src: str) -> i32 {
 /// TEXT, at both decision points, so a self-join asks its source's length once
 /// rather than once per position. That removes the multiplier; it does not weaken the
 /// O(1) requirement on the single read.
-fn run_size_expr_of(prm: &MacroParams, src: str, out: &mut String) -> bool {
+fn run_size_expr_of(prm: &MacroParams, src: &str, out: &mut String) -> bool {
     // ⚠ SURVIVOR, same correction as `prep_size_reason` above: the question is
     // whether `(src).len()` is a legal O(1) expression over this name, which is
     // the PLAN'S DECISION about consumption, not the emitted scan's shape.
@@ -503,7 +503,7 @@ fn run_size_expr_of(prm: &MacroParams, src: str, out: &mut String) -> bool {
 // `refs_mask` answers about ONE name at a time and bit 0 is "references it", so a
 // dependency SET is that question asked per chain var. Written here rather than
 // inlined because C4 and C5 both ask it and they must ask it the same way.
-fn refs_var(w: i64, v: str) -> bool {
+fn refs_var(w: i64, v: &str) -> bool {
     if w == 0i64 { return false; }
     if v.len() == 0i64 { return false; }
     let e: SExpr = unsafe { WAny::ref_to(w as *const u8) }.view::<SExpr>();
@@ -517,7 +517,7 @@ fn refs_var(w: i64, v: str) -> bool {
 /// ⚠ A PREFIX MATCH IS NOT ENOUGH: `d` must not match `depts`. The character after
 /// the prefix has to be a non-identifier one, which is what makes `d.emps` a
 /// reference to `d` and `depts` not.
-fn src_refs_var(s: str, v: str) -> bool {
+fn src_refs_var(s: &str, v: &str) -> bool {
     if v.len() == 0i64 { return false; }
     if s.len() < v.len() { return false; }
     let mut i: i64 = 0i64;
@@ -894,12 +894,12 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
 /// deferred binding above the nest for a deferred one (S4j). When `deferred` comes
 /// back true, every `ats` entry is -1 and the expressions in `szs` are to be
 /// evaluated in `run`, not in `prepare`.
-pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, key_kv: str, t: &ElTypes,
+pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: &str, key_kv: &str, t: &ElTypes,
                           prm: &MacroParams, h: &Writ,
                           szs: &mut [String; 4], ats: &mut [i64; 4]) -> JoinOrder {
     let mut jo: JoinOrder = jo_ground(WG_UNSET(), AX_NONE());
-    let base_var: str = c.var[0];
-    let s0_var: str = c.var[1];
+    let base_var: &str = c.var[0];
+    let s0_var: &str = c.var[1];
     if c.n < 1i64 {
         // ⚠ AN INVARIANT, NOT A GROUND (2026-10-04): `emit_join_chain`, the
         // only caller, always has a step. CONTROL, measured: a panic here left all
@@ -1299,8 +1299,8 @@ fn why_sides_sz(w: &mut Why, szs: &[String; 4]) {
 // the first is reusable, the second is remade every call — and a reader must be
 // able to tell them apart from the trace alone. Beyond two candidates the verdict
 // names the COUNT, because "either" stops being true.
-fn jo_report(jo: &JoinOrder, c: &JCh, base_var: str, s0_var: str) {
-    let mut verdict: str = "drive fixed";
+fn jo_report(jo: &JoinOrder, c: &JCh, base_var: &str, s0_var: &str) {
+    let mut verdict: &str = "drive fixed";
     let mut vb: String = String::new();
     if jo.dynamic {
         if jo.ncand == 2i64 {
@@ -1362,7 +1362,7 @@ fn jo_report(jo: &JoinOrder, c: &JCh, base_var: str, s0_var: str) {
         let mut cc: i64 = 1i64;
         while cc < jo.ncand {
             let b: i64 = cc * JC_MAX_FL();
-            let nb_var: str = c.var[jo.fl[jo.cslot[b]]];
+            let nb_var: &str = c.var[jo.fl[jo.cslot[b]]];
             let mut j: i64 = 1i64;
             while j < jo.nfl {
                 let mut ab: String = String::new();

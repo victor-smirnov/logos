@@ -69,8 +69,8 @@ impl<S> WritField for WRef<S> {
 // `str` inside this module's own build, `vec_from_elem` is refused by the
 // borrow checker (`borrowed data escapes outside of function: 'elem'`), while
 // the same call in a user program compiles (#731).
-pub fn str_vec(n: i64) -> Vec<str> {
-    let mut v: Vec<str> = Vec::<str>::new();
+pub fn str_vec(n: i64) -> Vec<&str> {
+    let mut v: Vec<&str> = Vec::<&str>::new();
     let mut i: i64 = 0i64;
     while i < n { v.push(""); i = i + 1i64; }
     return v;
@@ -200,10 +200,10 @@ impl SLit     { pub fn as_ref(self: SLit)     -> WAny { return unsafe { WAny::re
 /// or "" when it has none (or is not a number, or was built by the optimizer,
 /// which records no token). `txt` is the token as written (#724).
 impl SLit {
-    pub fn suffix(self: SLit) -> str {
+    pub fn suffix(self: SLit) -> &str {
         let v: WAny = self.val;
         if v.is_string() || v.is_bool() { return ""; }
-        let tx: str = self.txt;
+        let tx: &str = self.txt;
         if tx.len() == 0i64 { return ""; }
         // The INTEGER/FLOAT tokens admit exactly these suffixes (el.peg); the
         // longer ones are asked first so `i16` is not read as ending in `6`.

@@ -57,7 +57,7 @@ fn K_VALUE()     -> u8 { return 7 as u8; }   // clause → expr; LIT_INT → tok
 fn K_ITEMS()     -> u8 { return 2 as u8; }   // GENERIC_INST: type-arg array
 
 // SView (borrowed AST bytes) → str (shares the AST arena for the hook's life).
-fn sv_str(sv: SView) -> str {
+fn sv_str(sv: SView) -> &str {
     if sv.ptr == (0 as *const u8) || sv.len == (0 as u64) { return ""; }
     return unsafe { str_from_raw(sv.ptr, sv.len as i64) };
 }
@@ -68,7 +68,7 @@ fn sv_str(sv: SView) -> str {
 // type suffix. `ok=false` when no digits were found (not an int literal).
 struct U64Lit { ok: bool, v: u64 }
 
-fn parse_u64_lit(t: str) -> U64Lit {
+fn parse_u64_lit(t: &str) -> U64Lit {
     let n: i64 = t.len();
     let mut i: i64 = 0i64;
     let mut hex: bool = false;
@@ -96,12 +96,12 @@ fn parse_u64_lit(t: str) -> U64Lit {
 // Decode an AST const-expr node (a LIT_INT) → its u64 value.
 fn expr_u64(view: &OView, expr: WAny) -> U64Lit {
     if expr.is_null() { return U64Lit { ok: false, v: 0u64 }; }
-    let txt: str = sv_str(view.get_str_view(view.tiny_map_get(expr, K_VALUE())));
+    let txt: &str = sv_str(view.get_str_view(view.tiny_map_get(expr, K_VALUE())));
     return parse_u64_lit(txt);
 }
 
 // ── Field-type classification ───────────────────────────────────────────────
-fn is_int_family(name: str) -> bool {
+fn is_int_family(name: &str) -> bool {
     return el_class_lookup(name) == EL_TY_INT();
 }
 
@@ -131,13 +131,13 @@ fn classify_field_type(view: &OView, fld: WAny) -> FieldTy {
             let args: WAny = view.tiny_map_get(tynode, K_ITEMS());
             if !args.is_null() && view.array_len(args) == (1 as u64) {
                 let a0: WAny = view.array_get(args, 0 as u64);
-                let tn: str = sv_str(view.ast_node_name(a0));
+                let tn: &str = sv_str(view.ast_node_name(a0));
                 if tn.len() > 0i64 { return FieldTy { ty: "edge", target: tn, src: "" }; }
             }
         }
         return FieldTy { ty: "any", target: "", src: "" };
     }
-    let name: str = sv_str(view.ast_node_name(tynode));
+    let name: &str = sv_str(view.ast_node_name(tynode));
     // ONE classification table (logos.std.wql.el), one representative per
     // class. The catalog's own copy of it had drifted — it knew `i56`/`u56`
     // and the canonical one did not.
@@ -149,8 +149,8 @@ fn classify_field_type(view: &OView, fld: WAny) -> FieldTy {
 // ── Requested-schema list (idents in the macro body) ───────────────────────
 struct NameList { names: Vec<str>, n: i64 }
 
-fn scan_names(s: str) -> NameList {
-    let mut out: NameList = NameList { names: Vec::<str>::new(), n: 0i64 };
+fn scan_names(s: &str) -> NameList {
+    let mut out: NameList = NameList { names: Vec::<&str>::new(), n: 0i64 };
     let n: i64 = s.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -182,7 +182,7 @@ fn scan_names(s: str) -> NameList {
 // is the WRIT DOCUMENT, which is reified whole (`parse_wstatic`) and spliced
 // into a quoted item — so no part of this file is a source chunk. See the
 // handler below for why the document itself cannot be quoted.
-fn emit_schema_entry(buf: &mut String, view: &OView, nm: str) -> bool {
+fn emit_schema_entry(buf: &mut String, view: &OView, nm: &str) -> bool {
     let decl: WAny = find_decl_by_name(view, nm);
     if decl.is_null() {
         let mut m: String = String::new();
@@ -229,7 +229,7 @@ fn emit_schema_entry(buf: &mut String, view: &OView, nm: str) -> bool {
     let mut i: u64 = 0 as u64;
     while i < nf {
         let fld: WAny = view.ast_struct_field(decl, i);
-        let fname: str = sv_str(view.ast_field_name(fld));
+        let fname: &str = sv_str(view.ast_field_name(fld));
         // field key: the `= N` const-expr; absent ⇒ positional index.
         let kexpr: WAny = view.tiny_map_get(fld, K_VALUE());
         let mut key: u64 = i;
@@ -266,7 +266,7 @@ fn emit_schema_entry(buf: &mut String, view: &OView, nm: str) -> bool {
     return true;
 }
 
-fn str_of(s: &String) -> str {
+fn str_of(s: &String) -> &str {
     return unsafe { str_from_raw(s.as_ptr(), s.len()) };
 }
 
@@ -284,7 +284,7 @@ fn str_of(s: &String) -> str {
 /// Raises a diagnostic (via `error`) and returns an empty `ItemList` on a missing
 /// binding name, an unknown/non-`schema` name, or a schema missing `code(0x…)`.
 #[token_macro]
-pub fn schema_catalog(name: str, s: str) -> ItemList {
+pub fn schema_catalog(name: &str, s: &str) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
         error("schema_catalog!: needs a binding name — write `resource <name> = schema_catalog!{ S1, S2 };`");

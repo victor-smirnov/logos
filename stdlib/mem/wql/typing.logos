@@ -30,25 +30,25 @@ use logos.std.wql.optimize;       // simplify_sexpr
 // `reflect::resolve_alias_name` at the point it is read, so a rel column declared
 // `Score` is an i64 to the licence, the width check and the lattice alike.
 pub fn stamp_rel_columns(ty: &mut ElTypes, view: &OView, prm: &MacroParams,
-                         ri: i64, var_name: str) -> bool {
+                         ri: i64, var_name: &str) -> bool {
     if ri < 0i64 { return false; }
     let off: i64 = prm.rel_coff[ri];
     let nc: i64  = prm.rel_ccnt[ri];
     if nc == 1i64 {
         // 1-column rel: SCALAR rows (`Vec<i64>` etc. — no 1-tuple exists), so
         // the column binds the WHOLE row (idx -1 → the codegen emits `(*var)`).
-        let cn0: str = prm.relc_name[off];
+        let cn0: &str = prm.relc_name[off];
         // The column's DECLARED type, which for a native source came from the
         // impl's trait args (ADR 0024 S2/S3) — not just its four-value class.
-        let tn0: str = resolve_alias_name(view, prm.relc_ty[off]);
+        let tn0: &str = resolve_alias_name(view, prm.relc_ty[off]);
         ty.set_ty_named(cn0, tn0);
         ty.rel_bind_named(var_name, cn0, COL_WHOLE(), tn0);
         return true;
     }
     let mut k: i64 = 0i64;
     while k < nc {
-        let cn: str = prm.relc_name[off + k];
-        let tnk: str = resolve_alias_name(view, prm.relc_ty[off + k]);
+        let cn: &str = prm.relc_name[off + k];
+        let tnk: &str = resolve_alias_name(view, prm.relc_ty[off + k]);
         ty.set_ty_named(cn, tnk);
         ty.rel_bind_named(var_name, cn, k, tnk);
         k = k + 1i64;
@@ -80,7 +80,7 @@ pub fn apply_scalar_params(ty: &mut ElTypes, view: &OView, prm: &MacroParams) {
 pub fn stamp_comp_vars(e: SExpr, ty: &mut ElTypes, prm: &MacroParams) {
     match e {
         SExpr::Comp(cp) => {
-            let mut src: str = "";
+            let mut src: &str = "";
             match cp.plan_expr() {
                 RExpr::Scan(sc) => { src = sc.src_name; }
                 RExpr::Filter(fl) => {
@@ -102,7 +102,7 @@ pub fn stamp_comp_vars(e: SExpr, ty: &mut ElTypes, prm: &MacroParams) {
 
 /// One bound variable: its row type's schema, a rel's columns (`reg` >= 0),
 /// and a by-value element's own type.
-fn type_source(ty: &mut ElTypes, view: &OView, prm: &MacroParams, reg: i64, row_ty: str, var: str, byval: bool) {
+fn type_source(ty: &mut ElTypes, view: &OView, prm: &MacroParams, reg: i64, row_ty: &str, var: &str, byval: bool) {
     stamp_types_from_schema(view, ty, row_ty, var);
     if reg >= 0i64 { let _b: bool = stamp_rel_columns(ty, view, prm, reg, var); }
     if byval { ty.set_ty_named(var, resolve_alias_name(view, row_ty)); }
@@ -143,7 +143,7 @@ pub fn type_clause(view: &OView, prm: &MacroParams, cl: &CClause, to_trav: bool)
 /// more expression the rule reads (its `order by` key; null = none).
 pub fn type_outer(ty: &mut ElTypes, cl: &CClause, extra: WAny) {
     let bs: &[CLit] = cl.body.as_slice();
-    let mut base: str = "";
+    let mut base: &str = "";
     let mut full: bool = false;
     let mut any: bool = false;
     let mut i: i64 = 0i64;
@@ -198,7 +198,7 @@ fn collect_opt(ty: &mut ElTypes, e: SExpr) {
             let br: WRef<SExpr> = f.base;
             if br.any().is_null() { return; }
             let be: SExpr = f.base_expr();
-            let rn: str = root_ident_name(be);
+            let rn: &str = root_ident_name(be);
             if rn.len() > 0i64 && ty.opt_is_var(rn) {
                 let mut inner: String = String::new();
                 inner.push_str(field_ty_name(f, ty));
@@ -238,7 +238,7 @@ fn collect_opt(ty: &mut ElTypes, e: SExpr) {
 /// One atom: a slice parameter takes its element type; a rel (a program rel
 /// or a native source) takes its registry index and row type.
 fn resolve_atom(a: &mut CAtom, nrels: i64, prm: &MacroParams) {
-    let n: str = a.name;
+    let n: &str = a.name;
     if n.len() == 0i64 { return; }
     let pi: i64 = prm.index_of(n);
     if pi >= 0i64 && prm.is_slice[pi] {
@@ -260,8 +260,8 @@ fn resolve_atom(a: &mut CAtom, nrels: i64, prm: &MacroParams) {
 /// row type, and the source expression the emitters scan (`d.emps`, a Vec
 /// field through `.as_slice()`). `bvars`/`btys` — the variables bound before
 /// it and their row types.
-fn resolve_trav(t: &mut CTrav, bvars: &Vec<str>, btys: &Vec<str>, view: &OView, strs: &mut Vec<String>) {
-    let mut cur: str = "";
+fn resolve_trav(t: &mut CTrav, bvars: &Vec<&str>, btys: &Vec<&str>, view: &OView, strs: &mut Vec<String>) {
+    let mut cur: &str = "";
     let mut found: bool = false;
     let mut k: i64 = 0i64;
     while k < bvars.len() {
@@ -271,10 +271,10 @@ fn resolve_trav(t: &mut CTrav, bvars: &Vec<str>, btys: &Vec<str>, view: &OView, 
     let np: i64 = t.path.len();
     if !found || np < 1i64 { return; }
     let mut kind: i32 = 0i32;
-    let mut elem: str = "";
+    let mut elem: &str = "";
     let mut i: i64 = 0i64;
     while i < np {
-        let seg: str = t.path.get(i);
+        let seg: &str = t.path.get(i);
         let decl: WAny = find_struct_decl(view, cur);
         if decl.is_null() || !has_field(view, decl, seg) { return; }
         if i < np - 1i64 {
@@ -302,8 +302,8 @@ fn resolve_trav(t: &mut CTrav, bvars: &Vec<str>, btys: &Vec<str>, view: &OView, 
 }
 
 fn resolve_clause(cl: &mut CClause, nrels: i64, view: &OView, prm: &MacroParams, strs: &mut Vec<String>) {
-    let mut bvars: Vec<str> = Vec::<str>::new();
-    let mut btys: Vec<str> = Vec::<str>::new();
+    let mut bvars: Vec<&str> = Vec::<&str>::new();
+    let mut btys: Vec<&str> = Vec::<&str>::new();
     let mut i: i64 = 0i64;
     while i < cl.body.len() {
         match &mut cl.body[i] {
@@ -384,7 +384,7 @@ fn bind_clause(cl: &mut CClause, prm: &MacroParams) {
 
 /// Record the type of every bare name `e` reads that `ty` does not know:
 /// a row variable of `vars` (its row type from `tys`), else a const or static.
-pub fn stamp_free_names(e: SExpr, ty: &mut ElTypes, vars: &Vec<str>, tys: &Vec<str>) {
+pub fn stamp_free_names(e: SExpr, ty: &mut ElTypes, vars: &Vec<&str>, tys: &Vec<&str>) {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
@@ -416,7 +416,7 @@ pub fn stamp_free_names(e: SExpr, ty: &mut ElTypes, vars: &Vec<str>, tys: &Vec<s
     }
 }
 
-fn stamp_free_name(n: str, ty: &mut ElTypes, vars: &Vec<str>, tys: &Vec<str>) {
+fn stamp_free_name(n: &str, ty: &mut ElTypes, vars: &Vec<&str>, tys: &Vec<&str>) {
     if n.len() == 0i64 || ty.knows(n) { return; }
     let mut k: i64 = 0i64;
     while k < vars.len() {
@@ -427,12 +427,12 @@ fn stamp_free_name(n: str, ty: &mut ElTypes, vars: &Vec<str>, tys: &Vec<str>) {
         k = k + 1i64;
     }
     if !value_name_known(n) { return; }
-    let vt: str = value_type_name(n);
+    let vt: &str = value_type_name(n);
     if vt.len() > 0i64 { ty.set_ty_named(n, vt); }
 }
 
 /// The row variables a clause binds and their row types, in body order.
-pub fn clause_vars(cl: &CClause, vars: &mut Vec<str>, tys: &mut Vec<str>) {
+pub fn clause_vars(cl: &CClause, vars: &mut Vec<&str>, tys: &mut Vec<&str>) {
     let bs: &[CLit] = cl.body.as_slice();
     let mut i: i64 = 0i64;
     while i < cl.body.len() {
@@ -509,12 +509,12 @@ pub fn type_group_outputs(view: &OView, g: &CGroup, t: &mut ElTypes, h: &Writ) -
 
 pub fn group_ty_new() -> GroupTy {
     return GroupTy { flt: Vec::<bool>::new(), cast: Vec::<bool>::new(), uda: Vec::<bool>::new(),
-                     uda_fin: Vec::<bool>::new(), uda_acc: Vec::<str>::new(), uda_ret: Vec::<str>::new(),
-                     acc: Vec::<str>::new(), act: Vec::<str>::new() };
+                     uda_fin: Vec::<bool>::new(), uda_acc: Vec::<&str>::new(), uda_ret: Vec::<&str>::new(),
+                     acc: Vec::<&str>::new(), act: Vec::<&str>::new() };
 }
 
-fn str_vec_n(n: i64) -> Vec<str> {
-    let mut v: Vec<str> = Vec::<str>::new();
+fn str_vec_n(n: i64) -> Vec<&str> {
+    let mut v: Vec<&str> = Vec::<&str>::new();
     let mut i: i64 = 0i64;
     while i < n { v.push(""); i = i + 1i64; }
     return v;
@@ -594,7 +594,7 @@ fn agg_reprs(aggs: &Vec<CAgg>, t: &ElTypes, agg_flt: &mut Vec<bool>, agg_cast: &
 // aggregate outputs. A UDA and a float still go by class: `aret` is a reflected
 // CLASS with no name to carry, and `f64` IS the float representative.
 fn stamp_agg_out_types(aggs: &Vec<CAgg>, agg_flt: &Vec<bool>,
-                       uda: &Vec<bool>, uda_ret: &Vec<str>, acc: &Vec<str>,
+                       uda: &Vec<bool>, uda_ret: &Vec<&str>, acc: &Vec<&str>,
                        ty: &mut ElTypes) {
     let ags: &[CAgg] = aggs.as_slice();
     let mut i: i64 = 0i64;
@@ -644,7 +644,7 @@ fn stamp_agg_out_types(aggs: &Vec<CAgg>, agg_flt: &Vec<bool>,
 // and a `u64` column could arrive spelled two ways at the check and at the
 // accumulator; they read one answer.
 fn acc_tys(aggs: &Vec<CAgg>, t: &ElTypes, h: &Writ,
-           uda: &Vec<bool>, agg_flt: &Vec<bool>, acc: &mut Vec<str>) {
+           uda: &Vec<bool>, agg_flt: &Vec<bool>, acc: &mut Vec<&str>) {
     let ags: &[CAgg] = aggs.as_slice();
     let mut i: i64 = 0i64;
     while i < aggs.len() {
@@ -681,11 +681,11 @@ fn acc_tys(aggs: &Vec<CAgg>, t: &ElTypes, h: &Writ,
 // False (error surfaced) on a convention violation.
 fn resolve_aggs(view: &OView, aggs: &Vec<CAgg>,
                 uda: &mut Vec<bool>, uda_fin: &mut Vec<bool>,
-                uda_acc: &mut Vec<str>, uda_ret: &mut Vec<str>) -> bool {
+                uda_acc: &mut Vec<&str>, uda_ret: &mut Vec<&str>) -> bool {
     let ags: &[CAgg] = aggs.as_slice();
     let mut i: i64 = 0i64;
     while i < aggs.len() {
-        let name: str = ags[i].func;
+        let name: &str = ags[i].func;
         if agg_of_name(name) != 0i32 {
             // Builtin aggregates SHADOW a same-named UDA triple.
             i = i + 1i64;
@@ -734,7 +734,7 @@ fn resolve_aggs(view: &OView, aggs: &Vec<CAgg>,
                 error(string_as_str(&m1));
                 return false;
             }
-            let acc_ty: str = fn_ret_type_name(view, d_init);
+            let acc_ty: &str = fn_ret_type_name(view, d_init);
             if acc_ty.len() == 0i64 {
                 let mut m2: String = String::new();
                 m2.push_str("wql!: user aggregate '");
@@ -761,7 +761,7 @@ fn resolve_aggs(view: &OView, aggs: &Vec<CAgg>,
             nm_fin.push_str("_fin");
             let d_fin: WAny = find_fn_decl(view, string_as_str(&nm_fin));
             let mut has_fin: bool = false;
-            let mut ret_ty: str = acc_ty;
+            let mut ret_ty: &str = acc_ty;
             if !d_fin.is_null() {
                 if fn_param_count(view, d_fin) != 1i64 {
                     let mut m4: String = String::new();
@@ -813,7 +813,7 @@ fn resolve_aggs(view: &OView, aggs: &Vec<CAgg>,
 // column would turn the answer `sum{2^62, 2^62} = 2^63` — the very value the
 // widening exists to produce — back into a wrong number.
 fn agg_col_tys(agg_flt: &Vec<bool>, uda: &Vec<bool>,
-                       uda_ret: &Vec<str>, acc: &Vec<str>, act: &mut Vec<str>) {
+                       uda_ret: &Vec<&str>, acc: &Vec<&str>, act: &mut Vec<&str>) {
     let mut i: i64 = 0i64;
     while i < agg_flt.len() {
         if uda[i] { act[i] = uda_ret[i]; }
@@ -840,7 +840,7 @@ pub struct EntryTy {
 
 /// `proj` simplified, `t` the environment it is read in (after a group, with
 /// `key` and the aggregate outputs), `annot` the `: ResultTy` annotation.
-pub fn entry_result_ty(proj: SExpr, t: &ElTypes, annot: str, has_annot: bool) -> EntryTy {
+pub fn entry_result_ty(proj: SExpr, t: &ElTypes, annot: &str, has_annot: bool) -> EntryTy {
     let mut ty: String = String::new();
     let mut tuple: bool = false;
     let mut comp: bool = false;

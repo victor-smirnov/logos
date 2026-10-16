@@ -66,7 +66,7 @@ pub fn JS_LOOP() -> i32 { return 3i32; }
 /// upgrades a decided step to it.
 pub fn JS_MERGE() -> i32 { return 4i32; }
 
-pub fn js_name(s: i32) -> str {
+pub fn js_name(s: i32) -> &str {
     if s == JS_HASH() { return "hash join"; }
     if s == JS_TREE() { return "tree join"; }
     if s == JS_LOOP() { return "loop join"; }
@@ -120,15 +120,15 @@ pub struct KeyCaps { pub hash: bool, pub ord: bool, pub eq: bool }
 // The one non-trait conjunct is `el_index_key_borrow_ok` — the emitted index
 // borrows its keys from the row, so `String` (hashable, ordered) stays on the loop
 // tier; its ground is stated there.
-fn KEY_HASH_TRAIT() -> str { return "logos.lang.hash::Hash"; }
-fn KEY_EQ_TRAIT()   -> str { return "logos.lang.cmp::Eq"; }
-fn KEY_ORD_TRAIT()  -> str { return "logos.lang.cmp::Ord"; }
+fn KEY_HASH_TRAIT() -> &str { return "logos.lang.hash::Hash"; }
+fn KEY_EQ_TRAIT()   -> &str { return "logos.lang.cmp::Eq"; }
+fn KEY_ORD_TRAIT()  -> &str { return "logos.lang.cmp::Ord"; }
 
 /// THE FACTS ABOUT A KEY TYPE, asked once and recorded on `g` — the only place the
 /// key's capabilities are computed. `KeyCaps` and the strategy rule are both read
 /// off these answers, so the decision and its ground cannot come from two
 /// computations.
-pub fn join_key_facts(name: str, g: &mut JoinGround) {
+pub fn join_key_facts(name: &str, g: &mut JoinGround) {
     let t: ElTy = el_ty(name);
     if t.cls < 0i32 {
         // A type outside the scalar lattice: every conjunct is asked of its impls.
@@ -162,7 +162,7 @@ pub fn key_caps_of(g: &JoinGround) -> KeyCaps {
                      eq:   held(g, JA_EQUALITY()) };
 }
 
-pub fn join_key_caps_named(name: str) -> KeyCaps {
+pub fn join_key_caps_named(name: &str) -> KeyCaps {
     let mut g: JoinGround = jg_new(name);
     join_key_facts(name, &mut g);
     return key_caps_of(&g);
@@ -222,7 +222,7 @@ pub struct StepKey { pub sel: i64, pub bw: i64, pub pw: i64, pub ktn: str }
 /// emission: it is the same fact that made the term selectable.
 pub struct EquiSides { pub bw: i64, pub pw: i64 }
 
-pub fn equi_term_sides(te: SExpr, new_var: str) -> EquiSides {
+pub fn equi_term_sides(te: SExpr, new_var: &str) -> EquiSides {
     match te {
         SExpr::Bin(b) => {
             if b.op == OP_EQ() {
@@ -241,7 +241,7 @@ pub fn equi_term_sides(te: SExpr, new_var: str) -> EquiSides {
     return EquiSides { bw: 0i64, pw: 0i64 };
 }
 
-pub fn step_equi_key(tl: &TermList, new_var: str, t: &ElTypes) -> StepKey {
+pub fn step_equi_key(tl: &TermList, new_var: &str, t: &ElTypes) -> StepKey {
     let mut i: i64 = 0i64;
     while i < tl.n {
         let te: SExpr = unsafe { WAny::ref_to(tl.w[i] as *const u8) }.view::<SExpr>();
@@ -270,9 +270,9 @@ pub fn step_equi_key(tl: &TermList, new_var: str, t: &ElTypes) -> StepKey {
 /// map must hold the type that normalization lands in — and each side reaches it
 /// by the value-preserving cast `key_norm_body` emits. Printing either side's own
 /// type would have declared a map neither expression can be inserted into.
-pub fn step_key_ty_of(be: SExpr, pe: SExpr, t: &ElTypes) -> str {
-    let bt: str = infer_emit_ty(be, t);
-    let pt: str = infer_emit_ty(pe, t);
+pub fn step_key_ty_of(be: SExpr, pe: SExpr, t: &ElTypes) -> &str {
+    let bt: &str = infer_emit_ty(be, t);
+    let pt: &str = infer_emit_ty(pe, t);
     if str_eq(bt, pt) { return bt; }
     // Two spellings of one class meet at its representative — under Rust typing
     // that is `str` beside `String` (numeric keys of two types are refused at the
@@ -280,7 +280,7 @@ pub fn step_key_ty_of(be: SExpr, pe: SExpr, t: &ElTypes) -> str {
     // stored `kty` through the plan until E4.3.
     let bc: i32 = t.class_of_name(bt);
     if bc != t.class_of_name(pt) || bc == EL_TY_NAMED() { return bt; }
-    let r: str = el_class_repr(bc);
+    let r: &str = el_class_repr(bc);
     if el_key_reaches(bt, r) && el_key_reaches(pt, r) { return r; }
     // No common type either side can be converted into. Returned as the BUILD
     // side's type so the capability row is asked about a real type and the step
@@ -330,7 +330,7 @@ pub fn step_cascade(k: StepKey) -> StepSel {
 }
 
 /// The whole decision for one classic (non-traversal) step.
-pub fn decide_join_step(on: WRef<SExpr>, new_var: str, t: &ElTypes, h: &Writ) -> StepSel {
+pub fn decide_join_step(on: WRef<SExpr>, new_var: &str, t: &ElTypes, h: &Writ) -> StepSel {
     let st: StepTerms = step_terms(on, h);
     return step_cascade(step_equi_key(&st.tl, new_var, t));
 }
@@ -348,7 +348,7 @@ pub fn traversal_step_sel() -> StepSel {
 
 /// The `[plan]` line of a strategy decision, and under `LOGOS_TRACE_PLAN=facts`
 /// the facts it was decided on, machine-readable.
-pub fn trace_step(subject: str, s: &StepSel) {
+pub fn trace_step(subject: &str, s: &StepSel) {
     plan_trace(subject, js_name(s.strat), s.key_tn, jg_render(s.g.rule));
     if plan_trace_facts_on() {
         let mut ln: String = String::new();
@@ -414,7 +414,7 @@ pub fn node_subject<'a>(prm: &'a MacroParams, src: &'a str, var: &'a str) -> &'a
     return var;
 }
 
-pub fn arrange_node(prm: &MacroParams, src: str, var: str, strat: i32) {
+pub fn arrange_node(prm: &MacroParams, src: &str, var: &str, strat: i32) {
     if strat == JS_LOOP() || strat == JS_MERGE() { return; }
     plan_trace(node_subject(prm, src, var), "arrange", MG_JOIN_BUILD(),
         "arranged: the join builds a keyed index over this source's rows before probing it — one per emitted nest, which is what the artifact builds");
@@ -443,7 +443,7 @@ pub fn arrange_node(prm: &MacroParams, src: str, var: str, strat: i32) {
 /// 119 key vectors sat unclassed against 3 nodes. The verdict word is therefore
 /// `key vector`, not `sort`: a line whose fourth field read `sort` would be
 /// counted as a node by every reader of this trace.
-pub fn sort_key_vector(prm: &MacroParams, src: str, var: str, key_ty: str, nb: i64) {
+pub fn sort_key_vector(prm: &MacroParams, src: &str, var: &str, key_ty: &str, nb: i64) {
     if !plan_trace_on() { return; }
     let mut w: String = String::new();
     w.push_str("the sort collects one key per matched row into `__ks` and permutes ");
@@ -456,7 +456,7 @@ pub fn sort_key_vector(prm: &MacroParams, src: str, var: str, key_ty: str, nb: i
 /// indices into `__ix0` and projects through it. With neither clause the read is
 /// by the frame's own index and nothing is built (ADR 0026 F11); with `order by`
 /// the same vector is the sort's permutation and `key vector` names it.
-pub fn group_survivors(prm: &MacroParams, src: str, var: str) {
+pub fn group_survivors(prm: &MacroParams, src: &str, var: &str) {
     if !plan_trace_on() { return; }
     plan_trace(node_subject(prm, src, var), "group survivors", "i64",
                "`having` gates the group frame's output — the surviving group indices are collected into `__ix0` and projected through it, one i64 per surviving group");
@@ -486,7 +486,7 @@ pub fn group_survivors(prm: &MacroParams, src: str, var: str) {
 /// Can the group frame index its keys (ADR 0026 F10)? A key the fold copies
 /// into the index and the key vector both: an integer, bool, char or `str`, or
 /// a tuple of them.
-pub fn group_key_indexable(key_ty: str) -> bool {
+pub fn group_key_indexable(key_ty: &str) -> bool {
     if key_ty.len() >= 2i64 && str_byte_at(key_ty, 0i64) == 40u8 && str_byte_at(key_ty, key_ty.len() - 1i64) == 41u8 {
         // `(A, B, …)`: each component, split at the top-level commas
         let mut depth: i64 = 0i64;
@@ -511,7 +511,7 @@ pub fn group_key_indexable(key_ty: str) -> bool {
 }
 
 // `s[a..b]` without the spaces at either end.
-fn str_trim_view(s: str, a: i64, b: i64) -> str {
+fn str_trim_view(s: &str, a: i64, b: i64) -> &str {
     let mut x: i64 = a;
     let mut y: i64 = b;
     while x < y && str_byte_at(s, x) == 32u8 { x = x + 1i64; }
@@ -522,7 +522,7 @@ fn str_trim_view(s: str, a: i64, b: i64) -> str {
 /// `__g_key` — one per emitted batch aggregate. `nagg` is the number of
 /// accumulator columns that hang off it, which is the group frame's WIDTH and
 /// the one number a reader needs to price the state from a single line.
-pub fn group_table_field(prm: &MacroParams, src: str, var: str, key_ty: str, nagg: i64) {
+pub fn group_table_field(prm: &MacroParams, src: &str, var: &str, key_ty: &str, nagg: i64) {
     if !plan_trace_on() { return; }
     let mut w: String = String::new();
     w.push_str("the fold finds a row's group by a linear `==` scan over `__g_key: Vec<");
@@ -541,7 +541,7 @@ pub fn group_table_field(prm: &MacroParams, src: str, var: str, key_ty: str, nag
 }
 
 /// `__g_cnt`, and ONLY where an `avg` reads it (S4b).
-pub fn group_count_field(prm: &MacroParams, src: str, var: str) {
+pub fn group_count_field(prm: &MacroParams, src: &str, var: &str) {
     plan_trace(node_subject(prm, src, var), "group count", AG_COUNT(),
         "a `Vec<i64>` bumped once per folded row in the INNERMOST loop, declared because some aggregate here is an `avg` and reads it as its denominator — a group table with no `avg` does not declare it and does not pay the bump");
 }
@@ -549,7 +549,7 @@ pub fn group_count_field(prm: &MacroParams, src: str, var: str) {
 /// `__ga_<out>` — one per aggregate, named by its OUTPUT and typed by its
 /// accumulator type, because those are the two facts that differ between two
 /// cells of the same frame.
-pub fn group_accum_field(prm: &MacroParams, src: str, var: str, out: str, acc_ty: str) {
+pub fn group_accum_field(prm: &MacroParams, src: &str, var: &str, out: &str, acc_ty: &str) {
     if !plan_trace_on() { return; }
     let mut w: String = String::new();
     w.push_str("one accumulator cell per group for output `");
@@ -562,7 +562,7 @@ pub fn group_accum_field(prm: &MacroParams, src: str, var: str, out: str, acc_ty
 }
 
 /// `__g_row` — the representative class's column and nobody else's (S4c).
-pub fn group_rep_row_field(prm: &MacroParams, src: str, var: str) {
+pub fn group_rep_row_field(prm: &MacroParams, src: &str, var: &str) {
     plan_trace(node_subject(prm, src, var), "representative row", AG_REP_ROW(),
         "a clause above the group names a source row, so each group records the base-row ordinal of the row that created it and the output phase re-binds that row by index — the one thing in this frame a batch pull cannot supply, and the reason this query's base is drained");
 }

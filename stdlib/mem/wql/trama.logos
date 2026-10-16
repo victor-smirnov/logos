@@ -137,7 +137,7 @@ pub fn next_of_stmt(node_w: i64) -> i64 {
 // Read a TText node's literal bytes as a `str` (WAny Ref → WString, boxed at
 // parse time). The backslash escapes (`\{` `\}` `` \` `` `\\`) are still RAW
 // in this slice — the consumer de-escapes (emit_escaped / the dynamic renderer).
-pub fn ttext_str(t: &TText) -> str {
+pub fn ttext_str(t: &TText) -> &str {
     let w: WAny = t.text;
     if !w.is_string() { return ""; }
     return w.as_wstr();

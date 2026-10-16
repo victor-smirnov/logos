@@ -152,7 +152,7 @@ fn check_limit_param(mods: &QMods, prm: &MacroParams) -> bool {
 // Textual by necessity: `params_text` is the user's own `deem!(…)` paren text,
 // re-emitted verbatim on purpose. `&` gains `'a` unless it already carries a
 // region (`&'`) or is a double borrow (`&&`, which the inner one handles).
-fn region_annotate(src: str, out: &mut String) {
+fn region_annotate(src: &str, out: &mut String) {
     let n: i64 = src.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -175,7 +175,7 @@ fn region_annotate(src: str, out: &mut String) {
 
 // The parameter NAMES of a parameter list, comma-joined (types may hold commas
 // inside brackets).
-fn param_names_csv(params: str, out: &mut String) {
+fn param_names_csv(params: &str, out: &mut String) {
     let n: i64 = params.len();
     let mut i: i64 = 0i64;
     let mut depth: i64 = 0i64;
@@ -212,7 +212,7 @@ fn param_names_csv(params: str, out: &mut String) {
 /// driver) is emitted plain, else one call logs its rows twice, and a caller
 /// that drives the mechanism directly (`_apply` with a weight, the driver) is
 /// logged as well.
-fn emit_inc_fn(name: str, params: str, ret: str, body: ExprBlob, kind: i32, tyn: str,
+fn emit_inc_fn(name: &str, params: &str, ret: &str, body: ExprBlob, kind: i32, tyn: &str,
                prm: &MacroParams) {
     if prm.oracle_inc_rows.len() == 0i64 {
         emit_fn_quote_blob(name, params, "", ret, body, prm);
@@ -227,7 +227,7 @@ fn emit_inc_fn(name: str, params: str, ret: str, body: ExprBlob, kind: i32, tyn:
     emit_fn_quote_blob(string_as_str(&ipriv), params, "", ret, body, prm);
     let mut args: String = String::new();
     param_names_csv(params, &mut args);
-    let dir: str = string_as_str(&prm.oracle_dir);
+    let dir: &str = string_as_str(&prm.oracle_dir);
     let mut w: String = String::new();
     w.push_str("{\n    let __r: "); w.push_str(ret); w.push_str(" = ");
     w.push_str(string_as_str(&inm)); w.push_str("("); w.push_str(string_as_str(&args)); w.push_str(");\n");
@@ -273,7 +273,7 @@ fn emit_inc_fn(name: str, params: str, ret: str, body: ExprBlob, kind: i32, tyn:
     emit_fn_quote_blob(name, params, "", ret, parse_block(string_as_str(&w)), prm);
 }
 
-fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
+fn emit_fn_quote_blob(fn_name: &str, params_text: &str, tps: &str, ret_ty: &str,
                       body: ExprBlob, prm: &MacroParams) {
     // The imports a native source's materializer needs are a RUNTIME list —
     // one module per source the query binds — carried by a repeat rather than
@@ -281,7 +281,7 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
     let mut uses: Vec<Ident> = vec_new::<Ident>();
     let mut uk: i64 = 0i64;
     loop {
-        let um: str = prm.native_use_at(uk);
+        let um: &str = prm.native_use_at(uk);
         if um.len() == 0i64 { break; }
         uses.push(Ident::new(um));
         uk = uk + 1i64;
@@ -468,7 +468,7 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
 // ⚠ THIS IS PER CALL, NOT PER ROW. The per-row body never touched `tbl`; what was
 // paid was one plan construction per invocation — which is exactly what hurts a
 // point-get query called in an application loop.
-fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why, why_text: str) {
+fn emit_prepared_type(tyn: &str, is_priv: bool, has_tbl: bool, w: &Why, why_text: &str) {
     let nm: Ident = Ident::new(tyn);
     // The census is a COMPILE-TIME number, so it is emitted as a constant-returning
     // method and not as a field: a plan pays nothing per call to carry it, which is
@@ -562,7 +562,7 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why, why_text:
                 // how many permutations each `why::RJ_*` constraint turned down.
                 pub fn axis(&self) -> i32 { return #(ax); }
                 pub fn ground(&self) -> i32 { return #(gr); }
-                pub fn operand(&self) -> str { return #(op); }
+                pub fn operand(&self) -> &str { return #(op); }
                 pub fn refused(&self, code: i32) -> i64 { #(rf) }
                 pub fn agrees(&self, fresh: &#nm) -> bool {
                     if !self.dyn_order { return true; }
@@ -582,7 +582,7 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why, why_text:
                     return jc_margin(&self.tbl, self.order_ix, self.base_n, self.step_n, self.n2, self.n3);
                 }
                 pub fn settled(&self) -> bool { return !self.defer_order; }
-                pub fn explain(&self) -> str { return #(ex); }
+                pub fn explain(&self) -> &str { return #(ex); }
             }
         };
         unsafe { logos_emit_item_blob_subst(&q); }
@@ -634,7 +634,7 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why, why_text:
                 // how many permutations each `why::RJ_*` constraint turned down.
                 pub fn axis(&self) -> i32 { return #(ax); }
                 pub fn ground(&self) -> i32 { return #(gr); }
-                pub fn operand(&self) -> str { return #(op); }
+                pub fn operand(&self) -> &str { return #(op); }
                 pub fn refused(&self, code: i32) -> i64 { #(rf) }
                 pub fn agrees(&self, fresh: &#nm) -> bool {
                     if !self.dyn_order { return true; }
@@ -654,7 +654,7 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why, why_text:
                     return jc_margin(&self.tbl, self.order_ix, self.base_n, self.step_n, self.n2, self.n3);
                 }
                 pub fn settled(&self) -> bool { return !self.defer_order; }
-                pub fn explain(&self) -> str { return #(ex); }
+                pub fn explain(&self) -> &str { return #(ex); }
             }
         };
         unsafe { logos_emit_item_blob_subst(&q); }
@@ -677,7 +677,7 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why, why_text:
 /// are the plan's answer, not its scaffolding. `agrees` and `settled` are then
 /// unconditional — the constant-folded form of the general bodies, which for
 /// `dyn_order == false` / `defer_order == false` return exactly these.
-fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob,
+fn emit_prepared_type_no_tbl(tyn: &str, is_priv: bool, np: ExprBlob, na: ExprBlob,
                              ax: ExprBlob, gr: ExprBlob, op: ExprBlob, rf: ExprBlob,
                              ex: ExprBlob) {
     let nm: Ident = Ident::new(tyn);
@@ -705,12 +705,12 @@ fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob
                 pub fn proved(&self) -> i64 { return #(na); }
                 pub fn axis(&self) -> i32 { return #(ax); }
                 pub fn ground(&self) -> i32 { return #(gr); }
-                pub fn operand(&self) -> str { return #(op); }
+                pub fn operand(&self) -> &str { return #(op); }
                 pub fn refused(&self, code: i32) -> i64 { #(rf) }
                 pub fn agrees(&self, fresh: &#nm) -> bool { return true; }
                 pub fn margin(&self) -> i64 { return jc_none_margin(); }
                 pub fn settled(&self) -> bool { return true; }
-                pub fn explain(&self) -> str { return #(ex); }
+                pub fn explain(&self) -> &str { return #(ex); }
             }
         };
         unsafe { logos_emit_item_blob_subst(&q); }
@@ -738,12 +738,12 @@ fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob
                 pub fn proved(&self) -> i64 { return #(na); }
                 pub fn axis(&self) -> i32 { return #(ax); }
                 pub fn ground(&self) -> i32 { return #(gr); }
-                pub fn operand(&self) -> str { return #(op); }
+                pub fn operand(&self) -> &str { return #(op); }
                 pub fn refused(&self, code: i32) -> i64 { #(rf) }
                 pub fn agrees(&self, fresh: &#nm) -> bool { return true; }
                 pub fn margin(&self) -> i64 { return jc_none_margin(); }
                 pub fn settled(&self) -> bool { return true; }
-                pub fn explain(&self) -> str { return #(ex); }
+                pub fn explain(&self) -> &str { return #(ex); }
             }
         };
         unsafe { logos_emit_item_blob_subst(&q); }
@@ -774,8 +774,8 @@ fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob
 /// ⚠ WHAT THIS DOES NOT DECIDE is what a single `len()` COSTS — see
 /// `join_order::run_size_expr_of`, which states the bound the deferral rests on.
 /// Deduplication removes the REPEATS; it does not license an expensive one.
-fn push_size_bindings_4(out: &mut String, pfx: str, nfl: i64,
-                        s0: str, s1: str, s2: str, s3: str) {
+fn push_size_bindings_4(out: &mut String, pfx: &str, nfl: i64,
+                        s0: &str, s1: &str, s2: &str, s3: &str) {
     let mut k: i64 = 0i64;
     while k < 4i64 {
         out.push_str("    let ");
@@ -784,7 +784,7 @@ fn push_size_bindings_4(out: &mut String, pfx: str, nfl: i64,
         out.push_str(": i64 = ");
         if k >= nfl { out.push_str("-1i64"); }
         else {
-            let mut e: str = s0;
+            let mut e: &str = s0;
             if k == 1i64      { e = s1; }
             else if k == 2i64 { e = s2; }
             else if k == 3i64 { e = s3; }
@@ -792,7 +792,7 @@ fn push_size_bindings_4(out: &mut String, pfx: str, nfl: i64,
             // this one is the first, so it evaluates the expression.
             let mut dup: i64 = 0i64;
             while dup < k {
-                let mut p: str = s0;
+                let mut p: &str = s0;
                 if dup == 1i64      { p = s1; }
                 else if dup == 2i64 { p = s2; }
                 else if dup == 3i64 { p = s3; }
@@ -811,7 +811,7 @@ fn push_size_bindings_4(out: &mut String, pfx: str, nfl: i64,
     }
 }
 
-fn push_size_bindings(out: &mut String, pfx: str, prep: &Prepared) {
+fn push_size_bindings(out: &mut String, pfx: &str, prep: &Prepared) {
     push_size_bindings_4(out, pfx, prep.nfl, prep.sz0, prep.sz1, prep.sz2, prep.sz3);
 }
 
@@ -885,13 +885,13 @@ fn refused_body(w: &Why) -> ExprBlob {
 /// `struct_lit` has no `HASH IDENT` alternative (the `deem_def`-name blocker, ADR
 /// 0024 S5). The per-row body, which is the part that matters, is a quote
 /// throughout and passes through here untouched.
-fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
+fn emit_prepared_fns(fn_name: &str, params_text: &str, tps: &str, ret_ty: &str,
                      body: ExprBlob, prm: &MacroParams, prep: Prepared) {
-    let bare: str = vis_strip(fn_name);
+    let bare: &str = vis_strip(fn_name);
     let is_priv: bool = vis_is_priv(fn_name);
     let mut tyb: String = String::new();
     prep_type_name(bare, &mut tyb);
-    let tyn: str = string_as_str(&tyb);
+    let tyn: &str = string_as_str(&tyb);
     // ⚠ ONE PREDICATE, ASKED ONCE: does the derivation have a table to give this
     // plan? `Prepared.tbl` IS the answer — the prepared and deferred halves both
     // fill it, `prep_fixed` and `prep_off` leave it empty — so the field's presence
@@ -1122,8 +1122,8 @@ fn push_param_args(out: &mut String, prm: &MacroParams) {
 /// parameter rather than a re-read of `ret_ty`'s text because the caller
 /// composed `ret_ty` from this very string one line earlier, and a second
 /// derivation is how two spellings of one fact come to disagree.
-fn emit_query_fn(fn_name: str, params_text: str, tps: str, ret_ty: str,
-                 elem_ty: str, body: ExprBlob, prm: &MacroParams, prep: Prepared) {
+fn emit_query_fn(fn_name: &str, params_text: &str, tps: &str, ret_ty: &str,
+                 elem_ty: &str, body: ExprBlob, prm: &MacroParams, prep: Prepared) {
     if !prep.on {
         emit_fn_quote_blob(fn_name, params_text, tps, ret_ty, body, prm);
     } else {
@@ -1166,9 +1166,9 @@ fn emit_query_fn(fn_name: str, params_text: str, tps: str, ret_ty: str,
 // from a stream that never ran. `pass/deem_stream_return_surface` asserts that
 // arm; without it the empty case would only be witnessed by a `len()==0`, which
 // says nothing about the PULL.
-fn emit_stream_surface(fn_name: str, params_text: str, tps: str,
-                       elem_ty: str, prm: &MacroParams) {
-    let bare: str = vis_strip(fn_name);
+fn emit_stream_surface(fn_name: &str, params_text: &str, tps: &str,
+                       elem_ty: &str, prm: &MacroParams) {
+    let bare: &str = vis_strip(fn_name);
     let mut snm: String = String::new();
     prep_derived_name(fn_name, "_stream", &mut snm);
 
@@ -1296,10 +1296,10 @@ fn emit_stream_surface(fn_name: str, params_text: str, tps: str,
 // the `_stream` DOOR's implementation for the eligible class and moves nothing
 // behind the old one — which is why `out_node_query`'s landing heads keep their
 // populations exactly and only their SENTENCE changes.
-fn emit_stream_direct(fn_name: str, params_text: str, tps: str, elem_ty: str,
+fn emit_stream_direct(fn_name: &str, params_text: &str, tps: &str, elem_ty: &str,
                       prm: &MacroParams, rel_ix: i64, rowmaj: bool,
-                      walk_ty: str, ctor_txt: str, var_name: str, row_ty: str,
-                      proj_txt: str, pred_txt: str, has_where: bool) {
+                      walk_ty: &str, ctor_txt: &str, var_name: &str, row_ty: &str,
+                      proj_txt: &str, pred_txt: &str, has_where: bool) {
     // ── THE STATE TYPE IS PER (QUERY, SOURCE FAMILY), NOT PER QUERY ─────────
     // A `deem` over a container CLASS (`map: Map<K, V>`) is not one query but a
     // PLAN: the driver instantiates it once per family it is called with
@@ -1339,7 +1339,7 @@ fn emit_stream_direct(fn_name: str, params_text: str, tps: str, elem_ty: str,
     let mut uses: Vec<Ident> = vec_new::<Ident>();
     let mut uk: i64 = 0i64;
     loop {
-        let um: str = prm.native_use_at(uk);
+        let um: &str = prm.native_use_at(uk);
         if um.len() == 0i64 { break; }
         uses.push(Ident::new(um));
         uk = uk + 1i64;
@@ -1465,7 +1465,7 @@ fn emit_stream_direct(fn_name: str, params_text: str, tps: str, elem_ty: str,
 /// owned and must NOT be caught, which is why the test is on a WORD boundary
 /// (`str` preceded and followed by a non-identifier byte) and not on a
 /// substring — `String`, `str_byte_at`, `Vec<String>` all contain "str".
-fn ty_owned_elem(t: str) -> bool {
+fn ty_owned_elem(t: &str) -> bool {
     let mut i: i64 = 0i64;
     while i < t.len() {
         let c: u8 = str_byte_at(t, i);
@@ -1495,7 +1495,7 @@ fn ident_byte(c: u8) -> bool {
 /// `__`-prefixed and no EL surface can produce that spelling, so the presence of
 /// `__` anywhere in the rendered `select`/`where` is the total test. See the
 /// eligibility note on `emit_stream_direct`.
-fn clause_prelude_free(t: str) -> bool {
+fn clause_prelude_free(t: &str) -> bool {
     let mut i: i64 = 0i64;
     while i + 1i64 < t.len() {
         if str_byte_at(t, i) == 95u8 && str_byte_at(t, i + 1i64) == 95u8 { return false; }
@@ -1539,7 +1539,7 @@ fn clause_prelude_free(t: str) -> bool {
 /// A `?` inside a string LITERAL (`select "a?"`) would refuse conservatively:
 /// the query keeps its buffered door, which is the safe direction — an admitted
 /// query that does not compile is not.
-fn clause_infallible(t: str) -> bool {
+fn clause_infallible(t: &str) -> bool {
     // ⚠ TWO REFINEMENTS OVER THE FIRST CUT'S BARE `?` BYTE SCAN, both forced by
     // the verify that followed it, and both about the GROUND rather than the
     // verdict. The cascade's own rule is that a ground naming the wrong cause is
@@ -1636,7 +1636,7 @@ fn qmods_none() -> QMods {
 // backing storage has to be a local of the frame that builds the quote; a
 // helper handing back an Ident would hand back a pointer into its own dead
 // frame, and that failure surfaces far away as "ExprBlob splice — null ptr".
-fn nk_str(prefix: str, k: i64) -> String {
+fn nk_str(prefix: &str, k: i64) -> String {
     let mut s: String = String::new();
     s.push_str(prefix);
     s.push_i64(k);
@@ -1665,7 +1665,7 @@ fn limit_expr(mods: &QMods) -> ExprBlob {
 // reifies it. It splices at a STATEMENT slot (`#(pre);`), which inlines: the
 // prelude declares `__rel_X` for the loops that follow, so a nested scope would
 // lose exactly the bindings it exists to publish.
-fn prelude_frag(prelude: str) -> ExprBlob {
+fn prelude_frag(prelude: &str) -> ExprBlob {
     if prelude.len() == 0i64 { return parse_block("{ }"); }
     let mut s: String = String::new();
     s.push_str("{\n");
@@ -1678,7 +1678,7 @@ fn prelude_frag(prelude: str) -> ExprBlob {
 // `distinct`, else bind the projected value and push only when not already in
 // `__out` (linear scan — O(n²) MVP dedup; `==` covers i64/f64/str natively).
 // The INDENT parameter is gone with the text: a fragment has no column.
-fn push_guarded_frag(val_ty: str, body: ExprBlob, distinct: bool) -> ExprBlob {
+fn push_guarded_frag(val_ty: &str, body: ExprBlob, distinct: bool) -> ExprBlob {
     if !distinct {
         return quote_block! { __out.push(#(body)); };
     }
@@ -1744,10 +1744,10 @@ fn ix_lex_gt_frag(k: i64, nidx: i64) -> ExprBlob {
 /// common case: the cast exists to bridge a type to its REPR, so it is derived from
 /// the pair rather than from the key alone. `el_norm_cast(tn)` alone would have
 /// wrapped a `u32` key in `as i64` while the vector was declared `Vec<u32>`.
-fn key_norm_body(body: str, tn: str, kv: str) -> String {
+fn key_norm_body(body: &str, tn: &str, kv: &str) -> String {
     let mut out: String = String::new();
     if str_eq(tn, kv) { out.push_str(body); return out; }
-    let mut cast: str = el_norm_cast(tn);
+    let mut cast: &str = el_norm_cast(tn);
     // A FIELDLESS enum column (outside the lattice, admitted by
     // `column_decl_admit`) keys by its discriminant. Rust has no implicit
     // enum -> integer coercion, so the conversion is WRITTEN.
@@ -1787,7 +1787,7 @@ fn key_norm_body(body: str, tn: str, kv: str) -> String {
 // is NOT widened here. It denies a second nest over a float key, and that
 // denial now costs only an optimization rather than covering a wrong answer;
 // widening it is a decision about the plan, taken where the plan is decided.
-fn key_ord_frag(key_ty: str, e: ExprBlob) -> ExprBlob {
+fn key_ord_frag(key_ty: &str, e: ExprBlob) -> ExprBlob {
     if str_eq(key_ty, "f64") { return quote_expr! { f64_data_key(#(e)) }; }
     if str_eq(key_ty, "f32") { return quote_expr! { f32_data_key(#(e)) }; }
     // an `Option` of a float keys its payload the same way (`Option<f64>`'s
@@ -1803,19 +1803,19 @@ fn key_ord_frag(key_ty: str, e: ExprBlob) -> ExprBlob {
 // `a < b` / `a == b` in the key's order. An `Option` key (a column of an
 // outer join's optional side) compares as Rust's `Option` — `None` before
 // every `Some` — over its payload's key (`key_ord_frag`).
-fn key_lt_frag(key_ty: str, a: ExprBlob, b: ExprBlob) -> ExprBlob {
+fn key_lt_frag(key_ty: &str, a: ExprBlob, b: ExprBlob) -> ExprBlob {
     let ka: ExprBlob = key_ord_frag(key_ty, a);
     let kb: ExprBlob = key_ord_frag(key_ty, b);
     return quote_expr! { (#(ka)) < (#(kb)) };
 }
 
-fn key_eq_frag(key_ty: str, a: ExprBlob, b: ExprBlob) -> ExprBlob {
+fn key_eq_frag(key_ty: &str, a: ExprBlob, b: ExprBlob) -> ExprBlob {
     let ka: ExprBlob = key_ord_frag(key_ty, a);
     let kb: ExprBlob = key_ord_frag(key_ty, b);
     return quote_expr! { (#(ka)) == (#(kb)) };
 }
 
-fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
+fn sort_perm_frag(key_ty: &str, desc: bool, nidx: i64) -> ExprBlob {
     let mut saves: Vec<ExprBlob>  = vec_new::<ExprBlob>();
     let mut shifts: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut lands: Vec<ExprBlob>  = vec_new::<ExprBlob>();
@@ -1871,10 +1871,10 @@ fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
 /// caller, which knows the input's shape (ADR 0031 R6.4: it is not re-derived
 /// from `scan_e`, which may be the base scan alone).
 fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>, axis: i32,
-              fn_name: str, params_text: str, prm: &MacroParams,
-              result_ty0: str, has_result_ty: bool, first: bool, h: &Writ) -> bool {
+              fn_name: &str, params_text: &str, prm: &MacroParams,
+              result_ty0: &str, has_result_ty: bool, first: bool, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
-    let row_ty: str   = sc.row_ty;
+    let row_ty: &str   = sc.row_ty;
 
     let view: OView = oview_module_ast();
     let mut ty: ElTypes = entry_env(prm);
@@ -1890,10 +1890,10 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>, axis: i32,
     let proj_opt: SExpr = simplify_sexpr(proj_sexpr, h).any().view::<SExpr>();
     // The select's element type is the clause's (`typing::entry_result_ty`).
     let et: EntryTy = entry_result_ty(proj_opt, &ty, result_ty0, has_result_ty);
-    let result_ty: str = string_as_str(&et.ty);
+    let result_ty: &str = string_as_str(&et.ty);
     let tres: i32 = if et.tuple { 1i32 } else { 0i32 };
     let is_comp: bool = et.comp;
-    let result_elem: str = string_as_str(&et.elem);
+    let result_elem: &str = string_as_str(&et.elem);
 
     // ── the item is a QUOTE (ADR 0024 S5), BODY INCLUDED ──────────────────
     // Both collapses are a return type plus a one-line constant body, and the
@@ -1918,7 +1918,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>, axis: i32,
     };
     // `first` narrows to `Option<E>` — a SINGLE-ROW shape, not a multi-row
     // result, so no §12 stream surface: "" is the emitter saying so.
-    let selem: str = if first { "" } else { result_elem };
+    let selem: &str = if first { "" } else { result_elem };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), selem, bt, prm,
                   prep_ground(WG_FALSE_FILTER(), axis));
     return true;
@@ -1926,7 +1926,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>, axis: i32,
 
 // (a·false, FIND mode) — a const-false `find` predicate: constant None with the
 // borrow-returning signature (`Option<&Row>`), no scan loop.
-fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str,
+fn emit_none_find(scan_e: RExpr, fn_name: &str, params_text: &str,
                   prm: &MacroParams, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     // ── the item is a QUOTE (ADR 0024 S5), BODY INCLUDED ──────────────────
@@ -1953,11 +1953,11 @@ fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str,
 // answer, so BORROW it: `Option<&Row>` = Some(&src[0]) when non-empty, None
 // otherwise — zero loop, zero copy (the emit_identity precedent, narrowed to
 // one row).
-fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str,
+fn emit_head_row(scan_e: RExpr, fn_name: &str, params_text: &str,
                  prm: &MacroParams, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
-    let src_name: str = sc.src_name;
-    let row_ty: str   = sc.row_ty;
+    let src_name: &str = sc.src_name;
+    let row_ty: &str   = sc.row_ty;
     // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
     let mut rty: String = String::new();
     rty.push_str("Result<Option<&");
@@ -1982,10 +1982,10 @@ fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str,
 // accessor-collapse peephole). The return TYPE narrows from `Vec<T>` to `&[T]`
 // (a genuinely thinner form; there is no per-row materialization).
 fn emit_identity(scan_e: RExpr,
-                 fn_name: str, params_text: str, prm: &MacroParams, h: &Writ) -> bool {
+                 fn_name: &str, params_text: &str, prm: &MacroParams, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
-    let src_name: str = sc.src_name;
-    let row_ty: str   = sc.row_ty;
+    let src_name: &str = sc.src_name;
+    let row_ty: &str   = sc.row_ty;
 
     // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
     // The return type is where this peephole's whole content lives: `&[Row]`
@@ -2015,9 +2015,9 @@ fn emit_identity(scan_e: RExpr,
 /// value (`dplan::plan_entry_simple`, read off the planned core) and this routes
 /// it to the same emitters the tree routed it to — the empty / head-row /
 /// identity constants, `emit_find`, `emit_simple`.
-pub fn emit_entry_simple(ds: &DSimple, fn_name: str, params_text: str, prm: &MacroParams,
-                         result_ty: str, has_result_ty: bool, sel_mode: i32,
-                         prelude: str, h: &Writ) -> bool {
+pub fn emit_entry_simple(ds: &DSimple, fn_name: &str, params_text: &str, prm: &MacroParams,
+                         result_ty: &str, has_result_ty: bool, sel_mode: i32,
+                         prelude: &str, h: &Writ) -> bool {
     let scan_e: RExpr = make_scan(h, ds.src, ds.row_ty, ds.var).any().view::<RExpr>();
     let sel: WRef<SExpr> = WRef::<SExpr>::from_any(ds.sel);
     match &ds.form {
@@ -2101,7 +2101,7 @@ fn scan_of(e: RExpr) -> RScan {
 // (1017 indexed walks after R-A, from 1166), not in this comment.
 
 /// Does this source need the R-A wrap? No rel identity, and a declared slice param.
-fn slice_stream_src(prm: &MacroParams, src_name: str) -> bool {
+fn slice_stream_src(prm: &MacroParams, src_name: &str) -> bool {
     return dp_slice_stream_src(prm, src_name);
 }
 
@@ -2115,7 +2115,7 @@ fn ss_name(k: i64) -> String { return nk_str("__ss", k); }
 /// `&[R]` and copies no row. The refuted alternative is on the record in
 /// `stdlib/lang/stream/stream.logos` — `Buffer::from_vec` would have copied the whole
 /// slice into a fresh `Vec`, the intermediate materialization criterion 1 forbids.
-fn slice_stream_wrap_frag(row_ty: str, src_name: str, k: i64) -> ExprBlob {
+fn slice_stream_wrap_frag(row_ty: &str, src_name: &str, k: i64) -> ExprBlob {
     let s_ss: String   = ss_name(k);
     let n_ss: Ident    = Ident::new(string_as_str(&s_ss));
     let rt_f:  ExprBlob = parse_type(row_ty);
@@ -2157,7 +2157,7 @@ fn slice_stream_wrap_frag(row_ty: str, src_name: str, k: i64) -> ExprBlob {
 // ADR 0025 §2 (#341) — the column hoist (`params::batch_hoist_text_at`) as a
 // spliceable STATEMENT fragment: `#(f);` inlines its `let`s into the enclosing
 // batch scope (`parse_block`'s statement slot), so the row text below reads them.
-fn batch_hoist_frag_at(prm: &MacroParams, r: i64, rowmaj: bool, bvar: str) -> ExprBlob {
+fn batch_hoist_frag_at(prm: &MacroParams, r: i64, rowmaj: bool, bvar: &str) -> ExprBlob {
     let mut t: String = String::new();
     t.push_str("{ ");
     batch_hoist_text_at(&mut t, prm, r, rowmaj, bvar);
@@ -2211,7 +2211,7 @@ fn pull_scan(src_f: ExprBlob, row_f: ExprBlob, vnm: Ident, opt: Ident, row: Iden
 /// or a probe): the wrap that turns `&[Row]` into a one-batch stream bound at
 /// `__ss<k>` (ADR 0025 R-A), and §1's batch pull over it (`batch_scan_frag`),
 /// written to `scan`. Returns the wrap; the caller places both, in that order.
-fn slice_scan(prm: &MacroParams, ty: str, src: str, k: i64, vnm: Ident, row_f: ExprBlob,
+fn slice_scan(prm: &MacroParams, ty: &str, src: &str, k: i64, vnm: Ident, row_f: ExprBlob,
               body: ExprBlob, brk_o: ExprBlob, brk_i: ExprBlob, scan: &mut ExprBlob) -> ExprBlob {
     let s_ss: String = ss_name(k);
     let ssrc_f: ExprBlob = parse_expr(string_as_str(&s_ss));
@@ -2474,12 +2474,12 @@ fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
 // classes are REFUSED WITH THEIR COUNTS, in the ground text, at their own
 // sites: a `SliceStream` is one packet by construction, so for the 107 the
 // direct form would republish the seam type and remove no pull.
-fn MG_OUT_DIRECT() -> str { return "the landing is the `_run` Vec surface, which S5 deliberately does not migrate — but this query's `_stream` DOOR is now the §12 DIRECT form: a per-query state struct holding the source's batch stream as a field, yielding one packet per source packet, so the streaming consumer never fills this or any other landing to completion"; }
+fn MG_OUT_DIRECT() -> &str { return "the landing is the `_run` Vec surface, which S5 deliberately does not migrate — but this query's `_stream` DOOR is now the §12 DIRECT form: a per-query state struct holding the source's batch stream as a field, yielding one packet per source packet, so the streaming consumer never fills this or any other landing to completion"; }
 
-fn MG_OUT_BUFFERED() -> str { return "the landing is the `_run` Vec surface, which S5 deliberately does not migrate; and this query's `_stream` door is the BUFFERED form because the §12 direct form was refused here"; }
+fn MG_OUT_BUFFERED() -> &str { return "the landing is the `_run` Vec surface, which S5 deliberately does not migrate; and this query's `_stream` door is the BUFFERED form because the §12 direct form was refused here"; }
 
-fn out_node_query(subject: str, elem_ty: str, mods: QMods,
-                  dx_on: bool, dx_class: str, dx_no: str) {
+fn out_node_query(subject: &str, elem_ty: &str, mods: QMods,
+                  dx_on: bool, dx_class: &str, dx_no: &str) {
     if !plan_trace_on() { return; }
     // The three heads are the R-B2 partition and they do not move — a head is a
     // claim about WHAT THE LANDING IS, and `direct` changed the door, not the
@@ -2500,7 +2500,7 @@ fn out_node_query(subject: str, elem_ty: str, mods: QMods,
         w.push_str("; the §12 direct door was refused here because ");
         w.push_str(dx_no);
     }
-    let why: str = string_as_str(&w);
+    let why: &str = string_as_str(&w);
     if mods.distinct {
         plan_trace(subject, "query output distinct carrier", elem_ty, why);
         return;
@@ -2512,12 +2512,12 @@ fn out_node_query(subject: str, elem_ty: str, mods: QMods,
     plan_trace(subject, "query output", elem_ty, why);
 }
 
-fn out_node_snapshot(subject: str, elem_ty: str) {
+fn out_node_snapshot(subject: &str, elem_ty: &str) {
     plan_trace(subject, "incremental snapshot output", elem_ty,
                "the incremental tier's read surface — and unlike `_run` this entry has NO `_stream` door of its own, so the landing is the only surface it has");
 }
 
-fn out_node_rel(subject: str, elem_ty: str) {
+fn out_node_rel(subject: &str, elem_ty: &str) {
     plan_trace(subject, "rel result", elem_ty,
                "an INTERNAL seam — consumed by the enclosing query and never returned to the application; the landing is `__rout` and not the query output (R-B1)");
 }
@@ -2535,7 +2535,7 @@ fn out_node_rel(subject: str, elem_ty: str) {
 // collection doing two jobs). Here they are two collections: the set is O(1)
 // per test and the landing never gets rescanned. A reader told "distinct
 // carrier" would conclude the rel helper rescans its output, which it does not.
-fn out_node_rel_dedup(subject: str, elem_ty: str) {
+fn out_node_rel_dedup(subject: &str, elem_ty: &str) {
     plan_trace(subject, "rel dedup set", elem_ty,
                "the one-shot rel helper's NOVELTY set — `rel_push_frag`'s gate is `if (*__rsp).insert(row) { __out.push(row) }`, so this HashSet and not the landing is what decides a derived row is new; it is a second collection beside `__rout` rather than the landing rescanned, so the test is O(1) and exactly one exists per rel result");
 }
@@ -2596,18 +2596,18 @@ fn out_node_rel_dedup(subject: str, elem_ty: str) {
 // ⚠ THE GROUNDS CARRY TRUTH CONDITIONS, which is the half a stamp cannot have.
 // Each names the mechanism that forces the landing, so the day the mechanism
 // changes the sentence becomes FALSE and must be rewritten — see each below.
-fn MG_FP_DELTA() -> str { return "the epoch's DRIVING frontier — the semi-naive rewriting reads this delta where a naive round would read the accumulated total; it LANDS rather than streams because every in-SCC occurrence of every body rescans it within the round, so it is read k times for k occurrences"; }
-fn MG_FP_NEXT() -> str { return "rows DERIVED this epoch and not yet folded into the total — a landing separate from the driving delta because the round APPENDS here while still scanning `__dl_*`, and the swap at the round boundary is what keeps the fixpoint monotone; merging the two would have the round read its own output"; }
-fn MG_FP_NOVELTY_SET() -> str { return "the member's NOVELTY structure, SET semantics — `rel_push_frag`'s gate is `if (*__rsp).insert(row) { __out.push(row) }`, so this HashSet is what decides a derived row is new and the next delta is exactly its accepted inserts; it shadows the accumulated total's membership, one entry per derived row"; }
-fn MG_FP_NOVELTY_LAT() -> str { return "the member's NOVELTY structure, LATTICE semantics — for a recursive min/max member novelty is IMPROVEMENT and not membership, so a best-per-key map replaces the shadow set and the gate is the `__imp` comparison; a row that ties the incumbent is derived and NOT novel, which a set could not express"; }
-fn MG_FP_LAT_KEYS() -> str { return "the lattice map's KEY ROSTER — the best-per-key map has no ordered enumeration surface, so the post-loop argmin/argmax materialization of the total walks this vector instead; it exists for lattice members only and would be deletable the day the map gains an iterator"; }
-fn MG_FP_DOM() -> str { return "the `subsume` DOMINANCE pass's rows — after each round's union the dominance rule runs over the new rows against the total and the total against the new rows, and every row it derives here leaves the total and the round's delta; a landing because the removal reads the whole result after the rule has run"; }
-fn MG_FP_DOM_SET() -> str { return "the `subsume` dominance pass's distinct set — one dominated row reached by many dominating rows is removed once; it is the pass's own novelty gate, as the member's novelty set is the round's"; }
-fn MG_OD_SET() -> str { return "the DRed OVER-DELETION distinct set — `__odn_<m> = __os_<m>.len()` IS the over-deletion count phase 1 checks against `__tot_.len() - __keep_<m>` before mutating anything; it is a SET because phase 1a can reach one row by many derivations and the count must be of ROWS, not of reachings"; }
+fn MG_FP_DELTA() -> &str { return "the epoch's DRIVING frontier — the semi-naive rewriting reads this delta where a naive round would read the accumulated total; it LANDS rather than streams because every in-SCC occurrence of every body rescans it within the round, so it is read k times for k occurrences"; }
+fn MG_FP_NEXT() -> &str { return "rows DERIVED this epoch and not yet folded into the total — a landing separate from the driving delta because the round APPENDS here while still scanning `__dl_*`, and the swap at the round boundary is what keeps the fixpoint monotone; merging the two would have the round read its own output"; }
+fn MG_FP_NOVELTY_SET() -> &str { return "the member's NOVELTY structure, SET semantics — `rel_push_frag`'s gate is `if (*__rsp).insert(row) { __out.push(row) }`, so this HashSet is what decides a derived row is new and the next delta is exactly its accepted inserts; it shadows the accumulated total's membership, one entry per derived row"; }
+fn MG_FP_NOVELTY_LAT() -> &str { return "the member's NOVELTY structure, LATTICE semantics — for a recursive min/max member novelty is IMPROVEMENT and not membership, so a best-per-key map replaces the shadow set and the gate is the `__imp` comparison; a row that ties the incumbent is derived and NOT novel, which a set could not express"; }
+fn MG_FP_LAT_KEYS() -> &str { return "the lattice map's KEY ROSTER — the best-per-key map has no ordered enumeration surface, so the post-loop argmin/argmax materialization of the total walks this vector instead; it exists for lattice members only and would be deletable the day the map gains an iterator"; }
+fn MG_FP_DOM() -> &str { return "the `subsume` DOMINANCE pass's rows — after each round's union the dominance rule runs over the new rows against the total and the total against the new rows, and every row it derives here leaves the total and the round's delta; a landing because the removal reads the whole result after the rule has run"; }
+fn MG_FP_DOM_SET() -> &str { return "the `subsume` dominance pass's distinct set — one dominated row reached by many dominating rows is removed once; it is the pass's own novelty gate, as the member's novelty set is the round's"; }
+fn MG_OD_SET() -> &str { return "the DRed OVER-DELETION distinct set — `__odn_<m> = __os_<m>.len()` IS the over-deletion count phase 1 checks against `__tot_.len() - __keep_<m>` before mutating anything; it is a SET because phase 1a can reach one row by many derivations and the count must be of ROWS, not of reachings"; }
 
 /// The `_scc` state block's per-member landings. `agg` selects the novelty
 /// structure — the set/lattice choice identity (ii) above pins.
-fn fp_node_member(subject: str, row_ty: str, agg: bool) {
+fn fp_node_member(subject: &str, row_ty: &str, agg: bool) {
     if !plan_trace_on() { return; }
     if agg {
         plan_trace(subject, "fixpoint novelty lattice", row_ty, MG_FP_NOVELTY_LAT());
@@ -2622,14 +2622,14 @@ fn fp_node_member(subject: str, row_ty: str, agg: bool) {
 /// DRed phase 1a (`_od`): a derived frontier and its novelty set, and NO
 /// driving delta — phase 1a is one pass over the total. This asymmetry is the
 /// left-hand side of identity (i).
-fn fp_node_od_phase1a(subject: str, row_ty: str) {
+fn fp_node_od_phase1a(subject: &str, row_ty: &str) {
     if !plan_trace_on() { return; }
     plan_trace(subject, "fixpoint novelty set", row_ty, MG_FP_NOVELTY_SET());
     plan_trace(subject, "fixpoint derived frontier", row_ty, MG_FP_NEXT());
 }
 
 /// DRed phase 1b (`_odp`): a full semi-naive round again — all three.
-fn fp_node_od_phase1b(subject: str, row_ty: str) {
+fn fp_node_od_phase1b(subject: &str, row_ty: &str) {
     if !plan_trace_on() { return; }
     plan_trace(subject, "fixpoint novelty set", row_ty, MG_FP_NOVELTY_SET());
     plan_trace(subject, "fixpoint frontier", row_ty, MG_FP_DELTA());
@@ -2637,7 +2637,7 @@ fn fp_node_od_phase1b(subject: str, row_ty: str) {
 }
 
 /// The over-deletion distinct set, one per member of the retraction's SCC.
-fn fp_node_od_set(subject: str, row_ty: str) {
+fn fp_node_od_set(subject: &str, row_ty: &str) {
     plan_trace(subject, "over-deletion set", row_ty, MG_OD_SET());
 }
 
@@ -2692,15 +2692,15 @@ fn fp_node_od_set(subject: str, row_ty: str) {
 // transactional retractions the corpus compiles (22), and a snapshot that grew
 // a second latch, or a `_dred` that lost its latch while keeping its rows, is a
 // red rather than a rounding difference in a 145-wide total.
-fn MG_CP_REL() -> str { return "the retraction's transactional snapshot of a ROW STORE — `<q>_dred` copies `__hh.__edb` / `__hh.__tot_<m>` into a local before phase 1a, so a fault in ANY phase (phase 1's |OD| check, `_cpt`'s compact, the signed fold's arithmetic) leaves the caller's handle byte-identical rather than half-retracted; it is the DOMINANT term of the snapshot, O(|EDB| + Σ|total|), and it is committed by MOVE (`__hh.<f> = __h.<f>`, no `?` between the first commit and the last) so atomicity costs one copy per retraction and not two"; }
-fn MG_CP_FRAME() -> str { return "the retraction's transactional snapshot of a GROUP-FRAME COLUMN (`__gk` / `__gc` / `__ga_<a>`) — it exists because the INSERT path does NOT need it: `<q>_epoch` gets its relation half transactional for free by building `__ecp`/`__tt<i>` as locals, but its group fold writes these three families through `__h.` directly and leaves the window its own header names. On the RETRACTION path that window is ordinary rather than overflow-only, because the negative fold is where the interesting arithmetic lives — so the copy is what closes it. O(|groups|), committed by move"; }
-fn MG_AP_FRAME() -> str { return "`<q>_apply`'s transactional snapshot of a GROUP-FRAME COLUMN (`__gk` / `__gc` / `__ga_<a>`) — the fold core writes these through `__h.` row by row and a later row can still fail (`RetractAbsent` from the footprint sensor or a group guard, `Overflow` from a fold), so the call runs on a copy and commits it by move only on `Ok`: an `Err` leaves the caller's handle as it was, a whole multi-row delta or nothing. O(|groups|) per call, inside the O(|delta| × |groups|) the linear group scan already costs"; }
-fn MG_AP_MAP() -> str { return "`<q>_apply`'s transactional snapshot of a `min`/`max` MULTIPLICITY MAP (`__gm_<a>`, one `HashMap` per group) — copied table by table with `hashmap_clone`, since `Vec::get` would share the table's storage; it exists for the same call-level atomicity as the group frame, and costs O(distinct values held), which is bounded by the footprint store copied beside it"; }
-fn MG_AP_STORE() -> str { return "`<q>_apply`'s transactional snapshot of a STORED SIDE (`__s0`/`__s0w`, and `__s1`/`__s1w` on a join) — the footprint Z-set on a bare scan, the two weighted relations on a join; the row loop integrates each delta row into it after folding, so an `Err` on a later row would otherwise leave earlier rows integrated. O(|stored|) per call, inside the per-row linear identity scan's O(|delta| × |stored|)"; }
-fn MG_EP_FRAME() -> str { return "the insert-only `<q>_epoch`'s transactional snapshot of a GROUP-FRAME COLUMN (`__gk` / `__gc` / `__ga_<a>`) — the fold writes these through `__h.` row by row and a later row can still fail (`Overflow` from a checked fold), so the call runs on a copy and commits it by move only on `Ok`: an `Err` leaves the caller's handle as it was. O(|groups|) per call, inside the O(|delta| × |groups|) the linear group scan already costs"; }
-fn MG_EP_REL() -> str { return "the rel-backed `<q>_epoch`'s transactional snapshot of a ROW STORE (`__edb` / `__tot_<m>`) — the epoch commits the accumulated input and the new total BEFORE folding the new rows into the groups, so a fault in that fold would leave the relation advanced and the groups behind; the copy makes the whole epoch one outcome. O(|EDB| + Σ|total|) per epoch, beside the two copies the epoch already builds (`__ecp`, `__tt<i>`)"; }
-fn MG_EP_LATCH() -> str { return "the rel-backed `<q>_epoch`'s transactional snapshot of the LATCH VECTOR `__lat` — not data, the |OD|/|S|/|RD| triples the DRed driver reads back; copied so that the shadow handle is the whole handle and the commit is field-for-field. O(members)"; }
-fn MG_CP_LATCH() -> str { return "the retraction's transactional snapshot of the LATCH VECTOR `__lat` — not data: the |OD|/|S|/|RD| triples `_cpt` writes as an out-param and the next epoch's incrementality assertion reads back. It is copied for the same commit-by-move as the row stores, but it is O(members) and carries no rows, so exactly one exists per shadow handle and a reader who priced the snapshot from it would be wrong by |EDB|"; }
+fn MG_CP_REL() -> &str { return "the retraction's transactional snapshot of a ROW STORE — `<q>_dred` copies `__hh.__edb` / `__hh.__tot_<m>` into a local before phase 1a, so a fault in ANY phase (phase 1's |OD| check, `_cpt`'s compact, the signed fold's arithmetic) leaves the caller's handle byte-identical rather than half-retracted; it is the DOMINANT term of the snapshot, O(|EDB| + Σ|total|), and it is committed by MOVE (`__hh.<f> = __h.<f>`, no `?` between the first commit and the last) so atomicity costs one copy per retraction and not two"; }
+fn MG_CP_FRAME() -> &str { return "the retraction's transactional snapshot of a GROUP-FRAME COLUMN (`__gk` / `__gc` / `__ga_<a>`) — it exists because the INSERT path does NOT need it: `<q>_epoch` gets its relation half transactional for free by building `__ecp`/`__tt<i>` as locals, but its group fold writes these three families through `__h.` directly and leaves the window its own header names. On the RETRACTION path that window is ordinary rather than overflow-only, because the negative fold is where the interesting arithmetic lives — so the copy is what closes it. O(|groups|), committed by move"; }
+fn MG_AP_FRAME() -> &str { return "`<q>_apply`'s transactional snapshot of a GROUP-FRAME COLUMN (`__gk` / `__gc` / `__ga_<a>`) — the fold core writes these through `__h.` row by row and a later row can still fail (`RetractAbsent` from the footprint sensor or a group guard, `Overflow` from a fold), so the call runs on a copy and commits it by move only on `Ok`: an `Err` leaves the caller's handle as it was, a whole multi-row delta or nothing. O(|groups|) per call, inside the O(|delta| × |groups|) the linear group scan already costs"; }
+fn MG_AP_MAP() -> &str { return "`<q>_apply`'s transactional snapshot of a `min`/`max` MULTIPLICITY MAP (`__gm_<a>`, one `HashMap` per group) — copied table by table with `hashmap_clone`, since `Vec::get` would share the table's storage; it exists for the same call-level atomicity as the group frame, and costs O(distinct values held), which is bounded by the footprint store copied beside it"; }
+fn MG_AP_STORE() -> &str { return "`<q>_apply`'s transactional snapshot of a STORED SIDE (`__s0`/`__s0w`, and `__s1`/`__s1w` on a join) — the footprint Z-set on a bare scan, the two weighted relations on a join; the row loop integrates each delta row into it after folding, so an `Err` on a later row would otherwise leave earlier rows integrated. O(|stored|) per call, inside the per-row linear identity scan's O(|delta| × |stored|)"; }
+fn MG_EP_FRAME() -> &str { return "the insert-only `<q>_epoch`'s transactional snapshot of a GROUP-FRAME COLUMN (`__gk` / `__gc` / `__ga_<a>`) — the fold writes these through `__h.` row by row and a later row can still fail (`Overflow` from a checked fold), so the call runs on a copy and commits it by move only on `Ok`: an `Err` leaves the caller's handle as it was. O(|groups|) per call, inside the O(|delta| × |groups|) the linear group scan already costs"; }
+fn MG_EP_REL() -> &str { return "the rel-backed `<q>_epoch`'s transactional snapshot of a ROW STORE (`__edb` / `__tot_<m>`) — the epoch commits the accumulated input and the new total BEFORE folding the new rows into the groups, so a fault in that fold would leave the relation advanced and the groups behind; the copy makes the whole epoch one outcome. O(|EDB| + Σ|total|) per epoch, beside the two copies the epoch already builds (`__ecp`, `__tt<i>`)"; }
+fn MG_EP_LATCH() -> &str { return "the rel-backed `<q>_epoch`'s transactional snapshot of the LATCH VECTOR `__lat` — not data, the |OD|/|S|/|RD| triples the DRed driver reads back; copied so that the shadow handle is the whole handle and the commit is field-for-field. O(members)"; }
+fn MG_CP_LATCH() -> &str { return "the retraction's transactional snapshot of the LATCH VECTOR `__lat` — not data: the |OD|/|S|/|RD| triples `_cpt` writes as an out-param and the next epoch's incrementality assertion reads back. It is copied for the same commit-by-move as the row stores, but it is O(members) and carries no rows, so exactly one exists per shadow handle and a reader who priced the snapshot from it would be wrong by |EDB|"; }
 
 // ── ADR 0025 R-E — THE INCREMENTAL TIER'S PER-ROUND WORKING SET, 8 HEADS ────
 //
@@ -2743,22 +2743,22 @@ fn MG_CP_LATCH() -> str { return "the retraction's transactional snapshot of the
 // bindings would be counting 66 of 294 that hold at most 3 i64s each — which is
 // exactly the reading criterion 1's percentage invites, and exactly why these
 // two get their own heads rather than being folded into a "scratch" stamp.
-fn MG_IW_ECP() -> str { return "the epoch's working copy of the accumulated input `__h.__edb` — and it is TWO jobs in one collection, which is why it lands: it is the transactional local (`__h.__edb = __ecp` commits it by MOVE at the bottom) and it is ALSO the inbound presence gate's dedup structure, rescanned linearly per delta row by the `__dup` loop. The dedup is a COST filter and not a correctness one (defeat it and no answer moves — `wql_incr_rel_rec_epochs` measures that), so what forces the landing is the commit-by-move, and what forces the RESCAN is the absence of `Hash` on a caller's row struct"; }
-fn MG_IW_TT() -> str { return "the member's working copy of its accumulated total `__h.__tot_<m>`, handed to `_scc<k>_i` / `_od` / `_odp` / `_cpt` as `&mut` — it lands because the drivers APPEND into it (`promote` only ever appends), which is what lets the rows derived this round be read as the SUFFIX `[__b0<i> .. len)` with no separate delta vector maintained; committed by MOVE, which is why every commit sits BELOW the fold's copy — committing first would move the selected member's rows out from under `__nw`"; }
-fn MG_IW_NW() -> str { return "the rows this round DERIVED, copied out of `__tt<fi>`'s suffix `[__b0<fi> .. len)` before the commit moves it — the ONLY rows the group fold reads, at `__w = +1`. That is what makes an unchanged saturated fixpoint fold nothing and leave the answer where it is; a fold over the whole total instead would be a right answer with zero incrementality"; }
-fn MG_IW_WCD() -> str { return "NOT DATA — the `_i` driver's work counter, a `Vec<i64>` holding ONE number because the emitted ABI has no scalar out-param. Both drivers SINK it: it is declared inside the call's own block, so it dies at the closing brace and no handle field, no ABI surface and no epoch state grows by it. The number it carries is about DRed's phase 3, which has no driver — the corpus fixture that reads it calls `_i` directly"; }
-fn MG_IW_PRES() -> str { return "the retraction's SURVIVING input — `__h.__edb` minus the retracted set DE, built by the membership scan that also decides `RetractAbsent`. It lands rather than filtering in place because it is what `__h.__edb = __pres` commits, and `__h.__edb` MUST shrink: an intact accumulated input would have the next insert epoch's round-0 pass re-derive every retracted fact, so the retraction would silently undo itself one epoch later — invisible to any single-epoch oracle"; }
-fn MG_IW_LT() -> str { return "NOT DATA — the |OD|/|S|/|RD| latch triples, three i64 per member, written by `_cpt` as an out-param and committed with `__h.__lat = __lt`. The driver is the only party that can retire `_cpt`'s `|RD| = -1` sentinel (phase 3 has not run when `_cpt` returns, so 0 would read as 'phase 3 re-derived nothing', a claim it cannot make), which is why the vector is the driver's local and not `_cpt`'s"; }
-fn MG_IW_ODV() -> str { return "the member's OVER-DELETION CANDIDATES — DRed phase 1's OD_<m>, filled by `_od` (the seed) and `_odp` (the closure) and read by `_cpt` as a slice. It is a VECTOR and not the `__os_<m>` set beside it because the two answer different questions: the set answers 'how many distinct rows' (`__odn_<m>` is what phase 1 checks against `__tot_.len() - __keep_<m>`), this carries the rows themselves to the compact"; }
-fn MG_IW_RMV() -> str { return "the member's REMOVED rows — what `_cpt` actually took out of the working total, which is NOT OD_<m>: a candidate with a surviving derivation is re-derived by phase 3 and stays. These rows are folded at `__w = -1` (`__rms`) against `__nw`'s `+1`, so the signed fold's negative half reads this vector; folding OD instead would retract facts the closure still supports"; }
+fn MG_IW_ECP() -> &str { return "the epoch's working copy of the accumulated input `__h.__edb` — and it is TWO jobs in one collection, which is why it lands: it is the transactional local (`__h.__edb = __ecp` commits it by MOVE at the bottom) and it is ALSO the inbound presence gate's dedup structure, rescanned linearly per delta row by the `__dup` loop. The dedup is a COST filter and not a correctness one (defeat it and no answer moves — `wql_incr_rel_rec_epochs` measures that), so what forces the landing is the commit-by-move, and what forces the RESCAN is the absence of `Hash` on a caller's row struct"; }
+fn MG_IW_TT() -> &str { return "the member's working copy of its accumulated total `__h.__tot_<m>`, handed to `_scc<k>_i` / `_od` / `_odp` / `_cpt` as `&mut` — it lands because the drivers APPEND into it (`promote` only ever appends), which is what lets the rows derived this round be read as the SUFFIX `[__b0<i> .. len)` with no separate delta vector maintained; committed by MOVE, which is why every commit sits BELOW the fold's copy — committing first would move the selected member's rows out from under `__nw`"; }
+fn MG_IW_NW() -> &str { return "the rows this round DERIVED, copied out of `__tt<fi>`'s suffix `[__b0<fi> .. len)` before the commit moves it — the ONLY rows the group fold reads, at `__w = +1`. That is what makes an unchanged saturated fixpoint fold nothing and leave the answer where it is; a fold over the whole total instead would be a right answer with zero incrementality"; }
+fn MG_IW_WCD() -> &str { return "NOT DATA — the `_i` driver's work counter, a `Vec<i64>` holding ONE number because the emitted ABI has no scalar out-param. Both drivers SINK it: it is declared inside the call's own block, so it dies at the closing brace and no handle field, no ABI surface and no epoch state grows by it. The number it carries is about DRed's phase 3, which has no driver — the corpus fixture that reads it calls `_i` directly"; }
+fn MG_IW_PRES() -> &str { return "the retraction's SURVIVING input — `__h.__edb` minus the retracted set DE, built by the membership scan that also decides `RetractAbsent`. It lands rather than filtering in place because it is what `__h.__edb = __pres` commits, and `__h.__edb` MUST shrink: an intact accumulated input would have the next insert epoch's round-0 pass re-derive every retracted fact, so the retraction would silently undo itself one epoch later — invisible to any single-epoch oracle"; }
+fn MG_IW_LT() -> &str { return "NOT DATA — the |OD|/|S|/|RD| latch triples, three i64 per member, written by `_cpt` as an out-param and committed with `__h.__lat = __lt`. The driver is the only party that can retire `_cpt`'s `|RD| = -1` sentinel (phase 3 has not run when `_cpt` returns, so 0 would read as 'phase 3 re-derived nothing', a claim it cannot make), which is why the vector is the driver's local and not `_cpt`'s"; }
+fn MG_IW_ODV() -> &str { return "the member's OVER-DELETION CANDIDATES — DRed phase 1's OD_<m>, filled by `_od` (the seed) and `_odp` (the closure) and read by `_cpt` as a slice. It is a VECTOR and not the `__os_<m>` set beside it because the two answer different questions: the set answers 'how many distinct rows' (`__odn_<m>` is what phase 1 checks against `__tot_.len() - __keep_<m>`), this carries the rows themselves to the compact"; }
+fn MG_IW_RMV() -> &str { return "the member's REMOVED rows — what `_cpt` actually took out of the working total, which is NOT OD_<m>: a candidate with a surviving derivation is re-derived by phase 3 and stays. These rows are folded at `__w = -1` (`__rms`) against `__nw`'s `+1`, so the signed fold's negative half reads this vector; folding OD instead would retract facts the closure still supports"; }
 
-fn iw_node(subject: str, ety: str, head: str, why: str) {
+fn iw_node(subject: &str, ety: &str, head: &str, why: &str) {
     plan_trace(subject, head, ety, why);
 }
 
 /// One handle field's snapshot. `role` is stated by the caller — see the note
 /// at `push_clone_field`, which is the only caller.
-fn cp_node(subject: str, ety: str, role: i64) {
+fn cp_node(subject: &str, ety: &str, role: i64) {
     if !plan_trace_on() { return; }
     if role == CPR_REL() {
         plan_trace(subject, "retraction snapshot relation", ety, MG_CP_REL());
@@ -2807,13 +2807,13 @@ fn cp_node(subject: str, ety: str, role: i64) {
 // upstream, so `mods` carries only the sort here.
 fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
                mods: QMods,
-               fn_name: str, params_text: str, prm: &MacroParams,
-               result_ty0: str, has_result_ty: bool, first: bool,
-               prelude: str, h: &Writ) -> bool {
+               fn_name: &str, params_text: &str, prm: &MacroParams,
+               result_ty0: &str, has_result_ty: bool, first: bool,
+               prelude: &str, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
-    let src_name: str = sc.src_name;
-    let row_ty: str   = sc.row_ty;
-    let var_name: str = sc.var_name;
+    let src_name: &str = sc.src_name;
+    let row_ty: &str   = sc.row_ty;
+    let var_name: &str = sc.var_name;
 
     // ADR 0025 S3 — THE ELIDED SORT. The plan decided (`AccessPlan.ord_noop`,
     // carried here as `rel_ord_noop`) that this query's `order by` is already
@@ -2847,10 +2847,10 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
 
     // The select's element type is the clause's (`typing::entry_result_ty`).
     let et: EntryTy = entry_result_ty(proj_opt, &ty, result_ty0, has_result_ty);
-    let result_ty: str = string_as_str(&et.ty);
+    let result_ty: &str = string_as_str(&et.ty);
     let tres: i32 = if et.tuple { 1i32 } else { 0i32 };
     let is_comp: bool = et.comp;
-    let result_elem: str = string_as_str(&et.elem);
+    let result_elem: &str = string_as_str(&et.elem);
 
     let mut pred_body: String = String::new();
     if has_where {
@@ -2861,11 +2861,11 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
 
     // The optional `order by` key: emitted body + its EL value type (i64/f64/str).
     let mut key_body: String = String::new();
-    let mut key_ty: str = "i64";
+    let mut key_ty: &str = "i64";
     if mods.has_sort {
         let key_e: SExpr = mods.sort_key.any().view::<SExpr>();
         let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
-        let key_tn: str = infer_ty_name(key_opt, &ty);
+        let key_tn: &str = infer_ty_name(key_opt, &ty);
         key_ty = infer_emit_ty(key_opt, &ty);
         if !key_norm_ok(key_tn, key_ty, "wql!: `order by`") { return false; }
         let mut kb0: String = String::new();
@@ -2941,7 +2941,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let mut dx_rel:    i64    = -1i64;           // the rel row the layout is read from
     let mut dx_rowmaj: bool   = true;            // the batch layout
     let mut dx_slice:  bool   = false;           // the R-A slice class — REFUSED, with a reason
-    let mut dx_class:  str    = "";              // for the landing's ground
+    let mut dx_class:  &str    = "";              // for the landing's ground
     // ⚠ THE SORT'S PHASE 3 INDEXES THE SOURCE, NOT THE WRAP — and that is a
     // MEASURED result, not a preference. `SliceStream::as_slice(&self)` was the
     // obvious door (the design named it "for the class-B random-access sites")
@@ -3202,7 +3202,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     // query that could not have taken the door under ANY source, which is the
     // exact ground-names-the-wrong-cause failure this ordering was rewritten to
     // fix.
-    let mut dx_no: str = "";
+    let mut dx_no: &str = "";
     if first                       { dx_no = "the query is single-row (`Option<E>`) and has no stream door at all"; }
     else if mods.has_sort          { dx_no = "an `order by` survived the S3 elision, and a sort is a barrier: the first output row is not known until the last input row is read"; }
     else if mods.distinct          { dx_no = "`distinct` is a fact about the WHOLE output and a per-packet scratch cannot see the packets already handed out"; }
@@ -3227,7 +3227,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     // §12 stream surface. "" is the emitter stating that, not a default.
     // `dx_on` suppresses it for the OTHER reason — the door is emitted below in
     // its `direct` form instead, and the two would collide on one name.
-    let selem: str = if first || dx_on { "" } else { result_elem };
+    let selem: &str = if first || dx_on { "" } else { result_elem };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), selem, body_f, prm,
                   prep_ground(WG_SCAN(), chain_axis(0i64)));
     if dx_on {
@@ -3246,12 +3246,12 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
 // matches. Early-exit loop — no Vec, no materialization. Scalar params from the
 // deem!(…) list may be referenced BARE in the predicate (typed off the list).
 fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
-             fn_name: str, params_text: str, prm: &MacroParams,
-             prelude: str, h: &Writ) -> bool {
+             fn_name: &str, params_text: &str, prm: &MacroParams,
+             prelude: &str, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
-    let src_name: str = sc.src_name;
-    let row_ty: str   = sc.row_ty;
-    let var_name: str = sc.var_name;
+    let src_name: &str = sc.src_name;
+    let row_ty: &str   = sc.row_ty;
+    let var_name: &str = sc.var_name;
 
     let view: OView = oview_module_ast();
     let mut ty: ElTypes = entry_env(prm);
@@ -3425,8 +3425,8 @@ fn sexpr_of_word(w: i64) -> SExpr { return unsafe { WAny::ref_to(w as *const u8)
 //
 // The split is `join_sel::step_terms`, the same call the planner made, so term
 // index `sel` denotes the same term here as it did there.
-fn emit_step_texts(on_ref: WRef<SExpr>, new_var: str, sel: i64, ktn: str,
-                   t: &ElTypes, var0: str, h: &Writ,
+fn emit_step_texts(on_ref: WRef<SExpr>, new_var: &str, sel: i64, ktn: &str,
+                   t: &ElTypes, var0: &str, h: &Writ,
                    build: &mut String, probe: &mut String,
                    resid: &mut String, pred: &mut String) -> bool {
     let st: StepTerms = step_terms(on_ref, h);
@@ -3578,7 +3578,7 @@ fn nest_builds(prm: &MacroParams, ch: &DNest, ns: &NestSteps, bps: &mut Vec<Expr
 
 // After a sort, an outer var's read fields re-bound from its recorded ordinal:
 // `Some(row.f)` when the step matched (`ix >= 0`), `None` when it had no row.
-fn outer_rebind_frag(t: &ElTypes, var: str, src: str, rowty: str, ix: str) -> ExprBlob {
+fn outer_rebind_frag(t: &ElTypes, var: &str, src: &str, rowty: &str, ix: &str) -> ExprBlob {
     let mut tp: ElTypes = el_types_clone(t);
     tp.opt_set_live(var, false);
     let mut bs: Vec<ExprBlob> = vec_new::<ExprBlob>();
@@ -3610,7 +3610,7 @@ fn outer_rebind_frag(t: &ElTypes, var: str, src: str, rowty: str, ix: str) -> Ex
 // An OUTER step's bindings of its var's read fields: `let __ov_v_f:
 // Option<T> = Option::Some(v.f);` on a match, `= Option::None;` without one.
 // `t` lists the fields (with the var live); `tp` reads them present.
-fn outer_bindings(t: &ElTypes, tp: &ElTypes, var: str, some: &mut ExprBlob, none: &mut ExprBlob) {
+fn outer_bindings(t: &ElTypes, tp: &ElTypes, var: &str, some: &mut ExprBlob, none: &mut ExprBlob) {
     let mut sb: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut nb: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut k: i64 = 0i64;
@@ -3634,7 +3634,7 @@ fn outer_bindings(t: &ElTypes, tp: &ElTypes, var: str, some: &mut ExprBlob, none
 
 // The present row's field, as the value the Some carries: a rel row's column
 // by position, a struct field by name; copied when `Copy`, cloned otherwise.
-fn outer_field_text(tp: &ElTypes, var: str, col: str, inner: str, out: &mut String) {
+fn outer_field_text(tp: &ElTypes, var: &str, col: &str, inner: &str, out: &mut String) {
     let k: i64 = tp.rel_col_of(var, col);
     if tp.rel_col_ty(var, col) >= 0i32 && k >= 0i64 {
         out.push_str(var); out.push_str("."); out.push_i64(k);
@@ -3647,7 +3647,7 @@ fn outer_field_text(tp: &ElTypes, var: str, col: str, inner: str, out: &mut Stri
     if c < 0i32 && !named_is_copy(inner) && named_is_clone(inner) { out.push_str(".clone()"); }
 }
 
-fn analyze_chain(ch: &DNest, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams,
+fn analyze_chain(ch: &DNest, t: &ElTypes, var0: &str, h: &Writ, prm: &MacroParams,
                  ns: &mut NestSteps) -> bool {
     let mut i: i64 = 0i64;
     while i < ch.n {
@@ -3667,7 +3667,7 @@ fn analyze_chain(ch: &DNest, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams
 
 // One step of `analyze_chain`, against the step's own type env (an outer
 // step reads its own `on` with its var present).
-fn analyze_step(ch: &DNest, i: i64, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams,
+fn analyze_step(ch: &DNest, i: i64, t: &ElTypes, var0: &str, h: &Writ, prm: &MacroParams,
                 ns: &mut NestSteps) -> bool {
     // ADR 0025 S2g — THE PLAN'S NODE, not a shape read off a boolean. A
     // step's source is pulled from an iterator when the plan put NO
@@ -3696,7 +3696,7 @@ fn analyze_step(ch: &DNest, i: i64, t: &ElTypes, var0: str, h: &Writ, prm: &Macr
         // key expressions must reach. Re-derived from the SAME term index the
         // plan recorded, so the pre-decided path and the decide-here path
         // cannot disagree: `step_key_ty_of` is a function of that term.
-        let mut ktn: str = "i64";
+        let mut ktn: &str = "i64";
         if strat == JS_NONE() {
             // Every step is the planner's (ADR 0031 R5.3, `plan_decide_rest`).
             logos.lang.panic::panic("ICE: a join step reached emission undecided (plan_walker::plan_decide_rest)");
@@ -3756,14 +3756,14 @@ fn analyze_step(ch: &DNest, i: i64, t: &ElTypes, var0: str, h: &Writ, prm: &Macr
 //
 // Both keep arrival order within a bucket, so probe hits replay in source order
 // exactly as the nested-loop baseline does.
-fn payload_ty_frag(streams: bool, ty: str) -> ExprBlob {
+fn payload_ty_frag(streams: bool, ty: &str) -> ExprBlob {
     if streams { return parse_type(ty); }
     return parse_type("i64");
 }
 
 /// The build key `var.col` over a column the step's source declares unique
 /// (`unique <rel> = <col>;`).
-fn unique_key_col(prm: &MacroParams, bk: SExpr, var: str, src: str) -> bool {
+fn unique_key_col(prm: &MacroParams, bk: SExpr, var: &str, src: &str) -> bool {
     match bk {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
@@ -3782,7 +3782,7 @@ fn unique_key_col(prm: &MacroParams, bk: SExpr, var: str, src: str) -> bool {
 }
 
 fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid: bool,
-                    ktn: str, src: str, ty: str, var: str, build_key: str,
+                    ktn: &str, src: &str, ty: &str, var: &str, build_key: &str,
                     streams: bool, uniq: bool) -> ExprBlob {
     if strat == JS_LOOP() { return quote_block! { }; }
     if strat == JS_MERGE() { return merge_cursor_frag(prm, s, ktn, src, ty, streams); }
@@ -4058,7 +4058,7 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
 // The probe-side bucket LOOKUP through the once-taken container pointer.
 // TREE probes via `get_mut` (the *mut-receiver accessor) cast to *const — one
 // pointer serves build + probe, keeping the borrow single.
-fn bucket_lookup_frag(s: i64, strat: i32, streams: bool, ty: str) -> ExprBlob {
+fn bucket_lookup_frag(s: i64, strat: i32, streams: bool, ty: &str) -> ExprBlob {
     let s_bp: String = nk_str("__bp", s);   let n_bp: Ident = Ident::new(string_as_str(&s_bp));
     let s_mp: String = nk_str("__mp", s);   let n_mp: Ident = Ident::new(string_as_str(&s_mp));
     let s_tp: String = nk_str("__tp", s);   let n_tp: Ident = Ident::new(string_as_str(&s_tp));
@@ -4084,7 +4084,7 @@ fn bucket_lookup_frag(s: i64, strat: i32, streams: bool, ty: str) -> ExprBlob {
 // cannot be the cursor across base rows. Its rows are COPIED into the cursor's
 // own buffer `__mb` — reversed after the leaf is read, so `pop()` yields the
 // next row ascending and by value — and `__md` records the end of the walk.
-fn merge_batch_step(prm: &MacroParams, src: str, streams: bool) -> i64 {
+fn merge_batch_step(prm: &MacroParams, src: &str, streams: bool) -> i64 {
     if !streams { return -1i64; }
     let r: i64 = prm.rel_find_src(src);
     if r >= 0i64 && prm.rel_batch[r] { return r; }
@@ -4092,7 +4092,7 @@ fn merge_batch_step(prm: &MacroParams, src: str, streams: bool) -> i64 {
 }
 
 // `__mc` ← the walk's next row (None at its end).
-fn merge_pull_frag(prm: &MacroParams, s: i64, src: str, ty: str, br: i64) -> ExprBlob {
+fn merge_pull_frag(prm: &MacroParams, s: i64, src: &str, ty: &str, br: i64) -> ExprBlob {
     let s_mc: String = nk_str("__mc", s);   let n_mc: Ident = Ident::new(string_as_str(&s_mc));
     let src_f: ExprBlob = parse_expr(src);
     if br < 0i64 { return quote_block! { #n_mc = (#(src_f)).next(); }; }
@@ -4135,7 +4135,7 @@ fn merge_pull_frag(prm: &MacroParams, s: i64, src: str, ty: str, br: i64) -> Exp
     };
 }
 
-fn merge_cursor_frag(prm: &MacroParams, s: i64, ktn: str, src: str, ty: str, streams: bool) -> ExprBlob {
+fn merge_cursor_frag(prm: &MacroParams, s: i64, ktn: &str, src: &str, ty: &str, streams: bool) -> ExprBlob {
     let s_mc: String = nk_str("__mc", s);   let n_mc: Ident = Ident::new(string_as_str(&s_mc));
     let s_mj: String = nk_str("__mj", s);   let n_mj: Ident = Ident::new(string_as_str(&s_mj));
     let s_mr: String = nk_str("__mr", s);   let n_mr: Ident = Ident::new(string_as_str(&s_mr));
@@ -4171,8 +4171,8 @@ fn merge_cursor_frag(prm: &MacroParams, s: i64, ktn: str, src: str, ty: str, str
     };
 }
 
-fn merge_step_frag(prm: &MacroParams, s: i64, ktn: str, src: str, ty: str, var: str, build_key: str,
-                   residual: str, has_resid: bool, inner: ExprBlob, lim: ExprBlob,
+fn merge_step_frag(prm: &MacroParams, s: i64, ktn: &str, src: &str, ty: &str, var: &str, build_key: &str,
+                   residual: &str, has_resid: bool, inner: ExprBlob, lim: ExprBlob,
                    has_lim: bool, streams: bool, pk_decl: ExprBlob) -> ExprBlob {
     let s_mc: String = nk_str("__mc", s);   let n_mc: Ident = Ident::new(string_as_str(&s_mc));
     let s_mj: String = nk_str("__mj", s);   let n_mj: Ident = Ident::new(string_as_str(&s_mj));
@@ -4277,8 +4277,8 @@ fn merge_step_frag(prm: &MacroParams, s: i64, ktn: str, src: str, ty: str, var: 
 // It never combines with JS_LOOP: a rescan of a spent iterator is exactly the
 // shape `analyze_chain` refuses to emit.
 fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
-             has_resid: bool, ktn: str, src: str, ty: str, var: str, byval: bool,
-             probe_key: str, build_key: str, residual: str, pred: str,
+             has_resid: bool, ktn: &str, src: &str, ty: &str, var: &str, byval: bool,
+             probe_key: &str, build_key: &str, residual: &str, pred: &str,
              lim: ExprBlob, has_lim: bool, streams: bool, uniq: bool,
              outer: i32, obind: ExprBlob, onone: ExprBlob) -> ExprBlob {
     // OUTER step: the inner step's shape, the body run once per match with the
@@ -4650,15 +4650,15 @@ fn chain_reorder(ch: &DNest, jo: &JoinOrder, cix: i64) -> DNest {
 // SLOT 0 is the base and slot i+1 the i-th step. One index space over the whole
 // nest is what lets a permutation be a permutation of numbers; the three accessors
 // are the only place the base's separate fields and the step arrays meet.
-fn jch_src(ch: &DNest, s: i64) -> str {
+fn jch_src(ch: &DNest, s: i64) -> &str {
     if s == 0i64 { return ch.base_src; }
     return ch.src[s - 1i64];
 }
-fn jch_ty(ch: &DNest, s: i64) -> str {
+fn jch_ty(ch: &DNest, s: i64) -> &str {
     if s == 0i64 { return ch.base_ty; }
     return ch.ty[s - 1i64];
 }
-fn jch_var(ch: &DNest, s: i64) -> str {
+fn jch_var(ch: &DNest, s: i64) -> &str {
     if s == 0i64 { return ch.base_var; }
     return ch.var[s - 1i64];
 }
@@ -4682,7 +4682,7 @@ struct NdvFacts {
     pub dr: [i64; 16],
 }
 
-fn ndv_col_ref(e: SExpr) -> (str, str) {
+fn ndv_col_ref(e: SExpr) -> (&str, &str) {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
@@ -4701,9 +4701,9 @@ fn ndv_col_ref(e: SExpr) -> (str, str) {
 }
 
 // The fact index for (var.col) of the chain, -1 when its source declares none.
-fn ndv_fact(nf: &mut NdvFacts, ch: &DNest, prm: &MacroParams, var: str, col: str) -> i64 {
+fn ndv_fact(nf: &mut NdvFacts, ch: &DNest, prm: &MacroParams, var: &str, col: &str) -> i64 {
     if var.len() == 0i64 { return -1i64; }
-    let mut src: str = "";
+    let mut src: &str = "";
     if str_eq(ch.base_var, var) { src = ch.base_src; }
     let mut i: i64 = 0i64;
     while i < ch.n {
@@ -4743,8 +4743,8 @@ fn ndv_facts_of(ch: &DNest, jo: &JoinOrder, prm: &MacroParams, h: &Writ) -> NdvF
                     match te {
                         SExpr::Bin(b) => {
                             if b.op == OP_EQ() {
-                                let l: (str, str) = ndv_col_ref(b.lhs.any().view::<SExpr>());
-                                let r: (str, str) = ndv_col_ref(b.rhs.any().view::<SExpr>());
+                                let l: (&str, &str) = ndv_col_ref(b.lhs.any().view::<SExpr>());
+                                let r: (&str, &str) = ndv_col_ref(b.rhs.any().view::<SExpr>());
                                 nf.dl[k] = ndv_fact(&mut nf, ch, prm, l.0, l.1);
                                 nf.dr[k] = ndv_fact(&mut nf, ch, prm, r.0, r.1);
                             }
@@ -4843,7 +4843,7 @@ fn base_only_conjunct(e: SExpr, ch: &DNest) -> bool {
     match e {
         SExpr::Field(f) => {
             let bref: WRef<SExpr> = f.base;
-            let rn: str = if bref.any().is_null() { f.name } else { root_ident_name(f.base_expr()) };
+            let rn: &str = if bref.any().is_null() { f.name } else { root_ident_name(f.base_expr()) };
             let mut i: i64 = 0i64;
             while i < ch.n { if str_eq(ch.var.as_slice()[i], rn) { return false; } i = i + 1i64; }
             return true;
@@ -4868,7 +4868,7 @@ fn base_only_conjunct(e: SExpr, ch: &DNest) -> bool {
     }
 }
 
-fn str_has_byte(s: str, b: u8) -> bool {
+fn str_has_byte(s: &str, b: u8) -> bool {
     let mut i: i64 = 0i64;
     while i < s.len() { if str_byte_at(s, i) == b { return true; } i = i + 1i64; }
     return false;
@@ -4883,7 +4883,7 @@ fn str_has_byte(s: str, b: u8) -> bool {
 // The early exit (`&& __gi < 0i64`) is answer-preserving because the key
 // vector is push-only: no duplicate key can exist, so first and last match
 // select the same group.
-fn group_fold_frag(keyt_f: ExprBlob, key_f: ExprBlob, key_ty: str, cnt_seed: ExprBlob, row_seed: ExprBlob,
+fn group_fold_frag(keyt_f: ExprBlob, key_f: ExprBlob, key_ty: &str, cnt_seed: ExprBlob, row_seed: ExprBlob,
                    seeds_r: &Vec<ExprBlob>, cnt_bump: ExprBlob, folds_r: &Vec<ExprBlob>) -> ExprBlob {
     let mut seeds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut si: i64 = 0i64;
@@ -4938,7 +4938,7 @@ fn group_fold_frag(keyt_f: ExprBlob, key_f: ExprBlob, key_ty: str, cnt_seed: Exp
 }
 
 // The group frame's index, declared beside `__g_key` when the key admits one.
-fn group_index_decl(keyt_f: ExprBlob, key_ty: str) -> ExprBlob {
+fn group_index_decl(keyt_f: ExprBlob, key_ty: &str) -> ExprBlob {
     if !group_key_indexable(key_ty) { return quote_block! { }; }
     return quote_block! {
         let mut __g_idx: HashMap<#(keyt_f), i64> = HashMap::<#(keyt_f), i64>::new();
@@ -4952,8 +4952,8 @@ fn group_index_decl(keyt_f: ExprBlob, key_ty: str) -> ExprBlob {
 /// mis-collected index tuple is a wrong row, not a crash.
 fn cand_branch(ch: &DNest, jo: &JoinOrder, cix: i64, ty: &ElTypes, prm: &MacroParams,
                h: &Writ, has_sort: bool, first: bool, distinct: bool, has_where: bool,
-               where_body: str, where_w: WAny, key_body: str, proj_f: ExprBlob, result_ty: str,
-               lim_f: ExprBlob, has_lim_use: bool, qvars: &Vec<str>, nq: i64,
+               where_body: &str, where_w: WAny, key_body: &str, proj_f: ExprBlob, result_ty: &str,
+               lim_f: ExprBlob, has_lim_use: bool, qvars: &Vec<&str>, nq: i64,
                out: &mut ExprBlob) -> bool {
     let cch: DNest = chain_reorder(ch, jo, cix);
     let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
@@ -4970,7 +4970,7 @@ fn cand_branch(ch: &DNest, jo: &JoinOrder, cix: i64, ty: &ElTypes, prm: &MacroPa
 // list in query order, and the tiebreak that makes the sorted sequence
 // order-independent is lexicographic in that same order. A tuple must therefore
 // mean the same thing whichever nest pushed it.
-fn qslot_of(qvars: &Vec<str>, nq: i64, v: str) -> i64 {
+fn qslot_of(qvars: &Vec<&str>, nq: i64, v: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < nq {
         if str_eq(qvars[i], v) { return i; }
@@ -4991,10 +4991,10 @@ fn qslot_of(qvars: &Vec<str>, nq: i64, v: str) -> i64 {
 // divergence is silent (a mis-collected tuple is a wrong row, not a crash).
 fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
                    has_sort: bool, first: bool, distinct: bool,
-                   has_where: bool, where_body: str, where_w: WAny, key_body: str,
-                   proj_f: ExprBlob, result_ty: str,
+                   has_where: bool, where_body: &str, where_w: WAny, key_body: &str,
+                   proj_f: ExprBlob, result_ty: &str,
                    lim_f: ExprBlob, has_lim_use: bool,
-                   qvars: &Vec<str>, nq: i64,
+                   qvars: &Vec<&str>, nq: i64,
                    bps: &mut Vec<ExprBlob>, out: &mut ExprBlob) -> bool {
     // Per-step strategy analysis (Part 2) — chosen by the plan, read here.
     let mut ns: NestSteps = nest_steps_new(ch.n);
@@ -5185,7 +5185,7 @@ fn full_join_parts(ch: &DNest, ty: &ElTypes, ns: &mut NestSteps, fp: &mut FullPa
     tx.opt_set_live(ch.base_var, false);
     outer_bindings(ty, &tx, ch.base_var, &mut fp.xsome, &mut fp.xnone);
     fp.ysome = ns.obind[0i64];
-    let ordv: str = if ns.strat[0i64] == JS_LOOP() { "__j1" } else { "__ri1" };
+    let ordv: &str = if ns.strat[0i64] == JS_LOOP() { "__j1" } else { "__ri1" };
     let ordf: ExprBlob = parse_expr(ordv);
     let yb: ExprBlob = ns.obind[0i64];
     ns.obind[0i64] = quote_block! { #(yb); __fm1.set(#(ordf), true); };
@@ -5247,9 +5247,9 @@ fn full_join_pass(ch: &DNest, nest: ExprBlob, body_inner: ExprBlob, fp: &FullPar
 // order, only the query's own is emitted and the refusal carries its ground.
 /// ADR 0031 R6.4 — A JOIN-CHAIN ENTRY FROM THE PLAN: the folded entry
 /// (`dplan::plan_entry_chain`) and the chain read off the planned core's rule.
-pub fn emit_entry_join(ds: &DSimple, jp: JoinPlan, fn_name: str, params_text: str, prm: &MacroParams,
-                       result_ty: str, has_result_ty: bool, sel_mode: i32,
-                       prelude: str, h: &Writ) -> bool {
+pub fn emit_entry_join(ds: &DSimple, jp: JoinPlan, fn_name: &str, params_text: &str, prm: &MacroParams,
+                       result_ty: &str, has_result_ty: bool, sel_mode: i32,
+                       prelude: &str, h: &Writ) -> bool {
     let sel: WRef<SExpr> = WRef::<SExpr>::from_any(ds.sel);
     match &ds.form {
         DForm::Empty => {
@@ -5289,9 +5289,9 @@ pub fn emit_entry_join(ds: &DSimple, jp: JoinPlan, fn_name: str, params_text: st
 
 fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
                    mods: QMods,
-                   fn_name: str, params_text: str, prm: &MacroParams,
-                   result_ty0: str, has_result_ty: bool, first: bool,
-                   prelude: str, h: &Writ) -> bool {
+                   fn_name: &str, params_text: &str, prm: &MacroParams,
+                   result_ty0: &str, has_result_ty: bool, first: bool,
+                   prelude: &str, h: &Writ) -> bool {
 
     // 2. Type dict: EVERY bound source's row schema + the scalar params.
     // Rel-sourced scans (slice B) stamp their COLUMN types + the positional
@@ -5303,7 +5303,7 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
     let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
     // The select's element type is the clause's (`typing::entry_result_ty`).
     let et: EntryTy = entry_result_ty(proj_opt, &ty, result_ty0, has_result_ty);
-    let result_ty: str = string_as_str(&et.elem);
+    let result_ty: &str = string_as_str(&et.elem);
     let tres: i32 = if et.tuple { 1i32 } else { 0i32 };
     let mut proj_body: String = String::new();
     emit_proj_value(&mut proj_body, proj_opt, &ty, ch.base_var);
@@ -5314,7 +5314,7 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
         emit_sexpr(&mut where_body, where_w.view::<SExpr>(), &ty, ch.base_var);
     }
     let mut key_body: String = String::new();
-    let mut key_ty: str = "i64";
+    let mut key_ty: &str = "i64";
     // ⚠ THE DECLARED TYPE NAME, not the class: the sort key's Logos type is half of
     // the join-order licence (C1 — a sort licenses a second nest only if the
     // comparison the backend emits for the key REALIZES the order the query named),
@@ -5324,7 +5324,7 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
     // the decision: `key_tn` is what the query NAMED and `key_ty` is what the
     // emitter PRINTS for the key vector, and the licence is a claim about the
     // relation between them — see `el::el_cmp_fidelity`.
-    let mut key_tn: str = "i64";
+    let mut key_tn: &str = "i64";
     if mods.has_sort {
         let key_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
         // The key's types are the PLAN's (`join_order::plan_join_order`), the ones
@@ -5351,9 +5351,9 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
     // (`chain_nest_frag` maps its own bound sources onto these slots by var
     // name). The per-source row-index EXPRESSION is the one thing that is a
     // property of the nest, and it moved there with it.
-    let mut bnd_src: Vec<str> = str_vec(ch.n + 1i64);
-    let mut bnd_ty:  Vec<str> = str_vec(ch.n + 1i64);
-    let mut bnd_var: Vec<str> = str_vec(ch.n + 1i64);
+    let mut bnd_src: Vec<&str> = str_vec(ch.n + 1i64);
+    let mut bnd_ty:  Vec<&str> = str_vec(ch.n + 1i64);
+    let mut bnd_var: Vec<&str> = str_vec(ch.n + 1i64);
     let mut bnd_byval: Vec<bool> = vec![false; ch.n + 1i64];
     bnd_src[0] = ch.base_src;
     bnd_ty[0]  = ch.base_ty;
@@ -5499,7 +5499,7 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
         // the nest — and the rule is the PLAN's method, which is `join_cost`'s one
         // function, so the two decision points cannot answer differently from the
         // same numbers.
-        let mut disc: str = "__pl.order_ix";
+        let mut disc: &str = "__pl.order_ix";
         if jo.deferred {
             // ⚠ THE SAME BINDER AS `prepare`, deliberately: one answer to "how is a
             // size fact bound", including the identity check. Before this the
@@ -5707,7 +5707,7 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
                            string_as_str(&meas), string_as_str(&tblb), jo.w);
         }
     }
-    let selem: str = if first { "" } else { result_ty };
+    let selem: &str = if first { "" } else { result_ty };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), selem, body_f, prm, prp);
     return true;
 }
@@ -5774,8 +5774,8 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
 /// ADR 0031 R6.5 — A GROUP ENTRY FROM THE PLAN: the folded entry
 /// (`dplan::plan_entry_group`), the chain and the aggregate specs read off the
 /// planned core's rule.
-pub fn emit_entry_group(ds: &DSimple, fn_name: str, params_text: str, prm: &MacroParams,
-                        result_ty: str, has_result_ty: bool, prelude: str, h: &Writ) -> bool {
+pub fn emit_entry_group(ds: &DSimple, fn_name: &str, params_text: &str, prm: &MacroParams,
+                        result_ty: &str, has_result_ty: bool, prelude: &str, h: &Writ) -> bool {
     let sel: WRef<SExpr> = WRef::<SExpr>::from_any(ds.sel);
     match &ds.form {
         DForm::Empty => {
@@ -5843,8 +5843,8 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
                   where_ref: WRef<SExpr>, has_where: bool,
                   having_ref: WRef<SExpr>, has_having: bool, sel: WRef<SExpr>,
                   mods: QMods,
-                  fn_name: str, params_text: str, prm: &MacroParams,
-                  result_ty0: str, has_result_ty: bool, prelude: str, h: &Writ, di: &DIncr) -> bool {
+                  fn_name: &str, params_text: &str, prm: &MacroParams,
+                  result_ty0: &str, has_result_ty: bool, prelude: &str, h: &Writ, di: &DIncr) -> bool {
     // The input as a linearized chain: base + `ch.n` steps. `ch.n == 0` IS the
     // bare scan — the degenerate chain, not a special case.
     let ch: DNest = ch0;
@@ -5907,7 +5907,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     // OWNED for the same reason `key_tn3s` is: the inferred name is a view into
     // `ty`'s table and `set_ty("key", …)` below writes that table.
     let key_tys: String = group_key_ty(key_opt, &ty);
-    let key_ty: str = string_as_str(&key_tys);
+    let key_ty: &str = string_as_str(&key_tys);
     // The key's identity is checked on the core (`typecheck::group_key_ok`).
     ty.set_ty_named("key", key_ty);
     // The aggregates' types are the clause's (`typing::type_aggs`, ADR 0031 R4.2).
@@ -5920,16 +5920,16 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     let agg_cast: Vec<bool> = gt.cast;
     let uda: Vec<bool> = gt.uda;
     let uda_fin: Vec<bool> = gt.uda_fin;
-    let uda_acc: Vec<str> = gt.uda_acc;
-    let uda_ret: Vec<str> = gt.uda_ret;
-    let acc: Vec<str> = gt.acc;
-    let act: Vec<str> = gt.act;
+    let uda_acc: Vec<&str> = gt.uda_acc;
+    let uda_ret: Vec<&str> = gt.uda_ret;
+    let acc: Vec<&str> = gt.acc;
+    let act: Vec<&str> = gt.act;
 
     // Clause bodies (`key_opt` is already simplified above).
     let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
     // The select's element type is the clause's (`typing::entry_result_ty`).
     let et: EntryTy = entry_result_ty(proj_opt, &ty, result_ty0, has_result_ty);
-    let result_ty: str = string_as_str(&et.elem);
+    let result_ty: &str = string_as_str(&et.elem);
     let tres: i32 = if et.tuple { 1i32 } else { 0i32 };
     let mut kb3: String = String::new();
     emit_sexpr(&mut kb3, key_opt, &ty, ch.base_var);
@@ -5948,10 +5948,10 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
         emit_sexpr(&mut having_body, hav_opt, &ty, ch.base_var);
     }
     let mut okey_body: String = String::new();
-    let mut okey_ty: str = "i64";
+    let mut okey_ty: &str = "i64";
     if mods.has_sort {
         let okey_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
-        let okey_tn: str = infer_ty_name(okey_opt, &ty);
+        let okey_tn: &str = infer_ty_name(okey_opt, &ty);
         okey_ty = infer_emit_ty(okey_opt, &ty);
         if !key_norm_ok(okey_tn, okey_ty, "wql!: `order by`") { return false; }
         let mut okb: String = String::new();
@@ -6084,7 +6084,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
         // accumulator count is the artifact's `__ga_*` count by construction,
         // which is what the census compares per fixture. The type reported is
         // the CELL's, taken from the arm that decided it, not re-derived.
-        let mut atn: str = "";
+        let mut atn: &str = "";
         if uda[gd] {
             // UDA accumulator column: the user's A type, threaded verbatim
             // (a struct accumulator must be Copy — Vec.get/set fold cells).
@@ -6582,14 +6582,14 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
 // commits whole or leaves it as it was.
 fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     uda: &Vec<bool>, agg_flt: &Vec<bool>, agg_cast: &Vec<bool>,
-                    act: &Vec<str>, acc: &Vec<str>, key_ty: str, key_body: str,
-                    result_ty: str, tres: i32, proj_body: str, having_body: str,
+                    act: &Vec<&str>, acc: &Vec<&str>, key_ty: &str, key_body: &str,
+                    result_ty: &str, tres: i32, proj_body: &str, having_body: &str,
                     has_having: bool, proj_e: SExpr, having_ref: WRef<SExpr>,
                     has_where: bool, mods: QMods,
-                    fn_name: str, params_text: str, prm: &MacroParams,
-                    prelude: str, h: &Writ,
+                    fn_name: &str, params_text: &str, prm: &MacroParams,
+                    prelude: &str, h: &Writ,
                     di: &DIncr) -> bool {
-    let bare0: str = vis_strip(fn_name);
+    let bare0: &str = vis_strip(fn_name);
     // P3b — is the ENTRY's base source a declared `rel`? Asked here, ahead of
     // eligibility, because it decides the SURFACE (`incr_retract_eligible`) as
     // well as the shape, and one answer for both is what stops the emitted
@@ -6622,11 +6622,11 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     if !compute_agg_bodies(aggs, acount, ty, ch.base_var, h, uda,
                            agg_flt, agg_cast, acc, &mut iarg) { return false; }
 
-    let bare: str = vis_strip(fn_name);
+    let bare: &str = vis_strip(fn_name);
     let is_priv: bool = vis_is_priv(fn_name);
     let mut tyb: String = String::new();
     prep_type_name_sfx(bare, "Incr", &mut tyb);
-    let tyn: str = string_as_str(&tyb);
+    let tyn: &str = string_as_str(&tyb);
 
     // ⚠ ASKED ONCE, HERE, AND IT DECIDES FOUR THINGS AT ONCE: which fold each
     // aggregate gets, whether `<q>_apply` carries a weight at all, whether
@@ -7110,7 +7110,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     while gi < acount {
         let a: RAgg = aggs.agg_at(gi);
         let fnid: i32 = agg_of_name(a.fn_name);
-        let acct: str = acc[gi];
+        let acct: &str = acc[gi];
         ganm[gi] = ga_name(a.out);
         let n_ga: Ident = Ident::new(string_as_str(&ganm[gi]));
         // The same accumulator cell as `n_ga`, qualified by the handle receiver.
@@ -7224,8 +7224,8 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // first-arrival bits beside the count (see `t_map_e` just below).
         // `f64_data_key` remains the COMPARATOR and only that; `f64_total_key`
         // (the faithful IEEE totalOrder primitive) is untouched by all of this.
-        let mkt:  str = if is_fl { "u64" } else { acct };
-        let ordt: str = if is_fl { "i64" } else { acct };
+        let mkt:  &str = if is_fl { "u64" } else { acct };
+        let ordt: &str = if is_fl { "i64" } else { acct };
         // ⚠ AND THE MAP'S VALUE IS A PAIR FOR A FLOAT AND A BARE COUNT FOR AN
         // INTEGER, WHICH IS THE PRICE OF THE CANONICAL KEY AND IS PAID ONLY BY
         // THE TIER THAT NEEDS IT. Once the key merges a class, the key no longer
@@ -7243,17 +7243,17 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // ⚠ `str_eq(mkt, "u64")` IS NOT THE FLOAT TEST — a u64 aggregate has
         // `mkt == "u64"` and `is_fl == false`, and its map value must stay a
         // bare `i64`. The two questions are asked separately, in that order.
-        let t_map_v: str = if is_fl { "Vec<HashMap<u64, (i64, u64)>>" }
+        let t_map_v: &str = if is_fl { "Vec<HashMap<u64, (i64, u64)>>" }
                            else if str_eq(mkt, "u64") { "Vec<HashMap<u64, i64>>" } else { "Vec<HashMap<i64, i64>>" };
-        let t_map_p: str = if is_fl { "*mut HashMap<u64, (i64, u64)>" }
+        let t_map_p: &str = if is_fl { "*mut HashMap<u64, (i64, u64)>" }
                            else if str_eq(mkt, "u64") { "*mut HashMap<u64, i64>" } else { "*mut HashMap<i64, i64>" };
-        let t_map_c: str = if is_fl { "*const HashMap<u64, (i64, u64)>" }
+        let t_map_c: &str = if is_fl { "*const HashMap<u64, (i64, u64)>" }
                            else if str_eq(mkt, "u64") { "*const HashMap<u64, i64>" } else { "*const HashMap<i64, i64>" };
-        let t_keys:  str = if is_fl { "HashMapKeys<u64, (i64, u64)>" }
+        let t_keys:  &str = if is_fl { "HashMapKeys<u64, (i64, u64)>" }
                            else if str_eq(mkt, "u64") { "HashMapKeys<u64, i64>" }  else { "HashMapKeys<i64, i64>" };
-        let hm_new:  str = if is_fl { "hashmap_new::<u64, (i64, u64)>()" }
+        let hm_new:  &str = if is_fl { "hashmap_new::<u64, (i64, u64)>()" }
                            else if str_eq(mkt, "u64") { "hashmap_new::<u64, i64>()" } else { "hashmap_new::<i64, i64>()" };
-        let t_map_e: str = if is_fl { "(i64, u64)" } else { "i64" };
+        let t_map_e: &str = if is_fl { "(i64, u64)" } else { "i64" };
         gmnm[gi] = gm_name(a.out);
         let n_gm: Ident = Ident::new(string_as_str(&gmnm[gi]));
         if want_map {
@@ -8248,7 +8248,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             ax = ax + 1i64;
             // the map, under THE SAME `wmap[ag]` and the constructor's value rule
             if wmap[ag] {
-                let mty: str = if str_eq(acc[ag], "f64") { "HashMap<u64, (i64, u64)>" }
+                let mty: &str = if str_eq(acc[ag], "f64") { "HashMap<u64, (i64, u64)>" }
                                else if str_eq(acc[ag], "i64") { "HashMap<i64, i64>" }
                                else { "HashMap<u64, i64>" };
                 push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, string_as_str(&gmnm[ag]), mty,
@@ -8383,8 +8383,8 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // of the input and one of the total, plus the driver's own naive
             // round 0. NOT MEASURED at any size; no number is quoted.
             let mut pt: String = String::new();
-            let ety: str = prm.tys[rel_sp];
-            let rty: str = string_as_str(&prm.rel_rowty[rel_m]);
+            let ety: &str = prm.tys[rel_sp];
+            let rty: &str = string_as_str(&prm.rel_rowty[rel_m]);
             let mut eqt: String = String::new();
             incr_row_eq_text(ty, ety, "__c", "__dv", &mut eqt);
             // ── INBOUND COLLAPSE BOUNDARY: a 0→positive PRESENCE crossing ───
@@ -8509,7 +8509,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             let mut fi: i64 = -1i64;
             let mut t0: i64 = 0i64;
             while t0 < ntm {
-                let mrt: str = string_as_str(&prm.rel_rowty[tmem[t0]]);
+                let mrt: &str = string_as_str(&prm.rel_rowty[tmem[t0]]);
                 if tmem[t0] == rel_m { fi = t0; }
                 iw_node(fn_name, mrt, "member total working set", MG_IW_TT());
                 pt.push_str("let mut __tt"); pt.push_i64(t0);
@@ -8862,7 +8862,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 // first-member-instead-of-selected-member bug hides.
                 let mut d0: i64 = 0i64;
                 while d0 < ntm {
-                    let drt: str = string_as_str(&prm.rel_rowty[tmem[d0]]);
+                    let drt: &str = string_as_str(&prm.rel_rowty[tmem[d0]]);
                     iw_node(fn_name, drt, "member total working set", MG_IW_TT());
                     dt.push_str("let mut __tt"); dt.push_i64(d0);
                     dt.push_str(": Vec<"); dt.push_str(drt); dt.push_str("> = Vec::<"); dt.push_str(drt); dt.push_str(">::new();\n");
@@ -9386,7 +9386,7 @@ fn CPR_EP_REL() -> i64   { return 8i64; }
 fn CPR_EP_LATCH() -> i64 { return 9i64; }
 
 fn push_clone_field(dcl: &mut String, dlit: &mut String, dcm: &mut String,
-                    idx: i64, fld: str, ety: str, subject: str, role: i64) {
+                    idx: i64, fld: &str, ety: &str, subject: &str, role: i64) {
     push_snap_field(dcl, dlit, dcm, "__c", idx, fld, ety, subject, role);
 }
 
@@ -9394,8 +9394,8 @@ fn push_clone_field(dcl: &mut String, dlit: &mut String, dcm: &mut String,
 /// `__cx`, `__a` → `__ap`/`__ax`). A `CPR_AP_MAP` field is a `Vec<HashMap>`,
 /// and `Vec::get` would copy the table's header and share its storage, so each
 /// element is copied by `hashmap_clone` instead.
-fn push_snap_field(dcl: &mut String, dlit: &mut String, dcm: &mut String, pfx: str,
-                   idx: i64, fld: str, ety: str, subject: str, role: i64) {
+fn push_snap_field(dcl: &mut String, dlit: &mut String, dcm: &mut String, pfx: &str,
+                   idx: i64, fld: &str, ety: &str, subject: &str, role: i64) {
     cp_node(subject, ety, role);
     if idx > 0i64 { dlit.push_str(", "); }
     dcl.push_str("let mut "); dcl.push_str(pfx); dcl.push_str("p"); dcl.push_i64(idx);
@@ -9429,14 +9429,14 @@ fn push_snap_field(dcl: &mut String, dlit: &mut String, dcm: &mut String, pfx: s
     dcm.push_str(fld); dcm.push_str(";\n");
 }
 
-fn parse_type_of_vec(t: str) -> ExprBlob {
+fn parse_type_of_vec(t: &str) -> ExprBlob {
     let mut s: String = String::new();
     s.push_str("Vec<");
     s.push_str(t);
     s.push_str(">");
     return parse_type(string_as_str(&s));
 }
-fn push_vec_new(out: &mut String, t: str) {
+fn push_vec_new(out: &mut String, t: &str) {
     out.push_str("Vec::<");
     out.push_str(t);
     out.push_str(">::new()");
@@ -9452,7 +9452,7 @@ fn push_vec_new(out: &mut String, t: str) {
 /// never end up outside the comparison.
 ///
 /// `sv` is the stored copy's local name, `dv` the delta row's binding.
-fn incr_row_eq_text(t: &ElTypes, row_ty: str, sv: str, dv: str, out: &mut String) {
+fn incr_row_eq_text(t: &ElTypes, row_ty: &str, sv: &str, dv: &str, out: &mut String) {
     let mut i: i64 = 0i64;
     while true {
         let e: i64 = t.type_field_at(row_ty, i);
@@ -9481,7 +9481,7 @@ fn incr_row_eq_text(t: &ElTypes, row_ty: str, sv: str, dv: str, out: &mut String
 }
 
 
-fn incr_decline(qn: str, why: str) -> bool {
+fn incr_decline(qn: &str, why: &str) -> bool {
     plan_trace("incremental", "declined", qn, why);
     return false;
 }
@@ -9495,7 +9495,7 @@ fn incr_decline(qn: str, why: str) -> bool {
 
 
 /// The aggregate's group-frame class, named by its rule (why.logos `AC_*`, E3).
-fn aggclass_trace(fn_name: str, r: i32) {
+fn aggclass_trace(fn_name: &str, r: i32) {
     plan_trace("aggclass", ac_verdict(r), fn_name, ac_render(r));
     if !plan_trace_facts_on() { return; }
     let mut fl: String = String::new();
@@ -9548,7 +9548,7 @@ fn aggclass_trace(fn_name: str, r: i32) {
 // passes. The weighted (`sfold`) folds and the semilattice map fold stay at the
 // incremental call site for the same reason in the other direction. A builder
 // arm with one caller is not shared code, it is a longer path to the same line.
-fn agg_seed_frag(fnid: i32, is_flt: bool, acc: str, cell: str) -> ExprBlob {
+fn agg_seed_frag(fnid: i32, is_flt: bool, acc: &str, cell: &str) -> ExprBlob {
     // ⚠ THE SEED IS THE ACCUMULATOR'S OWN EXTREMUM IN ITS OWN TYPE — the rule
     // both emitters already carried in prose and now carry in one place. For a
     // float, `f64::MAX` is not the top of the order (±inf and NaN lie beyond it)
@@ -9587,7 +9587,7 @@ fn agg_seed_frag(fnid: i32, is_flt: bool, acc: str, cell: str) -> ExprBlob {
 // on the weighted widening — but the weighted forms are NOT reachable from here
 // and must not be, because a `sum` that took `el_addu` for its addition and
 // `el_sub` for its subtraction would be one cell answering under two orders.
-fn agg_fold_frag(fnid: i32, is_flt: bool, is_cast: bool, acc: str, cell: str, arg: str) -> ExprBlob {
+fn agg_fold_frag(fnid: i32, is_flt: bool, is_cast: bool, acc: &str, cell: &str, arg: &str) -> ExprBlob {
     if fnid == AGG_COUNT() {
         let cs: ExprBlob = parse_expr(cell);
         let cg: ExprBlob = parse_expr(cell);
@@ -9660,14 +9660,14 @@ fn agg_fold_frag(fnid: i32, is_flt: bool, is_cast: bool, acc: str, cell: str, ar
 // incremental handle's receiver. This qualification is the ONLY difference
 // between the two emitters' shared fragments; see `agg_fold_frag`'s header for
 // the measurement that says splicing it as an expression costs no emitted bytes.
-fn hga_name(out: str) -> String {
+fn hga_name(out: &str) -> String {
     let mut s: String = String::new();
     s.push_str("__h.");
     s.push_str("__ga_");
     s.push_str(out);
     return s;
 }
-fn ga_name(out: str) -> String {
+fn ga_name(out: &str) -> String {
     let mut s: String = String::new();
     s.push_str("__ga_");
     s.push_str(out);
@@ -9675,13 +9675,13 @@ fn ga_name(out: str) -> String {
 }
 // `__gm_<out>` — the min/max multiplicity map's field on the incremental
 // handle. Same borrowing rule as `ga_name`: the caller keeps the String.
-fn gm_name(out: str) -> String {
+fn gm_name(out: &str) -> String {
     let mut s: String = String::new();
     s.push_str("__gm_");
     s.push_str(out);
     return s;
 }
-fn suffixed(name: str, suffix: str) -> String {
+fn suffixed(name: &str, suffix: &str) -> String {
     let mut s: String = String::new();
     s.push_str(name);
     s.push_str(suffix);
@@ -9691,7 +9691,7 @@ fn suffixed(name: str, suffix: str) -> String {
 // Bind the base row var to a group's REPRESENTATIVE row: `let <var>: &<ty> =
 // &(<src>)[<idx expr>];`. Emitted wherever the group columns are bound, so a
 // clause over a group row may name the row var as well as `key`.
-fn row_rebind_frag(base_var: str, base_ty: str, base_src: str, idx: ExprBlob) -> ExprBlob {
+fn row_rebind_frag(base_var: &str, base_ty: &str, base_src: &str, idx: ExprBlob) -> ExprBlob {
     let bv: Ident    = Ident::new(base_var);
     let bt: ExprBlob = parse_type(base_ty);
     let bs: ExprBlob = parse_expr(base_src);
@@ -9722,10 +9722,10 @@ fn row_rebind_frag(base_var: str, base_ty: str, base_src: str, idx: ExprBlob) ->
 // live whenever this arm is taken. It is passed rather than re-derived for the
 // same reason the accumulator type is passed to `emit_incremental`: two
 // derivations of one predicate is how two emitters come to disagree.
-fn group_binds_frag(idx: ExprBlob, aggs: &RAggArr, acount: i64, act: &Vec<str>,
-                    uda: &Vec<bool>, uda_fin: &Vec<bool>, uda_ret: &Vec<str>,
-                    key_ty: str, rep: bool, has_cnt: bool, agg_flt: &Vec<bool>,
-                    base_var: str, base_ty: str, base_src: str) -> ExprBlob {
+fn group_binds_frag(idx: ExprBlob, aggs: &RAggArr, acount: i64, act: &Vec<&str>,
+                    uda: &Vec<bool>, uda_fin: &Vec<bool>, uda_ret: &Vec<&str>,
+                    key_ty: &str, rep: bool, has_cnt: bool, agg_flt: &Vec<bool>,
+                    base_var: &str, base_ty: &str, base_src: &str) -> ExprBlob {
     let keyt_f: ExprBlob = parse_type(key_ty);
     let mut binds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut gi: i64 = 0i64;
@@ -9796,9 +9796,9 @@ fn group_binds_frag(idx: ExprBlob, aggs: &RAggArr, acount: i64, act: &Vec<str>,
 // to know (`Vec<i64>` / `Vec<f64>`, decided by `compute_agg_reprs`), and the
 // only thing that ever checked the two agreed was the HOST COMPILER, reporting
 // from a generated line. See `check_agg_operand`.
-fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &Writ,
+fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: &str, h: &Writ,
                       uda: &Vec<bool>, agg_flt: &Vec<bool>, agg_cast: &Vec<bool>,
-                      accw: &Vec<str>, agg_body: &mut Vec<String>) -> bool {
+                      accw: &Vec<&str>, agg_body: &mut Vec<String>) -> bool {
     let mut ai: i64 = 0i64;
     while ai < acount {
         let a: RAgg = aggs.agg_at(ai);
@@ -9873,7 +9873,7 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
             // is the reason `avg` answers correctly at widths `sum` refuses.
             // Wrapping it in `as i64` first would destroy exactly that.
             if !uda[ai] && !agg_cast[ai] {
-                let want: str = accw[ai];
+                let want: &str = accw[ai];
                 emit_norm_operand(&mut agg_body[ai], ae_opt, t, var0, want);
             } else {
                 emit_sexpr(&mut agg_body[ai], ae_opt, t, var0);
@@ -9891,7 +9891,7 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
 // (a local name or a Vec-cell read): `<name>_fin(<acc>)` when the triple
 // declares a finalizer, the bare accumulator otherwise — wrapped in the
 // widening cast when R is narrower than its lattice column type.
-fn uda_finalize_frag(name: str, acc: ExprBlob, has_fin: bool, cast_ty: str) -> ExprBlob {
+fn uda_finalize_frag(name: &str, acc: ExprBlob, has_fin: bool, cast_ty: &str) -> ExprBlob {
     let mut e: ExprBlob = acc;
     if has_fin {
         let s_fin: String = suffixed(name, "_fin");
@@ -9989,7 +9989,7 @@ fn uda_finalize_frag(name: str, acc: ExprBlob, has_fin: bool, cast_ty: str) -> E
 // the projection value as written — `rel_select_ok` has checked it reaches
 // the column.
 fn rel_row_value(out: &mut String, proj: SExpr, ri: i64, prm: &MacroParams, view: &OView,
-                 t: &ElTypes, var: str) {
+                 t: &ElTypes, var: &str) {
     let off: i64 = prm.rel_coff[ri];
     let nc: i64 = prm.rel_ccnt[ri];
     match proj {
@@ -10013,7 +10013,7 @@ fn rel_row_value(out: &mut String, proj: SExpr, ri: i64, prm: &MacroParams, view
     emit_proj_value(out, proj, t, var);
 }
 
-fn rel_comp_value(out: &mut String, e: SExpr, want: str, t: &ElTypes, var: str) {
+fn rel_comp_value(out: &mut String, e: SExpr, want: &str, t: &ElTypes, var: &str) {
     match e {
         SExpr::Lit(_) => { if lit_suffix(e).len() == 0i64 { emit_sexpr_as(out, e, t, var, want); return; } }
         SExpr::Un(u) => {
@@ -10034,7 +10034,7 @@ fn rel_comp_value(out: &mut String, e: SExpr, want: str, t: &ElTypes, var: str) 
     emit_proj_value(out, e, t, var);
 }
 
-fn rel_push_frag(row_ty: str, proj: ExprBlob) -> ExprBlob {
+fn rel_push_frag(row_ty: &str, proj: ExprBlob) -> ExprBlob {
     let rt: ExprBlob = parse_type(row_ty);
     return quote_block! {
         let __rv: #(rt) = (#(proj));
@@ -10060,10 +10060,10 @@ fn agg_key_ty(prm: &MacroParams, ri: i64) -> String {
     return k;
 }
 
-fn agg_val_ty(prm: &MacroParams, ri: i64) -> str { return prm.relc_ty[prm.rel_coff[ri] + agg_nk(prm, ri)]; }
+fn agg_val_ty(prm: &MacroParams, ri: i64) -> &str { return prm.relc_ty[prm.rel_coff[ri] + agg_nk(prm, ri)]; }
 
 /// The row a (key, value) pair is: `(k, v)`, or `(k.0, k.1, …, v)` for a tuple key.
-fn agg_row_text(prm: &MacroParams, ri: i64, k: str, v: str) -> String {
+fn agg_row_text(prm: &MacroParams, ri: i64, k: &str, v: &str) -> String {
     let nk: i64 = agg_nk(prm, ri);
     let mut r: String = String::new();
     r.push_str("(");
@@ -10084,7 +10084,7 @@ fn agg_row_text(prm: &MacroParams, ri: i64, k: str, v: str) -> String {
 /// tuple `key` (a select `(k0, …, v)` — its first `nk` items — or a group key
 /// `(k0, …)`), or the one expression when the key is one column.
 fn agg_key_text(out: &mut String, key: SExpr, prm: &MacroParams, ri: i64, view: &OView,
-                t: &ElTypes, var: str) {
+                t: &ElTypes, var: &str) {
     let off: i64 = prm.rel_coff[ri];
     let nk: i64 = agg_nk(prm, ri);
     match key {
@@ -10118,7 +10118,7 @@ fn agg_key_text(out: &mut String, key: SExpr, prm: &MacroParams, ri: i64, view: 
 // into `__out` (the round's improvement delta) — semi-naïve re-derivation.
 fn rel_push_agg_frag(ri: i64, prm: &MacroParams,
                      key: ExprBlob, val: ExprBlob) -> ExprBlob {
-    let rn:  str = prm.rel_names[ri];
+    let rn:  &str = prm.rel_names[ri];
     let off: i64 = prm.rel_coff[ri];
     let kts: String = agg_key_ty(prm, ri);
     let kty: ExprBlob = parse_type(string_as_str(&kts));
@@ -10152,7 +10152,7 @@ fn rel_push_agg_frag(ri: i64, prm: &MacroParams,
 // of an aggregate member is always `(key…, aggout)` (walker-validated against the
 // two declared columns), so component 0 is the group key and component 1 the
 // value the lattice folds. Returns false (error surfaced) if not a 2-tuple.
-fn split_agg_proj(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes, var0: str,
+fn split_agg_proj(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes, var0: &str,
                   key_out: &mut String, val_out: &mut String) -> bool {
     match proj {
         SExpr::Tuple(tp) => {
@@ -10187,7 +10187,7 @@ fn rel_body_simple_frag(cl: &CClause, ch: &DNest, ri: i64, b: i64,
     let view: OView = oview_module_ast();
     let mut ty: ElTypes = rule_env(prm, ri, b);
 
-    let mut vars: Vec<str> = str_vec(1i64);
+    let mut vars: Vec<&str> = str_vec(1i64);
     vars[0] = s.var_name;
 
     let proj_opt: SExpr = simplify_sexpr(s.select.view::<SExpr>(), h).any().view::<SExpr>();
@@ -10331,7 +10331,7 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
     let mut key_tn: String = String::new();
     key_tn.push_str(infer_ty_name(key_opt, &ty));
     let key_tys: String = group_key_ty(key_opt, &ty);
-    let key_ty: str = string_as_str(&key_tys);
+    let key_ty: &str = string_as_str(&key_tys);
     ty.set_ty_named("key", key_ty);
     let mut gt: GroupTy = group_ty_new();
     if !type_aggs(&view, &g.aggs, &mut ty, h, &mut gt) { return false; }
@@ -10419,7 +10419,7 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
         let s_ga: String = ga_name(a.out);
         let n_ga: Ident = Ident::new(string_as_str(&s_ga));
         let arg_f: ExprBlob = parse_expr(string_as_str(&agg_body[gd]));
-        let mut atn: str = "";
+        let mut atn: &str = "";
         if gt.uda[gd] {
             let uacc: ExprBlob = parse_type(gt.uda_acc[gd]);
             let uacc2: ExprBlob = parse_type(gt.uda_acc[gd]);
@@ -10432,7 +10432,7 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
             let n_step: Ident = Ident::new(string_as_str(&s_step));
             folds.push(quote_block! { #n_ga.set(__gi, #n_step(#n_ga.get(__gi), (#(arg_f)))); });
         } else {
-            let cell: str = if gt.flt[gd] { "f64" } else { gt.acc[gd] };
+            let cell: &str = if gt.flt[gd] { "f64" } else { gt.acc[gd] };
             let bacc_f:  ExprBlob = parse_type(cell);
             let bacc_f2: ExprBlob = parse_type(cell);
             acols.push(quote_block! { let mut #n_ga: Vec<#(bacc_f)> = Vec::<#(bacc_f2)>::new(); });
@@ -10542,7 +10542,7 @@ fn chain_body_frag(ch: &DNest, ri: i64, b: i64, prm: &MacroParams,
     // The whole-row-projection gate's var set. SCALAR-element traversal vars
     // (byval) are EXCLUDED: they bind a scalar VALUE (Vec<i64> → i64), which
     // is a legitimate select component — only struct/tuple ROWS are barred.
-    let mut vars: Vec<str> = str_vec(ch.n + 1i64);
+    let mut vars: Vec<&str> = str_vec(ch.n + 1i64);
     vars[0] = ch.base_var;
     let mut nv: i64 = 1i64;
     let mut vi: i64 = 0i64;
@@ -10715,7 +10715,7 @@ fn rule_env(prm: &MacroParams, ri: i64, b: i64) -> ElTypes {
     return el_types_clone(&prm.plan_tys.as_slice()[prm.plan_ty_off.get(ri) + b]);
 }
 
-fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
+fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<&str>,
                  prm: &MacroParams, out: &mut ExprBlob, h: &Writ, hx: &mut Hoist) -> bool {
     let ru: &CRule = rel_rule_of(prm, ri, b);
     match &ru.env.mode {
@@ -10730,7 +10730,7 @@ fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
 }
 
 // One rel body from a clause — the rule's, or a fixpoint variant's own (R7.3).
-fn rel_clause_frag(ri: i64, b: i64, cl: &CClause, ovr: &Vec<str>,
+fn rel_clause_frag(ri: i64, b: i64, cl: &CClause, ovr: &Vec<&str>,
                    prm: &MacroParams, out: &mut ExprBlob, h: &Writ, hx: &mut Hoist) -> bool {
     let mut ch: DNest = plan_nest(cl);
     jchain_rel_rename(&mut ch, ovr);
@@ -10752,7 +10752,7 @@ fn rel_clause_frag(ri: i64, b: i64, cl: &CClause, ovr: &Vec<str>,
 }
 
 // A rel body's chain for one emission: each slot takes its override, if any.
-fn jchain_rel_rename(ch: &mut DNest, ovr: &Vec<str>) {
+fn jchain_rel_rename(ch: &mut DNest, ovr: &Vec<&str>) {
     // The strategies are the rule's (decided once by the planner): a delta
     // variant renames a source, it does not re-decide how it is read.
     if ovr.len() > 0i64 && ovr.get(0i64).len() > 0i64 { ch.base_src = ovr.get(0i64); }
@@ -10783,10 +10783,10 @@ fn rule_where(cl: &CClause) -> WAny {
 // out Vec + shadow HashSet (O(1) dedup membership, see emit_rel_push; the raw
 // pointer rides alongside because HashSet's mutators take `*mut self`), then
 // every body's loop nest, dedup-pushing into the shared pair.
-fn emit_rel_fn_oneshot(ri: i64, fn_name: str,
-                       params_text: str, prm: &MacroParams, scc: &RelScc,
+fn emit_rel_fn_oneshot(ri: i64, fn_name: &str,
+                       params_text: &str, prm: &MacroParams, scc: &RelScc,
                        h: &Writ) -> bool {
-    let row_ty: str = string_as_str(&prm.rel_rowty[ri]);
+    let row_ty: &str = string_as_str(&prm.rel_rowty[ri]);
     // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
     // ⚠ The leading `-` is the PRIVATE marker `vis_is_priv` reads: a rel helper
     // is not part of the resource's surface, and the shell decides `fn` vs
@@ -10817,7 +10817,7 @@ fn emit_rel_fn_oneshot(ri: i64, fn_name: str,
     let mut b: i64 = 0i64;
     while b < nbod {
         let mut f: ExprBlob = quote_block! { };
-        if !rel_body_frag(ri, b, &Vec::<str>::new(), prm, &mut f, h, &mut hoist_off()) { return false; }
+        if !rel_body_frag(ri, b, &Vec::<&str>::new(), prm, &mut f, h, &mut hoist_off()) { return false; }
         runs.push(f);
         b = b + 1i64;
     }
@@ -11037,8 +11037,8 @@ fn variant_blocks(pl: &DScc, prm: &MacroParams, h: &Writ, out: &mut Vec<ExprBlob
 // PRESENCE bit; there is no multiplicity vector beside `__tot_<m>` to carry one,
 // which is what makes "weights may not flow into an SCC" structural rather than
 // disciplinary — counting derivations through a cycle diverges.
-fn emit_scc_fn(c: i64, fn_name: str,
-               params_text: str, prm: &MacroParams, scc: &RelScc,
+fn emit_scc_fn(c: i64, fn_name: &str,
+               params_text: &str, prm: &MacroParams, scc: &RelScc,
                incr: bool, pl: &DScc, h: &Writ) -> bool {
     // Members (declaration order) + the union out-of-SCC dep mask.
     let mut mem: Vec<i64> = Vec::<i64>::new();
@@ -11147,7 +11147,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
     let mut state: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m1: i64 = 0i64;
     while m1 < nm {
-        let rn: str = prm.rel_names[mem[m1]];
+        let rn: &str = prm.rel_names[mem[m1]];
         let rt: ExprBlob  = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
         let rt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
         let rt3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
@@ -11173,8 +11173,8 @@ fn emit_scc_fn(c: i64, fn_name: str,
         }
         if prm.rel_is_agg[mem[m1]] {
             let kts: String = agg_key_ty(prm, mem[m1]);
-            let kts_s: str = string_as_str(&kts);
-            let vts: str = agg_val_ty(prm, mem[m1]);
+            let kts_s: &str = string_as_str(&kts);
+            let vts: &str = agg_val_ty(prm, mem[m1]);
             let kty:  ExprBlob = parse_type(kts_s);
             let kty2: ExprBlob = parse_type(kts_s);
             let kty3: ExprBlob = parse_type(kts_s);
@@ -11247,7 +11247,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
         let mut b1: i64 = 0i64;
         while b1 < sel.len() {
             let mut f: ExprBlob = quote_block! { };
-            if !rel_body_frag(pm.rel, sel.get(b1), &Vec::<str>::new(), prm, &mut f, h, &mut hoist_off()) { return false; }
+            if !rel_body_frag(pm.rel, sel.get(b1), &Vec::<&str>::new(), prm, &mut f, h, &mut hoist_off()) { return false; }
             runs.push(f);
             b1 = b1 + 1i64;
         }
@@ -11263,7 +11263,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
         let mut r0: Vec<ExprBlob> = vec_new::<ExprBlob>();
         let mut mb: i64 = 0i64;
         while mb < nm {
-            let rnb: str = prm.rel_names[mem[mb]];
+            let rnb: &str = prm.rel_names[mem[mb]];
             if !prm.rel_is_agg[mem[mb]] {
                 let rtb: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[mb]]));
                 let n_ssb: Ident = Ident::new(string_as_str(&prm.rel_srcs[mem[mb]]));
@@ -11283,7 +11283,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
     let mut promote: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m3: i64 = 0i64;
     while m3 < nm {
-        let rn3: str = prm.rel_names[mem[m3]];
+        let rn3: &str = prm.rel_names[mem[m3]];
         let rt3:  ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
         let rt3b: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
         let s_dl: String = suffixed("__dl_", rn3);  let n_dl: Ident = Ident::new(string_as_str(&s_dl));
@@ -11319,7 +11319,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
             let rtd11: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
             let rtd12: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
             let rtd13: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-            let mut ovr: Vec<str> = Vec::<str>::new();
+            let mut ovr: Vec<&str> = Vec::<&str>::new();
             ovr.push("__rel__dom_a_sl"); ovr.push("__rel__dom_b_sl");
             let mut f1: ExprBlob = quote_block! { };
             if !rel_body_frag(mem[m3], dom, &ovr, prm, &mut f1, h, &mut hoist_off()) { return false; }
@@ -11414,7 +11414,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
     let mut mg: i64 = 0i64;
     while mg < nm {
         if prm.rel_is_agg[mem[mg]] {
-            let rng: str = prm.rel_names[mem[mg]];
+            let rng: &str = prm.rel_names[mem[mg]];
             let s_ro: String = suffixed("__rounds_", rng); let n_ro: Ident = Ident::new(string_as_str(&s_ro));
             let s_be: String = suffixed("__best_", rng);   let n_be: Ident = Ident::new(string_as_str(&s_be));
             // ⚠ The message names the rel, so it is a RUNTIME string literal —
@@ -11438,7 +11438,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
     let mut binds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m5: i64 = 0i64;
     while m5 < nm {
-        let rn5: str = prm.rel_names[mem[m5]];
+        let rn5: &str = prm.rel_names[mem[m5]];
         let rt5:  ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m5]]));
         let rt5b: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m5]]));
         let s_dl: String = suffixed("__dl_", rn5);  let n_dl: Ident = Ident::new(string_as_str(&s_dl));
@@ -11467,7 +11467,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
     let mut mt: i64 = 0i64;
     while mt < nm {
         if prm.rel_is_agg[mem[mt]] {
-            let rnt: str = prm.rel_names[mem[mt]];
+            let rnt: &str = prm.rel_names[mem[mt]];
             let ktst: String = agg_key_ty(prm, mem[mt]);
             let ktyt: ExprBlob = parse_type(string_as_str(&ktst));
             let vtyt: ExprBlob = parse_type(agg_val_ty(prm, mem[mt]));
@@ -11540,7 +11540,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
 // write the matching `}`. A fragment is a whole construct, so the block TAKES
 // its contents.
 fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlob {
-    let rn: str = prm.rel_names[ri];
+    let rn: &str = prm.rel_names[ri];
     let rt:  ExprBlob = parse_type(string_as_str(&prm.rel_rowty[ri]));
     let rt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[ri]));
     let s_nd: String = suffixed("__nd_", rn); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
@@ -11911,8 +11911,8 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 // Victor's open decision, and neither is in this slice; the entry-side refusal
 // (`incr_retract_eligible`) is what actually withholds the capability, and it
 // stands untouched.
-fn emit_scc_od_fns(c: i64, fn_name: str,
-                   params_text: str, prm: &MacroParams, scc: &RelScc,
+fn emit_scc_od_fns(c: i64, fn_name: &str,
+                   params_text: &str, prm: &MacroParams, scc: &RelScc,
                    pl: &DScc, h: &Writ) -> bool {
     let mut mem: Vec<i64> = Vec::<i64>::new();
     let mut nm: i64 = 0i64;
@@ -11963,7 +11963,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
     let mut state: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m1: i64 = 0i64;
     while m1 < nm {
-        let rn: str = prm.rel_names[mem[m1]];
+        let rn: &str = prm.rel_names[mem[m1]];
         let at1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
         let at2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
         let at3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
@@ -11990,7 +11990,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
     let mut binds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m2: i64 = 0i64;
     while m2 < nm {
-        let rnb: str = prm.rel_names[mem[m2]];
+        let rnb: &str = prm.rel_names[mem[m2]];
         let bt: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m2]]));
         let n_ss: Ident = Ident::new(string_as_str(&prm.rel_srcs[mem[m2]]));
         let s_rd: String = suffixed("__rd_", rnb); let n_rd: Ident = Ident::new(string_as_str(&s_rd));
@@ -12007,7 +12007,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
         let mut b1: i64 = 0i64;
         while b1 < pm.all.len() {
             let mut f: ExprBlob = quote_block! { };
-            if !rel_body_frag(pm.rel, pm.all.get(b1), &Vec::<str>::new(), prm, &mut f, h, &mut hoist_off()) { return false; }
+            if !rel_body_frag(pm.rel, pm.all.get(b1), &Vec::<&str>::new(), prm, &mut f, h, &mut hoist_off()) { return false; }
             rr.push(f);
             b1 = b1 + 1i64;
         }
@@ -12018,7 +12018,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
     let mut prom: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m4: i64 = 0i64;
     while m4 < nm {
-        let rnp: str = prm.rel_names[mem[m4]];
+        let rnp: &str = prm.rel_names[mem[m4]];
         let pt: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m4]]));
         let s_nd: String = suffixed("__nd_", rnp); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
         let s_od: String = suffixed("__od_", rnp); let n_od: Ident = Ident::new(string_as_str(&s_od));
@@ -12075,7 +12075,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
     let mut pstate: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m6: i64 = 0i64;
     while m6 < nm {
-        let rn6: str = prm.rel_names[mem[m6]];
+        let rn6: &str = prm.rel_names[mem[m6]];
         let ct1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
         let ct2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
         let ct3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
@@ -12129,7 +12129,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
     let mut pbinds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m8: i64 = 0i64;
     while m8 < nm {
-        let rn8: str = prm.rel_names[mem[m8]];
+        let rn8: &str = prm.rel_names[mem[m8]];
         let dt1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m8]]));
         let dt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m8]]));
         let n_ss: Ident = Ident::new(string_as_str(&prm.rel_srcs[mem[m8]]));
@@ -12151,7 +12151,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
     let mut pprom: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut ma: i64 = 0i64;
     while ma < nm {
-        let rna: str = prm.rel_names[mem[ma]];
+        let rna: &str = prm.rel_names[mem[ma]];
         let et1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[ma]]));
         let et2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[ma]]));
         let s_dl: String = suffixed("__dl_", rna); let n_dl: Ident = Ident::new(string_as_str(&s_dl));
@@ -12274,7 +12274,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
     let mut cchk: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut c2: i64 = 0i64;
     while c2 < nm {
-        let rnc: str = prm.rel_names[mem[c2]];
+        let rnc: &str = prm.rel_names[mem[c2]];
         let kt1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c2]]));
         let kt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c2]]));
         let kt3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c2]]));
@@ -12322,7 +12322,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
     let mut cdo: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut c3: i64 = 0i64;
     while c3 < nm {
-        let rnd: str = prm.rel_names[mem[c3]];
+        let rnd: &str = prm.rel_names[mem[c3]];
         let lt1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c3]]));
         let lt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c3]]));
         let s_os:  String = suffixed("__os_",   rnd); let n_os:  Ident = Ident::new(string_as_str(&s_os));
@@ -12439,7 +12439,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
 // validated columns/shapes/modifiers, resolved + REWRITTEN every body source,
 // and checked stratification. `fn_name` is the entry resource name — it
 // prefixes the helper names so multiple wql! resources per module coexist.
-pub fn emit_rel_fns(fn_name: str, params_text: str,
+pub fn emit_rel_fns(fn_name: &str, params_text: &str,
                     prm: &MacroParams, scc: &RelScc, plans: &Vec<DScc>, h: &Writ) -> bool {
     // ── the items are QUOTES (ADR 0024 S5) ────────────────────────────────
     // ⚠ THE ONE MULTI-ITEM EMITTER. The chunk held every rel fn at once; a

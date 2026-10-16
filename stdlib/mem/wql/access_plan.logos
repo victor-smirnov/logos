@@ -55,21 +55,21 @@ pub fn CARD_ONE() -> i32  { return 0i32; }
 pub fn CARD_PART() -> i32 { return 1i32; }
 pub fn CARD_ALL() -> i32  { return 2i32; }
 
-pub fn ap_card_name(c: i32) -> str {
+pub fn ap_card_name(c: i32) -> &str {
     if c == CARD_ONE()  { return "one key"; }
     if c == CARD_PART() { return "a range"; }
     return "every row";
 }
 
 /// The cardinality an operation answering `cmp` admits.
-pub fn ap_card_of_cmp(cmp: str) -> i32 {
+pub fn ap_card_of_cmp(cmp: &str) -> i32 {
     if str_eq(cmp, "eq") { return CARD_ONE(); }
     if str_eq(cmp, "ge") || str_eq(cmp, "le")
         || str_eq(cmp, "gt") || str_eq(cmp, "lt") { return CARD_PART(); }
     return CARD_ALL();
 }
 
-pub fn ap_kind_of_cmp(cmp: str) -> i32 {
+pub fn ap_kind_of_cmp(cmp: &str) -> i32 {
     if str_eq(cmp, "eq") { return ACC_POINT(); }
     if str_eq(cmp, "ge") || str_eq(cmp, "le")
         || str_eq(cmp, "gt") || str_eq(cmp, "lt") { return ACC_RANGE(); }
@@ -88,7 +88,7 @@ pub fn ap_kind_of_cmp(cmp: str) -> i32 {
 /// walk plus the query's own filter, which beats reading the whole container.
 /// The rows it does not have are the rows it must not claim: `ge` says nothing
 /// about `le`'s demand, and equality covers no bound at all.
-pub fn ap_covers(have: str, want: str) -> bool {
+pub fn ap_covers(have: &str, want: &str) -> bool {
     if str_eq(have, want) { return true; }
     if str_eq(want, "gt") { return str_eq(have, "ge"); }
     if str_eq(want, "lt") { return str_eq(have, "le"); }
@@ -176,7 +176,7 @@ pub fn MAT_RELLAND() -> i32 { return 4i32; }
 /// regexes parse it (`[a-z ]+`), and `plan_nodes_gate.sh`'s awk reads it. A
 /// head containing the substring `materializ` also moves the historical text
 /// count `T`, which is why neither R-G head does.
-pub fn mat_kind_name(k: i32) -> str {
+pub fn mat_kind_name(k: i32) -> &str {
     if k == MAT_SORT()    { return "sort"; }
     if k == MAT_ARRANGE() { return "arrange"; }
     if k == MAT_FPACC()   { return "fixpoint accumulator"; }
@@ -227,7 +227,7 @@ pub fn mat_kind_name(k: i32) -> str {
 /// emitter's own arm choice inside itself, which is the "an oracle that shares
 /// the ALGORITHM is not an oracle" shape, and would have left a class with two
 /// owners and therefore no refusal semantics for G4.
-pub fn push_land_name(out: &mut String, node: i32, rname: str) {
+pub fn push_land_name(out: &mut String, node: i32, rname: &str) {
     if node == MAT_DRAIN() { out.push_str("__rdb_"); }
     else if node == MAT_SORT() { out.push_str("__rsb_"); }
     else if node == MAT_FPACC() { out.push_str("__rfa_"); }
@@ -248,15 +248,15 @@ pub fn push_land_name(out: &mut String, node: i32, rname: str) {
 // regroups. Each keeps its own token, because a ground that gets rounded to the
 // nearest ADR string is a justification that has drifted from its mechanism —
 // which is the class this whole ADR exists to close.
-pub fn MG_SECOND_USE() -> str { return "drained: second use"; }
-pub fn MG_ORDER_BY() -> str   { return "order by"; }
-pub fn MG_REL_BLOCK() -> str  { return "rel block"; }
-pub fn MG_RESCAN() -> str     { return "rescanned: nested loop"; }
+pub fn MG_SECOND_USE() -> &str { return "drained: second use"; }
+pub fn MG_ORDER_BY() -> &str   { return "order by"; }
+pub fn MG_REL_BLOCK() -> &str  { return "rel block"; }
+pub fn MG_RESCAN() -> &str     { return "rescanned: nested loop"; }
 /// A `full join`'s step is read a SECOND time, for the rows nothing matched —
 /// two passes, not one per bound row, so not `MG_RESCAN`.
-pub fn MG_FULL_PASS() -> str  { return "second pass: full join"; }
-pub fn MG_UNDECIDED() -> str  { return "undecided: no join strategy"; }
-pub fn MG_REGROUP() -> str    { return "regrouped: aggregate"; }
+pub fn MG_FULL_PASS() -> &str  { return "second pass: full join"; }
+pub fn MG_UNDECIDED() -> &str  { return "undecided: no join strategy"; }
+pub fn MG_REGROUP() -> &str    { return "regrouped: aggregate"; }
 // ⚠ `MG_GPATH` ("lowered: graph path") WAS HERE AND IS DELETED (ADR 0025 §4,
 // S2h). It was carried in the census as DEBT — a published sentence no corpus
 // query reached — and the S2 rule was that the single-pass proof could not die
@@ -271,20 +271,20 @@ pub fn MG_REGROUP() -> str    { return "regrouped: aggregate"; }
 // UNWITNESSED set, and ADR 0025 §4's debt paragraph. No emitter, no trace line
 // and no artifact binding derived from it — corpus snapshot unchanged, 159 dumps
 // / 6,776,657 bytes, `diff -rq` empty.
-pub fn MG_JOIN_BUILD() -> str { return "join build side"; }
+pub fn MG_JOIN_BUILD() -> &str { return "join build side"; }
 /// The drain pass's own fallback: the walk never reached this rel at all — a
 /// source the entry query does not NAME, which the prelude materializes anyway —
 /// so no ground was recorded and no single read was proven. Its own token for the
 /// same reason `JS_NONE`
 /// has one — "no proof" is not "proof of a second use", and a node that
 /// borrowed the ADR's first ground here would claim a mechanism it never saw.
-pub fn MG_UNPROVEN() -> str   { return "unproven: no single-read proof"; }
+pub fn MG_UNPROVEN() -> &str   { return "unproven: no single-read proof"; }
 /// Not a ground for a node — the ground for the ABSENCE of one. A producer that
 /// returns a container hands back a `Buffer` already; the prelude's `Vec` binding
 /// is that value under a name, not a materialization the plan performed. ADR §4:
 /// this ground dies with the node layer, and it dies by being recorded as "no
 /// node" rather than by going quiet.
-pub fn MG_CONTAINER() -> str  { return "already a buffer"; }
+pub fn MG_CONTAINER() -> &str  { return "already a buffer"; }
 /// ADR 0025 R-G — THE GROUND FOR THE FIXPOINT ACCUMULATOR (`MAT_FPACC`).
 ///
 /// It is a ground for a NODE, not for an absence, and that is the correction:
@@ -296,13 +296,13 @@ pub fn MG_CONTAINER() -> str  { return "already a buffer"; }
 /// once out of a stream. That is why this is not `MG_SECOND_USE` and not
 /// `MG_RESCAN`: neither of those says the buffer's SIZE is not known when it is
 /// created.
-pub fn MG_FIXPOINT() -> str   { return "recursion: the fixpoint grows a total"; }
+pub fn MG_FIXPOINT() -> &str   { return "recursion: the fixpoint grows a total"; }
 /// THE GROUND FOR A REL THAT IS NOT EVALUATED (2026-10-04). No reader reaches
 /// the entry from it (`lower::live_rel_mask`), so `_run` neither calls its
 /// helper nor grows its fixpoint: no landing exists, and the plan says why
 /// rather than declaring the `MG_REL_RESULT` / `MG_FIXPOINT` landing a live rel
 /// would have. An absence ground, like `MG_CONTAINER`.
-pub fn MG_DEAD() -> str       { return "dead: no reader reaches the entry"; }
+pub fn MG_DEAD() -> &str       { return "dead: no reader reaches the entry"; }
 /// ADR 0025 R-G — THE GROUND FOR THE ONE-SHOT REL RESULT (`MAT_RELLAND`).
 ///
 /// The other 45 landings that carried `MG_CONTAINER`, and the case where the
@@ -324,7 +324,7 @@ pub fn MG_DEAD() -> str       { return "dead: no reader reaches the entry"; }
 /// counted twice, once inside the helper and once outside. That is a MOVE of
 /// one container across a call, not two allocations, and D2 is left saying what
 /// it says rather than adjusted to flatter the total.
-pub fn MG_REL_RESULT() -> str { return "rel fn: the helper returns the folded body"; }
+pub fn MG_REL_RESULT() -> &str { return "rel fn: the helper returns the folded body"; }
 /// ADR 0025 S3 — THE SECOND GROUND FOR THE ABSENCE OF A NODE, and the one this
 /// stage exists to make sayable. The query asked for `order by <c>`; the source
 /// declared that its rows already ARRIVE sorted by `<c>` (`order <rel> = <c>;`,
@@ -339,7 +339,7 @@ pub fn MG_REL_RESULT() -> str { return "rel fn: the helper returns the folded bo
 /// precedent (an absence recorded rather than gone quiet); this ground extends
 /// it from "nothing was built because the producer handed one over" to "nothing
 /// was built because the ORDER WAS ALREADY TRUE".
-pub fn MG_ORDERED_SOURCE() -> str { return "ordered source: order by is a no-op"; }
+pub fn MG_ORDERED_SOURCE() -> &str { return "ordered source: order by is a no-op"; }
 /// ADR 0025 S3-desc — THE SAME ABSENCE, REACHED THE OTHER WAY ROUND, and it
 /// gets its own ground rather than sharing the one above.
 ///
@@ -354,7 +354,7 @@ pub fn MG_ORDERED_SOURCE() -> str { return "ordered source: order by is a no-op"
 /// decision rests on differs too: this ground requires `Bidirectional` AND
 /// `RandomAccess` of the producer's type, where the ascending one requires
 /// neither.
-pub fn MG_ORDERED_SOURCE_REV() -> str { return "ordered source, reversed: order by desc is a backward walk"; }
+pub fn MG_ORDERED_SOURCE_REV() -> &str { return "ordered source, reversed: order by desc is a backward walk"; }
 
 // ── THE GROUP FRAME (ADR 0025 §8, S4-naming) ─────────────────────────────────
 //
@@ -394,7 +394,7 @@ pub fn MG_ORDERED_SOURCE_REV() -> str { return "ordered source, reversed: order 
 //
 // The four grounds are one per EMITTED COLUMN FAMILY, and each is separate
 // because each has a different consumer and a different life:
-pub fn AG_GROUPS() -> str   { return "group table: one row per distinct key"; }
+pub fn AG_GROUPS() -> &str   { return "group table: one row per distinct key"; }
 /// `__g_cnt` — and it is NOT folded into `AG_GROUPS` even though the design
 /// bracketed it there ("the group table `__g_key` (+ `__g_cnt` when live)"). A
 /// column present in 13 of 152 group tables cannot be counted by a census that
@@ -403,13 +403,13 @@ pub fn AG_GROUPS() -> str   { return "group table: one row per distinct key"; }
 /// reader, `avg`'s finalize denominator, and gated its declaration on that. A
 /// ground rounded to the nearest neighbouring ground is the drift this whole
 /// vocabulary exists to refuse.
-pub fn AG_COUNT() -> str    { return "group rows: avg's denominator"; }
-pub fn AG_ACCUM() -> str    { return "accumulated: one cell per group per aggregate"; }
+pub fn AG_COUNT() -> &str    { return "group rows: avg's denominator"; }
+pub fn AG_ACCUM() -> &str    { return "accumulated: one cell per group per aggregate"; }
 /// `__g_row`. THE CLASS PREDICATE'S GROUND (S4c): emitted only where a clause
 /// ABOVE the group — `select`, `having`, `order by` — names a SOURCE ROW, which
 /// is also the only class whose base the plan still drains for the reason
 /// `MG_REGROUP` gives. Its absence is what a single-pass fold IS.
-pub fn AG_REP_ROW() -> str  { return "re-bound: the projection names a source row"; }
+pub fn AG_REP_ROW() -> &str  { return "re-bound: the projection names a source row"; }
 
 // ── The plan ──────────────────────────────────────────────────────────────
 // One record per rel, indexed by the rel registry's index so the applier and
@@ -623,7 +623,7 @@ impl AccessPlan {
         return self.nd_kind[ix];
     }
 
-    fn push_node(self: &mut AccessPlan, kind: i32, ri: i64, gnd: str, why: str) {
+    fn push_node(self: &mut AccessPlan, kind: i32, ri: i64, gnd: &str, why: &str) {
         self.nd_kind.push(kind);
         self.nd_rel.push(ri);
         self.nd_gnd.push(String::from_str(gnd));
@@ -677,7 +677,7 @@ pub fn ap_offers(ap: &AccessPlan, prm: &MacroParams, ri: i64) -> bool {
 /// materialization twice and would spend the node list's capacity on repeats,
 /// so a re-drain REWRITES the rel's prelude node in place. The prelude builds
 /// one buffer per rel; the node list says one thing about it.
-pub fn ap_drain(ap: &mut AccessPlan, prm: &MacroParams, ri: i64, gnd: str, why: str) {
+pub fn ap_drain(ap: &mut AccessPlan, prm: &MacroParams, ri: i64, gnd: &str, why: &str) {
     if ri < 0i64 || ri >= ap.n { return; }
     if !ap_offers(ap, prm, ri) { return; }
     let k: i32 = if str_eq(gnd, MG_ORDER_BY()) { MAT_SORT() } else { MAT_DRAIN() };
@@ -712,7 +712,7 @@ pub fn ap_drain(ap: &mut AccessPlan, prm: &MacroParams, ri: i64, gnd: str, why: 
 /// only from `MG_CONTAINER` rels (which own no node by construction — `ap_drain`
 /// refused them), so the guard is unreachable today and is written for the
 /// direction in which it would be wrong rather than for the one it is in.
-pub fn ap_land(ap: &mut AccessPlan, ri: i64, k: i32, gnd: str, why: str) {
+pub fn ap_land(ap: &mut AccessPlan, ri: i64, k: i32, gnd: &str, why: &str) {
     if ri < 0i64 || ri >= ap.n { return; }
     if ap.prelude_ix(ri) >= 0i64 { return; }
     ap.push_node(k, ri, gnd, why);
@@ -809,8 +809,8 @@ pub fn access_plan_ask_size(ap: &mut AccessPlan, prm: &MacroParams) {
 
 impl AccessPlan {
     /// Record the chosen operation for rel `ri`.
-    pub fn choose(self: &mut AccessPlan, ri: i64, oi: i64, fnm: str, arg: str,
-                  col: str, cmp: str, op_cmp: str, exact: bool, g: &AccessGround) {
+    pub fn choose(self: &mut AccessPlan, ri: i64, oi: i64, fnm: &str, arg: &str,
+                  col: &str, cmp: &str, op_cmp: &str, exact: bool, g: &AccessGround) {
         if ri < 0i64 || ri >= self.n { return; }
         self.op[ri]    = oi;
         self.fnm[ri] = String::from_str(fnm);
@@ -857,7 +857,7 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
         let mg: AccessGround = ag_unpack(ap.mground[ri]);
         if mg.rule != MR_UNSET() {
             let nxw: i64 = ap.prelude_ix(ri);
-            let nodew: str = if nxw >= 0i64 { string_as_str(&ap.nd_why[nxw]) } else { "" };
+            let nodew: &str = if nxw >= 0i64 { string_as_str(&ap.nd_why[nxw]) } else { "" };
             plan_trace(prm.rel_names[ri],
                        if ap.stream[ri] { "stream" } else { "materialize" },
                        "", mr_render(mg.rule, nodew));
@@ -904,8 +904,8 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
             // have read as "the query had no `order by`" — a plan that elides a
             // phase and then describes itself as a plan that never had one is
             // exactly the justification-drifted-from-mechanism class.
-            let mut gnd0: str = "";
-            let mut why0: str = "no node: the plan reads this source once and consumes it where it stands";
+            let mut gnd0: &str = "";
+            let mut why0: &str = "no node: the plan reads this source once and consumes it where it stands";
             if str_eq(string_as_str(&ap.mgnd[ri]), MG_CONTAINER()) {
                 gnd0 = MG_CONTAINER();
                 why0 = "no node: the producer hands back a container, which IS a buffer — nothing is built";

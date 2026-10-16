@@ -38,9 +38,9 @@ pub fn core_desugar_eqrel(p: &mut CProgram, h: &Writ) {
     let mut r: i64 = 0i64;
     while r < p.rels.len() {
         if p.rels[r].eqrel {
-            let nm: str = p.rels.as_slice()[r].name;
-            let ca: str = p.rels.as_slice()[r].cols.as_slice()[0].name;
-            let cb: str = p.rels.as_slice()[r].cols.as_slice()[1].name;
+            let nm: &str = p.rels.as_slice()[r].name;
+            let ca: &str = p.rels.as_slice()[r].cols.as_slice()[0].name;
+            let cb: &str = p.rels.as_slice()[r].cols.as_slice()[1].name;
             let mut sym: Vec<CLit> = Vec::<CLit>::new();
             sym.push(fresh_atom(CSrc::Rel(r), nm, "__eq_x"));
             p.rels[r].rules.push(gp_rule(gp_tuple2(h, gp_field(h, "__eq_x", cb), gp_field(h, "__eq_x", ca)), sym));
@@ -69,8 +69,8 @@ pub fn core_desugar_eqrel(p: &mut CProgram, h: &Writ) {
 /// dominates (two rows that dominate each other both go).
 pub fn subsume_rule(p: &CProgram, r: i64, src: i64, neg: bool, h: &Writ) -> CRule {
     let rel: &CRel = &p.rels.as_slice()[r];
-    let sn: str = p.rels.as_slice()[src].name;
-    let (a, b, pred): (str, str, WAny) = match &rel.sub {
+    let sn: &str = p.rels.as_slice()[src].name;
+    let (a, b, pred): (&str, &str, WAny) = match &rel.sub {
         Option::Some(s) => { (s.a, s.b, s.pred) }
         Option::None => { ("", "", WAny::null()) }
     };
@@ -111,7 +111,7 @@ pub fn subsume_rule(p: &CProgram, r: i64, src: i64, neg: bool, h: &Writ) -> CRul
 /// the `where` the user wrote.
 pub fn subsume_scope_rule(p: &CProgram, r: i64, h: &Writ) -> CRule {
     let rel: &CRel = &p.rels.as_slice()[r];
-    let (a, b, pred): (str, str, WAny) = match &rel.sub {
+    let (a, b, pred): (&str, &str, WAny) = match &rel.sub {
         Option::Some(s) => { (s.a, s.b, s.pred) }
         Option::None => { ("", "", WAny::null()) }
     };
@@ -392,7 +392,7 @@ pub fn ms_decisions_new() -> MsDecisions {
 }
 
 // root.fld as SField(SField(null, root), fld) — the surface spelling's IR.
-pub fn gp_field(h: &Writ, root: str, fld: str) -> WRef<SExpr> {
+pub fn gp_field(h: &Writ, root: &str, fld: &str) -> WRef<SExpr> {
     let b: SField = h.make::<SField>();
     b.base = WRef::<SExpr>::from_any(WAny::null());
     b.name = root;
@@ -451,7 +451,7 @@ pub fn ms_col_ref(e: SExpr) -> MsCol {
 // bare name that is one of the deem's SCALAR parameters? A bare name the
 // entry may also resolve (a module constant: Canon's `OP_SCAN`) does not
 // qualify — a rel body would refuse it in the seed.
-pub fn ms_is_const(e: SExpr, var: str, prm: &MacroParams) -> bool {
+pub fn ms_is_const(e: SExpr, var: &str, prm: &MacroParams) -> bool {
     match e {
         SExpr::Lit(l) => { return !l.val.is_null(); }
         SExpr::Param(_p) => { return true; }
@@ -463,7 +463,7 @@ pub fn ms_is_const(e: SExpr, var: str, prm: &MacroParams) -> bool {
     }
 }
 
-pub fn ms_note(d: &mut MsDecisions, rel: str, col: str, rule: i32) {
+pub fn ms_note(d: &mut MsDecisions, rel: &str, col: &str, rule: i32) {
     d.rel.push(String::from_str(rel)); d.col.push(String::from_str(col)); d.rule.push(rule);
     d.n = d.n + 1i64;
 }
@@ -483,7 +483,7 @@ pub fn mt_split(w: WRef<SExpr>, out: &mut Vec<i64>) {
 pub fn mt_sref(w: i64) -> WRef<SExpr> { return WRef::<SExpr>::from_any(unsafe { WAny::ref_to(w as *const u8) }); }
 
 // The atom whose row var is `v` (−1 = none).
-pub fn mt_atom_of(atoms: &Vec<MtAtom>, v: str) -> i64 {
+pub fn mt_atom_of(atoms: &Vec<MtAtom>, v: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < atoms.len() { if str_eq(atoms[i].var, v) { return i; } i = i + 1i64; }
     return -1i64;
@@ -530,8 +530,8 @@ pub fn mt_reads_only(e: SExpr, atoms: &Vec<MtAtom>, inc: &Vec<bool>) -> bool {
 // How column `col` of the atom bound to `var` is known at this point of the
 // clause (kind 0 = not bound). `hv`/`hf`/`hi` are the head's bound columns
 // that are plain columns of the body (`hv.hf` is the head's column hi).
-pub fn mt_bind(var: str, col: str, conj: &Vec<i64>, atoms: &Vec<MtAtom>, inc: &Vec<bool>,
-           hv: &Vec<str>, hf: &Vec<str>, hi: &Vec<i64>, prm: &MacroParams) -> MtBind {
+pub fn mt_bind(var: &str, col: &str, conj: &Vec<i64>, atoms: &Vec<MtAtom>, inc: &Vec<bool>,
+           hv: &Vec<&str>, hf: &Vec<&str>, hi: &Vec<i64>, prm: &MacroParams) -> MtBind {
     let mut h: i64 = 0i64;
     while h < hv.len() {
         if str_eq(hv[h], var) && str_eq(hf[h], col) { return MtBind { kind: 3i32, e: 0i64, hi: hi[h] }; }
@@ -593,7 +593,7 @@ pub fn mt_select(h: &Writ, items: Vec<i64>) -> WRef<SExpr> {
 }
 
 // A head column as an expression of the body: `v.f`, or the bare `v` (f = "").
-pub fn mt_head_ref(h: &Writ, v: str, f: str) -> WRef<SExpr> {
+pub fn mt_head_ref(h: &Writ, v: &str, f: &str) -> WRef<SExpr> {
     if f.len() > 0i64 { return gp_field(h, v, f); }
     let b: SField = h.make::<SField>();
     b.base = WRef::<SExpr>::from_any(WAny::null());
@@ -605,9 +605,9 @@ pub fn mt_head_ref(h: &Writ, v: str, f: str) -> WRef<SExpr> {
 // native source or a slice parameter binds like a rel): the head's bound
 // columns it holds, and each distinct field a conjunct equates to a value
 // known here.
-pub fn mt_bound_count(var: str, conj: &Vec<i64>, atoms: &Vec<MtAtom>, inc: &Vec<bool>,
-                  hv: &Vec<str>, hf: &Vec<str>, hi: &Vec<i64>, prm: &MacroParams) -> i64 {
-    let mut flds: Vec<str> = Vec::<str>::new();
+pub fn mt_bound_count(var: &str, conj: &Vec<i64>, atoms: &Vec<MtAtom>, inc: &Vec<bool>,
+                  hv: &Vec<&str>, hf: &Vec<&str>, hi: &Vec<i64>, prm: &MacroParams) -> i64 {
+    let mut flds: Vec<&str> = Vec::<&str>::new();
     let mut h: i64 = 0i64;
     while h < hv.len() { if str_eq(hv[h], var) { mt_add_fld(&mut flds, hf[h]); } h = h + 1i64; }
     let mut i: i64 = 0i64;
@@ -628,7 +628,7 @@ pub fn mt_bound_count(var: str, conj: &Vec<i64>, atoms: &Vec<MtAtom>, inc: &Vec<
     return flds.len();
 }
 
-pub fn mt_add_fld(flds: &mut Vec<str>, f: str) {
+pub fn mt_add_fld(flds: &mut Vec<&str>, f: &str) {
     let mut i: i64 = 0i64;
     while i < flds.len() { if str_eq(flds[i], f) { return; } i = i + 1i64; }
     flds.push(f);
@@ -693,9 +693,9 @@ struct CmCtx {
 // A view of a String's bytes that does not borrow it: the Strings these name
 // end in the program's string store (`CProgram.strs`), which outlives them.
 fn sv<'b>(s: &String) -> &'b str { return unsafe { str_from_raw(s.as_ptr(), s.len()) }; }
-fn dv<'b>(s: str) -> &'b str { return unsafe { str_from_raw(s.as_ptr(), s.len()) }; }
+fn dv<'b>(s: &str) -> &'b str { return unsafe { str_from_raw(s.as_ptr(), s.len()) }; }
 
-fn rel_by_name(p: &CProgram, nm: str) -> i64 {
+fn rel_by_name(p: &CProgram, nm: &str) -> i64 {
     let rs: &[CRel] = p.rels.as_slice();
     let mut i: i64 = 0i64;
     while i < p.rels.len() { if str_eq(rs[i].name, nm) { return i; } i = i + 1i64; }
@@ -808,7 +808,7 @@ fn cm_rel_verdict(p: &CProgram, ri: i64) -> i32 {
 }
 
 fn cm_head(head: WAny, cols: Vec<i64>, ncols: i64) -> MtHead {
-    let mut hd: MtHead = MtHead { hv: Vec::<str>::new(), hf: Vec::<str>::new(), hi: Vec::<i64>::new() };
+    let mut hd: MtHead = MtHead { hv: Vec::<&str>::new(), hf: Vec::<&str>::new(), hi: Vec::<i64>::new() };
     let sel: WRef<SExpr> = WRef::<SExpr>::from_any(head);
     let mut k: i64 = 0i64;
     while k < cols.len() {
@@ -829,7 +829,7 @@ fn cm_head(head: WAny, cols: Vec<i64>, ncols: i64) -> MtHead {
 pub struct MtHead { pub hv: Vec<str>, pub hf: Vec<str>, pub hi: Vec<i64> }
 pub struct MtPlan { pub order: Vec<i64>, pub sri: Vec<i64>, pub cols: Vec<Vec<i64>>, pub binds: Vec<Vec<MtBind>> }
 
-fn cm_sips(p: &CProgram, atoms: &Vec<MtAtom>, conj: &Vec<i64>, hv: &Vec<str>, hf: &Vec<str>, hi: &Vec<i64>,
+fn cm_sips(p: &CProgram, atoms: &Vec<MtAtom>, conj: &Vec<i64>, hv: &Vec<&str>, hf: &Vec<&str>, hi: &Vec<i64>,
            nrel0: i64, prm: &MacroParams) -> MtPlan {
     let mut pl: MtPlan = MtPlan { order: Vec::<i64>::new(), sri: Vec::<i64>::new(),
                                   cols: Vec::<Vec<i64>>::new(), binds: Vec::<Vec<MtBind>>::new() };
@@ -880,7 +880,7 @@ fn cm_sips(p: &CProgram, atoms: &Vec<MtAtom>, conj: &Vec<i64>, hv: &Vec<str>, hf
     return pl;
 }
 
-fn fresh_atom(src: CSrc, name: str, var: str) -> CLit {
+fn fresh_atom(src: CSrc, name: &str, var: &str) -> CLit {
     return CLit::Atom(CAtom { src: src, reg: -1i64, name: name, var: var, row_ty: "", neg: false, outer: 0i32,
                               conds: Vec::<WAny>::new(), strat: 0i32, jsel: -1i32, ground: 0i64 });
 }
@@ -888,9 +888,9 @@ fn fresh_atom(src: CSrc, name: str, var: str) -> CLit {
 fn on_cond(e: WRef<SExpr>) -> CLit { return CLit::Cond(CCond { e: e.any(), site: CSite::On }); }
 
 // The magic rule for an occurrence whose SIPS visit came after `order[0..upto)`.
-fn cm_magic_body(cl: &CClause, names: &Vec<str>, lit: &Vec<i64>, atoms: &Vec<MtAtom>, order: &Vec<i64>, upto: i64,
-                 inc: &Vec<bool>, conj: &Vec<i64>, binds: &Vec<MtBind>, hmrel: str,
-                 hv: &Vec<str>, hf: &Vec<str>, hi: &Vec<i64>, h: &Writ) -> CRule {
+fn cm_magic_body(cl: &CClause, names: &Vec<&str>, lit: &Vec<i64>, atoms: &Vec<MtAtom>, order: &Vec<i64>, upto: i64,
+                 inc: &Vec<bool>, conj: &Vec<i64>, binds: &Vec<MtBind>, hmrel: &str,
+                 hv: &Vec<&str>, hf: &Vec<&str>, hi: &Vec<i64>, h: &Writ) -> CRule {
     let mut link: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::null());
     let mut k: i64 = 0i64;
     while k < hv.len() {
@@ -960,7 +960,7 @@ fn cm_magic_body(cl: &CClause, names: &Vec<str>, lit: &Vec<i64>, atoms: &Vec<MtA
         if atoms[ai].edge {
             match &bs[lit[ai]] {
                 CLit::Trav(tv) => {
-                    let mut path: Vec<str> = Vec::<str>::new();
+                    let mut path: Vec<&str> = Vec::<&str>::new();
                     let mut pk: i64 = 0i64;
                     while pk < tv.path.len() { path.push(dv(tv.path.get(pk))); pk = pk + 1i64; }
                     body.push(CLit::Trav(CTrav { name: dv(tv.name), base: dv(tv.base), path: path, var: dv(tv.var), row_ty: "",
@@ -988,7 +988,7 @@ fn cm_magic_body(cl: &CClause, names: &Vec<str>, lit: &Vec<i64>, atoms: &Vec<MtA
     return CRule { clause: CClause { head: sel.any(), body: body, group: Option::None, gpath: Option::None }, env: envelope_new() };
 }
 
-fn cm_get(ctx: &mut CmCtx, rname: str, ri: i64, cols: &Vec<i64>) -> i64 {
+fn cm_get(ctx: &mut CmCtx, rname: &str, ri: i64, cols: &Vec<i64>) -> i64 {
     let mut key: String = String::new();
     key.push_str(rname); key.push_str("/");
     let mut i0: i64 = 0i64;
@@ -1020,11 +1020,11 @@ fn cm_get(ctx: &mut CmCtx, rname: str, ri: i64, cols: &Vec<i64>) -> i64 {
 
 // Adorn one clause: `names` (one per atom) receives the renames, which the
 // caller writes onto the clause. `hk` is the head's adornment (−1 = the entry).
-fn cm_clause(p: &CProgram, ru: &CRule, names: &mut Vec<str>, lit: &Vec<i64>, atoms: &Vec<MtAtom>,
+fn cm_clause(p: &CProgram, ru: &CRule, names: &mut Vec<&str>, lit: &Vec<i64>, atoms: &Vec<MtAtom>,
              hk: i64, nrel0: i64, ctx: &mut CmCtx, prm: &MacroParams, h: &Writ, out: &mut MsDecisions) {
     let conj: Vec<i64> = cm_conjuncts(ru);
-    let mut hd: MtHead = MtHead { hv: Vec::<str>::new(), hf: Vec::<str>::new(), hi: Vec::<i64>::new() };
-    let mut hmrel: str = "";
+    let mut hd: MtHead = MtHead { hv: Vec::<&str>::new(), hf: Vec::<&str>::new(), hi: Vec::<i64>::new() };
+    let mut hmrel: &str = "";
     if hk >= 0i64 {
         let ncols: i64 = p.rels.as_slice()[ctx.src[hk]].cols.len();
         let mut hc: Vec<i64> = Vec::<i64>::new();
@@ -1144,7 +1144,7 @@ fn clause_copy(cl: &CClause) -> CClause {
                 let mut cs2: Vec<WAny> = Vec::<WAny>::new();
                 let mut k2: i64 = 0i64;
                 while k2 < t.conds.len() { cs2.push(t.conds.get(k2)); k2 = k2 + 1i64; }
-                let mut path: Vec<str> = Vec::<str>::new();
+                let mut path: Vec<&str> = Vec::<&str>::new();
                 let mut k3: i64 = 0i64;
                 while k3 < t.path.len() { path.push(dv(t.path.get(k3))); k3 = k3 + 1i64; }
                 body.push(CLit::Trav(CTrav { name: dv(t.name), base: dv(t.base), path: path, var: dv(t.var), row_ty: dv(t.row_ty),
@@ -1161,7 +1161,7 @@ fn clause_copy(cl: &CClause) -> CClause {
 }
 
 // Write `names` (one per atom, `lit` its literal) onto a clause's atoms.
-fn apply_names(cl: &mut CClause, names: &Vec<str>, lit: &Vec<i64>) {
+fn apply_names(cl: &mut CClause, names: &Vec<&str>, lit: &Vec<i64>) {
     let mut k: i64 = 0i64;
     while k < names.len() {
         match &mut cl.body[lit[k]] {
@@ -1175,7 +1175,7 @@ fn apply_names(cl: &mut CClause, names: &Vec<str>, lit: &Vec<i64>) {
 
 // Restrict an adorned body to its magic rel: `join __m_R_β __mm on
 // __mm.c<k> == <head column k's select item>`, before the clause's `where`.
-fn cm_restrict(cl: &mut CClause, cols: &Vec<i64>, ncols: i64, mrel: str, h: &Writ) {
+fn cm_restrict(cl: &mut CClause, cols: &Vec<i64>, ncols: i64, mrel: &str, h: &Writ) {
     let sel: WRef<SExpr> = WRef::<SExpr>::from_any(cl.head);
     let mut on: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::null());
     let mut k: i64 = 0i64;
@@ -1232,7 +1232,7 @@ pub fn core_magic(pc: &mut CProgram, h: &Writ, prm: &MacroParams, out: &mut MsDe
     }
     let mut elit: Vec<i64> = Vec::<i64>::new();
     let eatoms: Vec<MtAtom> = cm_atoms(&rp.entry.clause, &mut elit);
-    let mut enames: Vec<str> = Vec::<str>::new();
+    let mut enames: Vec<&str> = Vec::<&str>::new();
     let mut z: i64 = 0i64;
     while z < eatoms.len() { enames.push(dv(eatoms[z].src)); z = z + 1i64; }
     cm_clause(rp, &rp.entry, &mut enames, &elit, &eatoms, -1i64, nrel0, &mut ctx, prm, h, out);
@@ -1249,7 +1249,7 @@ pub fn core_magic(pc: &mut CProgram, h: &Writ, prm: &MacroParams, out: &mut MsDe
             let mut cp: CRule = CRule { clause: clause_copy(&orel.rules.as_slice()[b].clause), env: envelope_new() };
             let mut lit: Vec<i64> = Vec::<i64>::new();
             let atoms: Vec<MtAtom> = cm_atoms(&cp.clause, &mut lit);
-            let mut names: Vec<str> = Vec::<str>::new();
+            let mut names: Vec<&str> = Vec::<&str>::new();
             let mut z2: i64 = 0i64;
             while z2 < atoms.len() { names.push(dv(atoms[z2].src)); z2 = z2 + 1i64; }
             cm_clause(rp, &cp, &mut names, &lit, &atoms, w, nrel0, &mut ctx, prm, h, out);
@@ -1320,7 +1320,7 @@ pub fn core_magic(pc: &mut CProgram, h: &Writ, prm: &MacroParams, out: &mut MsDe
 // — Soufflé's MST for `reach^bf`: one magic rule per site, its sideways
 // information the path prefix to its left.
 
-fn gp_var(i: i64) -> str {
+fn gp_var(i: i64) -> &str {
     if i == 0i64 { return "__g0"; }
     if i == 1i64 { return "__g1"; }
     if i == 2i64 { return "__g2"; }
@@ -1331,7 +1331,7 @@ fn gp_var(i: i64) -> str {
     return "__g7";
 }
 
-fn gp_rvar(i: i64) -> str {
+fn gp_rvar(i: i64) -> &str {
     if i == 0i64 { return "__r0"; }
     if i == 1i64 { return "__r1"; }
     if i == 2i64 { return "__r2"; }
@@ -1352,7 +1352,7 @@ fn gp_tuple2(h: &Writ, e1: WRef<SExpr>, e2: WRef<SExpr>) -> WRef<SExpr> {
     return WRef::<SExpr>::from_any(t.as_ref());
 }
 
-fn gp_str_lit(h: &Writ, v: str) -> WRef<SExpr> {
+fn gp_str_lit(h: &Writ, v: &str) -> WRef<SExpr> {
     let n: SLit = h.make::<SLit>();
     n.val = WAny::from(h.wstring(v));
     return WRef::<SExpr>::from_any(n.as_ref());
@@ -1360,7 +1360,7 @@ fn gp_str_lit(h: &Writ, v: str) -> WRef<SExpr> {
 
 struct GpC { ok: bool, extra: WRef<SExpr>, last: String, err: String }
 
-fn gpc_fail(msg: str) -> GpC {
+fn gpc_fail(msg: &str) -> GpC {
     return GpC { ok: false, extra: WRef::<SExpr>::from_any(WAny::null()), last: String::new(), err: String::from_str(msg) };
 }
 
@@ -1368,27 +1368,27 @@ fn gpc_fail(msg: str) -> GpC {
 // `chain` — the steps the current build emits.
 struct GpInj { rels: Vec<CRel>, strs: Vec<String>, chain: Vec<CLit> }
 
-fn gp_inj_find(inj: &GpInj, nm: str) -> i64 {
+fn gp_inj_find(inj: &GpInj, nm: &str) -> i64 {
     let rs: &[CRel] = inj.rels.as_slice();
     let mut i: i64 = 0i64;
     while i < inj.rels.len() { if str_eq(rs[i].name, nm) { return i; } i = i + 1i64; }
     return -1i64;
 }
 
-fn i64_col(nm: str) -> CCol { return CCol { name: nm, ty: "i64" }; }
+fn i64_col(nm: &str) -> CCol { return CCol { name: nm, ty: "i64" }; }
 
 fn gp_rule(head: WRef<SExpr>, body: Vec<CLit>) -> CRule {
     return CRule { clause: CClause { head: head.any(), body: body, group: Option::None, gpath: Option::None }, env: envelope_new() };
 }
 
 // One step of a chain: the atom and its `on`.
-fn gp_step(out: &mut Vec<CLit>, src: str, var: str, on: WRef<SExpr>) {
+fn gp_step(out: &mut Vec<CLit>, src: &str, var: &str, on: WRef<SExpr>) {
     out.push(fresh_atom(CSrc::Param(src), src, var));
     out.push(on_cond(on));
 }
 
 // Add one seed rule to `__mreach_<src>`, injecting the rel on first use.
-fn gp_magic_seed(inj: &mut GpInj, src: str, body: CRule) {
+fn gp_magic_seed(inj: &mut GpInj, src: &str, body: CRule) {
     let mut nm: String = String::new();
     nm.push_str("__mreach_");
     nm.push_str(src);
@@ -1404,7 +1404,7 @@ fn gp_magic_seed(inj: &mut GpInj, src: str, body: CRule) {
 
 // The seed rule of one `**` site: the path prefix, projecting the node the
 // `**` stands on.
-fn gp_seed_body(src: str, h: &Writ, steps: Vec<CLit>, extra: WRef<SExpr>, prev: str) -> CRule {
+fn gp_seed_body(src: &str, h: &Writ, steps: Vec<CLit>, extra: WRef<SExpr>, prev: &str) -> CRule {
     let mut body: Vec<CLit> = Vec::<CLit>::new();
     body.push(fresh_atom(CSrc::Param(src), src, "__ga"));
     let mut st: Vec<CLit> = steps;
@@ -1414,7 +1414,7 @@ fn gp_seed_body(src: str, h: &Writ, steps: Vec<CLit>, extra: WRef<SExpr>, prev: 
 }
 
 // The reach rel for `src`, injected on first use. Returns its name.
-fn gp_reach_rel<'b>(inj: &mut GpInj, src: str, h: &Writ) -> &'b str {
+fn gp_reach_rel<'b>(inj: &mut GpInj, src: &str, h: &Writ) -> &'b str {
     let mut nm: String = String::new();
     nm.push_str("__reach_");
     nm.push_str(src);
@@ -1423,8 +1423,8 @@ fn gp_reach_rel<'b>(inj: &mut GpInj, src: str, h: &Writ) -> &'b str {
     let mut mn: String = String::new();
     mn.push_str("__mreach_");
     mn.push_str(src);
-    let rname: str = sv(&nm);
-    let mname: str = sv(&mn);
+    let rname: &str = sv(&nm);
+    let mname: &str = sv(&mn);
     let mut cols: Vec<CCol> = Vec::<CCol>::new();
     cols.push(i64_col("a"));
     cols.push(i64_col("b"));
@@ -1445,12 +1445,12 @@ fn gp_reach_rel<'b>(inj: &mut GpInj, src: str, h: &Writ) -> &'b str {
 // The chain of one graph path into `out` and its residual predicate. `stop`
 // >= 0 builds only the PREFIX [0, stop) — a `**` site's seed body; the
 // prefix's own `**` hops join reach without seeding it again.
-fn gp_build(src: str, gp: &Vec<CPathStep>, h: &Writ, inj: &mut GpInj, stop: i64) -> GpC {
+fn gp_build(src: &str, gp: &Vec<CPathStep>, h: &Writ, inj: &mut GpInj, stop: i64) -> GpC {
     let n: i64 = if stop >= 0i64 { stop } else { gp.len() };
     if gp.len() < 1i64 { return gpc_fail("wql!: a graph path needs at least one step"); }
     let mut extra: WRef<SExpr> = gp_bin(h, OP_EQ(), gp_field(h, "__ga", "parent"), make_int_lit(h, WG_ROOT_PARENT));
-    let mut prev: str = "__ga";
-    let mut hop: str = "";
+    let mut prev: &str = "__ga";
+    let mut hop: &str = "";
     let mut last_user: bool = false;
     let mut si: i64 = 0i64;
     let mut i: i64 = 0i64;
@@ -1479,12 +1479,12 @@ fn gp_build(src: str, gp: &Vec<CPathStep>, h: &Writ, inj: &mut GpInj, stop: i64)
                 if !pr.ok { return pr; }
                 gp_magic_seed(inj, src, gp_seed_body(src, h, pa, pr.extra, sv(&pr.last)));
             }
-            let rn: str = gp_reach_rel(inj, src, h);
-            let rv: str = gp_rvar(i);
+            let rn: &str = gp_reach_rel(inj, src, h);
+            let rv: &str = gp_rvar(i);
             gp_step(&mut inj.chain, rn, rv, gp_bin(h, OP_EQ(), gp_field(h, rv, "a"), gp_field(h, prev, "child")));
             si = si + 1i64;
             if st.has_binder {
-                let v0: str = st.binder;
+                let v0: &str = st.binder;
                 gp_step(&mut inj.chain, src, v0, gp_bin(h, OP_EQ(), gp_field(h, v0, "parent"), gp_field(h, rv, "b")));
                 si = si + 1i64;
                 prev = v0;
@@ -1495,7 +1495,7 @@ fn gp_build(src: str, gp: &Vec<CPathStep>, h: &Writ, inj: &mut GpInj, stop: i64)
             i = i + 1i64;
             continue;
         }
-        let v: str = if st.has_binder { st.binder } else { gp_var(i) };
+        let v: &str = if st.has_binder { st.binder } else { gp_var(i) };
         if hop.len() > 0i64 {
             gp_step(&mut inj.chain, src, v, gp_bin(h, OP_EQ(), gp_field(h, v, "parent"), gp_field(h, hop, "b")));
             hop = "";
@@ -1540,7 +1540,7 @@ fn gp_clause(cl: &mut CClause, h: &Writ, inj: &mut GpInj, err: &mut String) -> b
         }
     }
     let gp: &Vec<CPathStep> = &steps;
-    let src: str = dv(core_base_name_of(cl));
+    let src: &str = dv(core_base_name_of(cl));
     let res: GpC = gp_build(src, gp, h, inj, -1i64);
     let mut chain: Vec<CLit> = Vec::<CLit>::new();
     while inj.chain.len() > 0i64 { chain.push(inj.chain.remove(0i64)); }
@@ -1580,7 +1580,7 @@ fn gp_clause(cl: &mut CClause, h: &Writ, inj: &mut GpInj, err: &mut String) -> b
     return true;
 }
 
-fn core_base_name_of(cl: &CClause) -> str {
+fn core_base_name_of(cl: &CClause) -> &str {
     if cl.body.len() < 1i64 { return ""; }
     match &cl.body.as_slice()[0i64] { CLit::Atom(a) => { return a.name; } CLit::Trav(t) => { return t.name; } CLit::Cond(_c) => { return ""; } }
 }
@@ -1620,7 +1620,7 @@ pub fn core_desugar_gpaths(p: &mut CProgram, h: &Writ, err: &mut String) -> bool
 // name.
 
 /// Rename source `old` → `new_name` in the rules of rels [lo, hi), then relink.
-pub fn core_fuse(p: &mut CProgram, lo: i64, hi: i64, old: str, new_name: str) {
+pub fn core_fuse(p: &mut CProgram, lo: i64, hi: i64, old: &str, new_name: &str) {
     if str_eq(old, new_name) { return; }
     let mut r: i64 = lo;
     while r < hi && r < p.rels.len() {
@@ -1645,19 +1645,19 @@ pub fn core_fuse(p: &mut CProgram, lo: i64, hi: i64, old: str, new_name: str) {
 
 // ── SHADOW: structural equality of two cores ───────────────────────────────
 
-fn diff(out: &mut String, at: str, what: str, x: str, y: str) {
+fn diff(out: &mut String, at: &str, what: &str, x: &str, y: &str) {
     if out.len() > 0i64 { return; }
     out.push_str(at); out.push_str(": "); out.push_str(what);
     out.push_str(" `"); out.push_str(x); out.push_str("` vs `"); out.push_str(y); out.push_str("`");
 }
 
-fn diff_i(out: &mut String, at: str, what: str, x: i64, y: i64) {
+fn diff_i(out: &mut String, at: &str, what: &str, x: i64, y: i64) {
     if out.len() > 0i64 || x == y { return; }
     out.push_str(at); out.push_str(": "); out.push_str(what);
     out.push_str(" "); out.push_i64(x); out.push_str(" vs "); out.push_i64(y);
 }
 
-fn diff_s(out: &mut String, at: str, what: str, x: str, y: str) {
+fn diff_s(out: &mut String, at: &str, what: &str, x: &str, y: &str) {
     if !str_eq(x, y) { diff(out, at, what, x, y); }
 }
 
@@ -1669,7 +1669,7 @@ fn wtext(w: i64) -> String {
 
 // Two expression words: equal as arena words, or (`by_text`) as printed —
 // a rewrite that builds new nodes builds them at other addresses.
-fn diff_w(out: &mut String, at: str, what: str, x: i64, y: i64, by_text: bool) {
+fn diff_w(out: &mut String, at: &str, what: &str, x: i64, y: i64, by_text: bool) {
     if out.len() > 0i64 || x == y { return; }
     if by_text && x != 0i64 && y != 0i64 {
         let tx: String = wtext(x);
@@ -1689,18 +1689,18 @@ fn src_key(s: &CSrc) -> i64 {
     match s { CSrc::Rel(r) => { return *r; } CSrc::Param(_n) => { return -2i64; } CSrc::Unit => { return -3i64; } }
 }
 
-fn src_name(s: &CSrc) -> str {
+fn src_name(s: &CSrc) -> &str {
     match s { CSrc::Param(n) => { return *n; } CSrc::Rel(_r) => { return ""; } CSrc::Unit => { return ""; } }
 }
 
-fn conds_same(out: &mut String, at: str, x: &Vec<WAny>, y: &Vec<WAny>, bt: bool) {
+fn conds_same(out: &mut String, at: &str, x: &Vec<WAny>, y: &Vec<WAny>, bt: bool) {
     diff_i(out, at, "condition count", x.len(), y.len());
     if out.len() > 0i64 { return; }
     let mut i: i64 = 0i64;
     while i < x.len() { diff_w(out, at, "condition", x.get(i).raw(), y.get(i).raw(), bt); i = i + 1i64; }
 }
 
-fn clause_same(out: &mut String, at: str, x: &CClause, y: &CClause, bt: bool) {
+fn clause_same(out: &mut String, at: &str, x: &CClause, y: &CClause, bt: bool) {
     diff_w(out, at, "head", x.head.raw(), y.head.raw(), bt);
     diff_i(out, at, "literal count", x.body.len(), y.body.len());
     if out.len() > 0i64 { return; }
@@ -1795,7 +1795,7 @@ fn limit_key(l: &CLimit) -> i64 {
     match l { CLimit::None => { return -1i64; } CLimit::N(n) => { return *n; } CLimit::Param(_p) => { return -2i64; } }
 }
 
-fn rule_same(out: &mut String, at: str, x: &CRule, y: &CRule, bt: bool) {
+fn rule_same(out: &mut String, at: &str, x: &CRule, y: &CRule, bt: bool) {
     diff_i(out, at, "mode", mode_key(&x.env.mode), mode_key(&y.env.mode));
     diff_i(out, at, "distinct", if x.env.distinct { 1i64 } else { 0i64 }, if y.env.distinct { 1i64 } else { 0i64 });
     diff_w(out, at, "order", raw_opt(&x.env.order), raw_opt(&y.env.order), bt);
@@ -1814,7 +1814,7 @@ pub fn core_same(x: &CProgram, y: &CProgram, bt: bool) -> String {
     let yr: &[CRel] = y.rels.as_slice();
     let mut r: i64 = 0i64;
     while r < x.rels.len() && out.len() == 0i64 {
-        let at: str = xr[r].name;
+        let at: &str = xr[r].name;
         diff_s(&mut out, at, "rel name", xr[r].name, yr[r].name);
         diff_i(&mut out, at, "column count", xr[r].cols.len(), yr[r].cols.len());
         if out.len() == 0i64 {
@@ -1843,7 +1843,7 @@ pub fn core_same(x: &CProgram, y: &CProgram, bt: bool) -> String {
 /// SHADOW check: `ours` (the core rewrite) must equal `theirs` (the lowering of
 /// the surface rewrite). A difference is an ICE naming the rewrite and the first
 /// differing field.
-pub fn crewrite_shadow(what: str, ours: &CProgram, theirs: &CProgram, by_text: bool) {
+pub fn crewrite_shadow(what: &str, ours: &CProgram, theirs: &CProgram, by_text: bool) {
     let d: String = core_same(ours, theirs, by_text);
     if d.len() == 0i64 { return; }
     let mut m: String = String::new();

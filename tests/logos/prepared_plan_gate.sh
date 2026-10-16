@@ -323,7 +323,7 @@ while IFS= read -r line; do
     lit=$(awk -v want="${ty}" '
         /^impl [A-Za-z0-9_]+ \{/ { cur = $2 }
         grab { print; grab = 0 }
-        cur == want && /pub fn explain\(&self\) -> str \{/ { grab = 1 }
+        cur == want && /pub fn explain\(&self\) -> &?str \{/ { grab = 1 }
     ' "${DUMPS[@]}" 2>/dev/null | sed -n 's/^ *return "\(.*\)";$/\1/p' | head -1)
     if [ -z "$lit" ]; then
         echo "FAIL: no plan literal found for ${ty} — the trace names a plan the artifact does not"

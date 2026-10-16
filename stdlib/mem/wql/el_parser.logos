@@ -77,7 +77,7 @@ impl Copy for ElTokCell {}
 
 pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, ElMemoCell>, pub tbuf: Vec<ElTokCell>, pub far: Token, pub base: i64 }
 
-pub fn lexer_new(src: str) -> Lexer {
+pub fn lexer_new(src: &str) -> Lexer {
     let mut tb: Vec<ElTokCell> = vec_new::<ElTokCell>();
     let sent: ElTokCell = ElTokCell { tk: 0i32, tstart: 0i64, tlen: 0i64, tline: 0i64, endpos: 0i64 - 1i64, endline: 0i64 };
     let mut i: i64 = 0i64;
@@ -372,7 +372,7 @@ impl Lexer {
 
 const ElNULLP: *const u8 = 0i64 as *const u8;
 // Intern a str into the arena; return the raw WString pointer (0 never).
-fn wstr_p(doc: &Writ, s: str) -> *const u8 {
+fn wstr_p(doc: &Writ, s: &str) -> *const u8 {
     let ws: &WString = doc.wstring(s);
     return ws as *const WString as *const u8;
 }
@@ -449,7 +449,7 @@ fn wstr_unquote(doc: &Writ, p: *const u8) -> *const u8 {
     let s: &str = wstr_as_str(p);
     let n: i64 = s.len();
     if n < 2i64 { return wstr_p(doc, s); }
-    let inner: str = unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };
+    let inner: &str = unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };
     return wstr_p(doc, inner);
 }
 
@@ -1694,17 +1694,17 @@ fn rule_comp_source(lex: &mut Lexer, doc: &Writ) -> *const u8 {
 
 // ── Public entry points (one per %export rule) ─────────────────────────────
 
-pub fn parse_expr(src: str, doc: &Writ) -> WAny {
+pub fn parse_expr(src: &str, doc: &Writ) -> WAny {
     return parse_expr_at(src, doc, 0i64);
 }
-pub fn parse_expr_at(src: str, doc: &Writ, base: i64) -> WAny {
+pub fn parse_expr_at(src: &str, doc: &Writ, base: i64) -> WAny {
     let mut lex: Lexer = lexer_new(src);
     lex.base = base;
     let root: *const u8 = rule_expr(&mut lex, doc);
     if !lex.at_eof() { return unsafe { WAny::ref_to(ElNULLP) }; }
     return unsafe { WAny::ref_to(root) };
 }
-pub fn parse_expr_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {
+pub fn parse_expr_far(src: &str, doc: &Writ, out_root: &mut WAny) -> i64 {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_expr(&mut lex, doc);
     if !lex.at_eof() { *out_root = unsafe { WAny::ref_to(ElNULLP) }; return lex.far.line; }

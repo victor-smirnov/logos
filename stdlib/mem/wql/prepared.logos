@@ -233,8 +233,8 @@ pub fn prep_ground(g: i32, ax: i32) -> Prepared {
     return prep_fixed(why_of(g, ax));
 }
 
-pub fn prep_dyn(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: str,
-                measure: str, tbl: str, w: Why) -> Prepared {
+pub fn prep_dyn(nfl: i64, ncand: i64, sz0: &str, sz1: &str, sz2: &str, sz3: &str,
+                measure: &str, tbl: &str, w: Why) -> Prepared {
     return Prepared { on: true, dynamic: true, deferred: false, nfl: nfl, ncand: ncand,
                       sz0: sz0, sz1: sz1, sz2: sz2, sz3: sz3,
                       measure: measure, tbl: tbl, w: w };
@@ -246,8 +246,8 @@ pub fn prep_dyn(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: str,
 /// the lengths of bindings the prelude already made, which is precisely what makes
 /// the deferral affordable. The TABLE is still carried: `run` needs it to price the
 /// candidates, and it is the only account `explain()` can give of what will be.
-pub fn prep_deferred(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: str,
-                     tbl: str, w: Why) -> Prepared {
+pub fn prep_deferred(nfl: i64, ncand: i64, sz0: &str, sz1: &str, sz2: &str, sz3: &str,
+                     tbl: &str, w: Why) -> Prepared {
     return Prepared { on: true, dynamic: false, deferred: true, nfl: nfl, ncand: ncand,
                       sz0: sz0, sz1: sz1, sz2: sz2, sz3: sz3,
                       measure: "", tbl: tbl, w: w };
@@ -279,7 +279,7 @@ pub fn prep_deferred(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: st
 /// A type is what the caller writes down (`let p: ByKeyPlan = …`), so it gets a
 /// type's spelling rather than the fn's. The transform is the only place the two
 /// names are related, so nothing else has to know the convention.
-pub fn prep_type_name(fn_name: str, out: &mut String) {
+pub fn prep_type_name(fn_name: &str, out: &mut String) {
     prep_type_name_sfx(fn_name, "Plan", out);
 }
 
@@ -287,7 +287,7 @@ pub fn prep_type_name(fn_name: str, out: &mut String) {
 /// prepared-statement type, `"Incr"` for the incremental handle. The camel-case
 /// rule is written once: a second copy would be a second thing to drift, and the
 /// two types are emitted for the same query and read by the same caller.
-pub fn prep_type_name_sfx(fn_name: str, sfx: str, out: &mut String) {
+pub fn prep_type_name_sfx(fn_name: &str, sfx: &str, out: &mut String) {
     let mut up: bool = true;
     let mut i: i64 = 0i64;
     while i < fn_name.len() {
@@ -312,7 +312,7 @@ pub fn prep_type_name_sfx(fn_name: str, sfx: str, out: &mut String) {
 /// `<fn_name><suffix>`, with the visibility marker (a leading `-`, params.logos)
 /// kept in FRONT — the derived fns are as public as the query is, and the shell
 /// consumes the marker where it writes the head.
-pub fn prep_derived_name(fn_name: str, suffix: str, out: &mut String) {
+pub fn prep_derived_name(fn_name: &str, suffix: &str, out: &mut String) {
     out.push_str(fn_name);
     out.push_str(suffix);
 }
@@ -320,7 +320,7 @@ pub fn prep_derived_name(fn_name: str, suffix: str, out: &mut String) {
 /// A Logos string LITERAL for `s`. The grounds a plan records are written in
 /// this file's own prose and travel into GENERATED SOURCE, where an unescaped
 /// quote or backslash would be a syntax error at a position no reader can use.
-pub fn push_str_lit(out: &mut String, s: str) {
+pub fn push_str_lit(out: &mut String, s: &str) {
     out.push_str("\"");
     let mut i: i64 = 0i64;
     while i < s.len() {

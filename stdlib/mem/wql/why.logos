@@ -291,7 +291,7 @@ pub fn why_of(g: i32, ax: i32) -> Why {
 /// its emitted comparison fails. Both are carried, not re-asked — the plan's
 /// `operand()` answers the first, and a reader who disagrees with the verdict can
 /// check it against the type they wrote.
-pub fn why_key(tn: str, why: str, ax: i32) -> Why {
+pub fn why_key(tn: &str, why: &str, ax: i32) -> Why {
     let mut w: Why = why_of(WG_KEY_ORDER(), ax);
     w.key = tn;
     w.keywhy = why;
@@ -305,7 +305,7 @@ pub fn why_axis(w: &Why) -> i32 { return w.axis; }
 /// number. The key's type name where a key failed; the FIRST source that lost its
 /// measurement where a size did; empty where the ground's operands are all counts
 /// (which `enumerated`/`proved`/`considered`/`refused` already answer).
-pub fn why_operand(w: &Why) -> str {
+pub fn why_operand(w: &Why) -> &str {
     if w.ground == WG_KEY_ORDER() { return w.key; }
     if w.ground == WG_DEFERRED() {
         let mut i: i64 = 0i64;
@@ -335,7 +335,7 @@ pub fn why_rj_distinct(w: &Why) -> i64 {
 /// literals here because the antecedent each of them names is a literal too, and
 /// that is the rule: a `why` may be a constant only where what it asserts cannot
 /// vary with the query.
-pub fn wg_words(g: i32) -> str {
+pub fn wg_words(g: i32) -> &str {
     if g == WG_SCAN() {
         return "one source, no join: the access path is decided where the query compiles, and on that axis a measurement does not change the answer — a narrowing is never meaningfully worse than a scan";
     }
@@ -394,7 +394,7 @@ pub fn wg_words(g: i32) -> str {
 /// different query. Where a repair genuinely does not exist (an anti join's
 /// asymmetry), the sentence SAYS so rather than being omitted: silence reads as an
 /// oversight, and a reader then goes looking for the surface that was not named.
-pub fn wg_remedy(g: i32) -> str {
+pub fn wg_remedy(g: i32) -> &str {
     if g == WG_EDGE_FIRST() {
         return "a traversal cannot lead: the remedy is a query whose first step is a classic join, with the traversal deeper in the chain where its base is already bound";
     }
@@ -430,7 +430,7 @@ pub fn wg_remedy(g: i32) -> str {
 
 /// Why point (1) has no number for this side — the failed antecedent, in the
 /// vocabulary of the thing that failed.
-pub fn sz_no_prepare_words(r: i32) -> str {
+pub fn sz_no_prepare_words(r: i32) -> &str {
     if r == SZ_DERIVED() {
         return "is a source whose rows this query materializes and which declares no `size`: the binding is a local of the generated fn, so before the query's own prelude has run there is no number to read and obtaining one would mean running the query a plan may not run";
     }
@@ -449,7 +449,7 @@ pub fn sz_no_prepare_words(r: i32) -> str {
 /// What is not an answer is naming a declaration surface the reader's source does not
 /// have; that is the defect this function exists to make impossible, since the same
 /// code that decided the refusal decides the advice.
-pub fn sz_remedy_words(r: i32) -> str {
+pub fn sz_remedy_words(r: i32) -> &str {
     if r == SZ_DERIVED() {
         return "declaring a size is ACTIONABLE for it: it already declares its rows through an `impl` (`rel <name> = <fn>;`), and a `size <name> = <fn>;` line beside that one is read by the same natspec, lands as a reporter call in `prepare`, and moves the whole decision back to point (1)";
     }
@@ -464,7 +464,7 @@ pub fn sz_remedy_words(r: i32) -> str {
 /// ⚠ DEFAULT-DENY HERE TOO. This used to fall through to `SZ_OK`'s sentence, so an
 /// unnamed code would have been described as "an input the caller passed in" — the
 /// one answer that makes the deferral look unnecessary.
-pub fn sz_run_words(r: i32) -> str {
+pub fn sz_run_words(r: i32) -> &str {
     if r == SZ_DERIVED() || r == SZ_LOCAL() {
         return "a relation the prelude materialized for the query's own reasons";
     }
@@ -478,7 +478,7 @@ pub fn sz_run_words(r: i32) -> str {
 /// the chain is a pair: with two sources "C6" and "C7" name a general constraint
 /// whose instance a reader can state much more directly, and the sentence a pair
 /// query recorded before the axis generalized is the one it still records.
-pub fn rj_words(r: i32, nfl: i64) -> str {
+pub fn rj_words(r: i32, nfl: i64) -> &str {
     if r == RJ_PINDEP() {
         return "C4: a pinned step (an anti join or a traversal) would stand before a row var its `on` or its field-path source reads — the dependency is not bound yet at that depth";
     }
@@ -540,7 +540,7 @@ pub fn rj_at(k: i32, n0: i64, n1: i64, n2: i64, n3: i64,
 /// `cost_of` and `margin` return here, and `wql_deferred_plan_e2e` asserts the
 /// equality against that function — so the sentence and the artifact cannot drift
 /// apart without a fixture going red.
-pub fn defer_not_held() -> str {
+pub fn defer_not_held() -> &str {
     return "per-call means the PREPARED surface holds none of the answer: `order_ix` is -1 (no order is named — `run` names one, per call, from `order_pick` on the lengths it reads there), `swap` is false for want of an order rather than for want of a transposition, `cost_of` and `margin` return `join_cost::JC_NOFACT()` (-2, `the facts this answer needs are not on this plan` — distinct from -1, `there is no such candidate`), `agrees` is vacuously true because nothing here can go stale, and `settled()` is false, which is the one member whose whole job is to say so";
 }
 
@@ -791,7 +791,7 @@ fn push_remedy(w: &Why, out: &mut String) {
         // second copy this module exists to prevent.
         return;
     }
-    let r: str = wg_remedy(w.ground);
+    let r: &str = wg_remedy(w.ground);
     if r.len() == 0i64 { return; }
     out.push_str(". THE REMEDY, derived from the antecedent that failed: ");
     out.push_str(r);
@@ -915,7 +915,7 @@ pub fn jr_neg(r: i32) -> i32 {
 /// `key_tn` is the operand the key antecedents were asked of.
 pub struct JoinGround { pub rule: i32, pub asked: i32, pub held: i32, pub key_tn: str }
 
-pub fn jg_new(key_tn: str) -> JoinGround {
+pub fn jg_new(key_tn: &str) -> JoinGround {
     return JoinGround { rule: JR_UNSET(), asked: 0i32, held: 0i32, key_tn: key_tn };
 }
 
@@ -943,7 +943,7 @@ pub fn jg_failed(g: &JoinGround, r: i32) -> i32 {
     return (jr_pos(r) & g.asked & !g.held) | (jr_neg(r) & g.held);
 }
 
-pub fn ja_words(a: i32) -> str {
+pub fn ja_words(a: i32) -> &str {
     if a == JA_EQUI_KEY()   { return "an equi-join key"; }
     if a == JA_HASH()       { return "Hash"; }
     if a == JA_EQ()         { return "Eq"; }
@@ -956,7 +956,7 @@ pub fn ja_words(a: i32) -> str {
     return "an unnamed antecedent";
 }
 
-pub fn jr_name(r: i32) -> str {
+pub fn jr_name(r: i32) -> &str {
     if r == JR_LOOP_NOKEY()  { return "loop_nokey"; }
     if r == JR_HASH()        { return "hash"; }
     if r == JR_TREE_FORCED() { return "tree_forced"; }
@@ -972,7 +972,7 @@ pub fn jr_name(r: i32) -> str {
 /// returned. `JR_UNSET` is named as the defect it is. It takes the RULE, not the
 /// record: the sentence is a literal of the rule, so nothing of the record is
 /// borrowed into it.
-pub fn jg_render(r: i32) -> str {
+pub fn jg_render(r: i32) -> &str {
     if r == JR_LOOP_NOKEY()  { return "no equi-join key — a nested loop is the only shape left"; }
     if r == JR_HASH()        { return "the key type is hashable — build once, probe per row"; }
     if r == JR_TREE_FORCED() { return "the tree tier is forced (LOGOS_JOIN_TREE) — the key is hashable but ordered access is being exercised"; }
@@ -992,12 +992,12 @@ pub fn jg_pack(g: &JoinGround) -> i64 {
     return (g.rule as i64) | ((g.asked as i64) << 8i64) | ((g.held as i64) << 24i64);
 }
 pub fn jg_rule_of(v: i64) -> i32 { return (v & 255i64) as i32; }
-pub fn jg_unpack(v: i64, key_tn: str) -> JoinGround {
+pub fn jg_unpack(v: i64, key_tn: &str) -> JoinGround {
     return JoinGround { rule: jg_rule_of(v), asked: ((v >> 8i64) & 65535i64) as i32,
                         held: ((v >> 24i64) & 65535i64) as i32, key_tn: key_tn };
 }
 /// The sentence of a packed ground — `jg_render` of its rule.
-pub fn jg_render_packed(v: i64) -> str { return jg_render(jg_rule_of(v)); }
+pub fn jg_render_packed(v: i64) -> &str { return jg_render(jg_rule_of(v)); }
 
 /// The FACTS, machine-readable: `rule=<r> key=<K> held=[…] failed(hash)=[…]` —
 /// what `LOGOS_TRACE_PLAN=facts` prints, so a fixture can assert the rule and the
@@ -1030,7 +1030,7 @@ fn push_ja_mask(out: &mut String, m: i32) {
     }
 }
 
-fn ja_code(a: i32) -> str {
+fn ja_code(a: i32) -> &str {
     if a == JA_EQUI_KEY()   { return "equi_key"; }
     if a == JA_HASH()       { return "Hash"; }
     if a == JA_EQ()         { return "Eq"; }
@@ -1101,7 +1101,7 @@ pub fn ag_unpack(v: i64) -> AccessGround {
 }
 
 /// THE ONE RENDERER of an access-path ground.
-pub fn ag_render(r: i32) -> str {
+pub fn ag_render(r: i32) -> &str {
     if r == AR_SCAN_ALL()       { return "the query asks for every row — no filter to narrow to"; }
     if r == AR_SCAN_NO_OPS()    { return "the source declares no access operations"; }
     if r == AR_SCAN_NO_COL()    { return "neither side of the filter is a column"; }
@@ -1118,7 +1118,7 @@ pub fn ag_render(r: i32) -> str {
     return "no filter reaches this rel";
 }
 
-pub fn ar_name(r: i32) -> str {
+pub fn ar_name(r: i32) -> &str {
     if r == AR_SCAN_ALL()       { return "scan_all"; }
     if r == AR_SCAN_NO_OPS()    { return "scan_no_ops"; }
     if r == AR_SCAN_NO_COL()    { return "scan_no_col"; }
@@ -1135,7 +1135,7 @@ pub fn ar_name(r: i32) -> str {
     return "unset";
 }
 
-fn aa_code(a: i32) -> str {
+fn aa_code(a: i32) -> &str {
     if a == AA_WHERE()    { return "where"; }
     if a == AA_OPS()      { return "ops"; }
     if a == AA_COL()      { return "col"; }
@@ -1206,7 +1206,7 @@ pub fn ZR_UNMEASURED() -> i32 { return 2i32; }
 
 /// THE ONE RENDERER of a mode ground. `MR_DRAINED` has no sentence of its own:
 /// the caller renders the drain node's (`node_why`), which is the point of it.
-pub fn mr_render(r: i32, node_why: str) -> str {
+pub fn mr_render(r: i32, node_why: &str) -> &str {
     if r == MR_CONTAINER()   { return "materialized: the producer returns a container, not an iterator"; }
     if r == MR_ORDERED_REV() { return "streamed BACKWARD: the producer is an iterator over the column the rows already arrive sorted by, the plan reads it once, and `desc` is one landing at the end plus a backward pull"; }
     if r == MR_ORDERED()     { return "streamed: the producer is an iterator, the plan reads it once, and the `order by` is over the column the rows already arrive sorted by"; }
@@ -1216,7 +1216,7 @@ pub fn mr_render(r: i32, node_why: str) -> str {
     if r == MR_REL_HELPER()  { return "materialized: the rel block's helper fn folds the body into a Vec and returns it, and the prelude binds the result — the container is built by code this compilation emitted, not handed over by a source"; }
     return "";
 }
-pub fn mr_name(r: i32) -> str {
+pub fn mr_name(r: i32) -> &str {
     if r == MR_CONTAINER()   { return "container"; }
     if r == MR_ORDERED_REV() { return "ordered_rev"; }
     if r == MR_ORDERED()     { return "ordered"; }
@@ -1226,12 +1226,12 @@ pub fn mr_name(r: i32) -> str {
     if r == MR_REL_HELPER()  { return "rel_helper"; }
     return "unset";
 }
-pub fn zr_render(r: i32) -> str {
+pub fn zr_render(r: i32) -> &str {
     if r == ZR_MEASURED()   { return "measured: the source reports its size, asked in `prepare` where a join order reads it and nowhere else"; }
     if r == ZR_UNMEASURED() { return "unmeasured: the source declares no size operation, so the cardinality ORDINAL is all this plan has"; }
     return "";
 }
-fn ma_code(a: i32) -> str {
+fn ma_code(a: i32) -> &str {
     if a == MA_ITER()    { return "iter"; }
     if a == MA_ORDERED() { return "ordered"; }
     if a == MA_DESC()    { return "desc"; }
@@ -1296,7 +1296,7 @@ pub fn IR_EMIT_REL() -> i32 { return 26i32; }
 pub fn IR_EMIT_SCAN() -> i32 { return 27i32; }
 pub fn IR_JOIN_OUTER() -> i32 { return 28i32; }
 
-pub fn ir_render(r: i32) -> str {
+pub fn ir_render(r: i32) -> &str {
     if r == IR_JOIN_SRC_REL() { return "a JOIN-POSITION source is a DECLARED `rel` — the handle's joined side is stored as a weighted Z-set (`__s<k>`/`__s<k>w`) and a derived rel has no multiplicity to store: its rows come out of a set-semantics fixpoint over the ACCUMULATED input, which is state the join arm does not own"; }
     if r == IR_BASE_REL_JOINS() { return "the BASE source is a declared `rel` and the query also JOINS — one epoch would have to extend a set-semantics fixpoint total and integrate a weighted Z-set side, and the source TAG that tells them apart lives on `<q>_apply`, which a rel-backed query does not emit"; }
     if r == IR_REL_SLICE_COUNT() { return "a rel-backed query must have EXACTLY ONE slice parameter — `<q>_epoch` keeps the parameter list verbatim, so with two the caller passes both on every call and nothing says which is the delta; the join arm answers that with a source TAG on `<q>_apply`, which a rel-backed query does not emit"; }
@@ -1327,7 +1327,7 @@ pub fn ir_render(r: i32) -> str {
     return "";
 }
 
-pub fn ir_name(r: i32) -> str {
+pub fn ir_name(r: i32) -> &str {
     if r == IR_JOIN_SRC_REL() { return "join_src_rel"; }
     if r == IR_BASE_REL_JOINS() { return "base_rel_joins"; }
     if r == IR_REL_SLICE_COUNT() { return "rel_slice_count"; }
@@ -1365,13 +1365,13 @@ pub fn RT_REC_REL() -> i32   { return 1i32; }   // backed by a recursive `rel` (
 pub fn RT_FLOAT_ACC() -> i32 { return 2i32; }   // an aggregate accumulates in f64
 pub fn RT_EXACT() -> i32     { return 3i32; }   // admitted: every aggregate inverts exactly
 
-pub fn rt_render(r: i32) -> str {
+pub fn rt_render(r: i32) -> &str {
     if r == RT_REC_REL()   { return "the query is backed by a RECURSIVE `rel` — a derived fact may support ITSELF through a cycle, so there is no amount to subtract; the correct mechanism is DRed (over-delete, compact, re-derive), a provenance state machine and not an inverse fold. \u26a0 AND DRed IS A PESSIMIZATION TODAY: measured 1.15-1.9x a from-scratch recompute, losing WORSE as the re-derived set grows, with no crossover anywhere in the reachable range \u2014 so admitting this shape is not a free capability, and the price must be named to the caller at the moment it becomes reachable. The repair that changes the direction is the EDB-delta occurrence list, which changes the ENUMERATION rather than choosing between two enumerations"; }
     if r == RT_FLOAT_ACC() { return "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and `(S+x)-x != S` is an OPEN decision rather than an emitter's to take"; }
     if r == RT_EXACT()     { return "every aggregate in the list runs backwards exactly — `count` and integer `sum` invert exactly under their own checked predicate, `min`/`max` rescan a typed value→multiplicity map"; }
     return "";
 }
-pub fn rt_name(r: i32) -> str {
+pub fn rt_name(r: i32) -> &str {
     if r == RT_REC_REL()   { return "rec_rel"; }
     if r == RT_FLOAT_ACC() { return "float_acc"; }
     if r == RT_EXACT()     { return "exact"; }
@@ -1384,12 +1384,12 @@ pub fn rt_name(r: i32) -> str {
 pub fn RI_ROW() -> i32       { return 1i32; }   // every field of the row
 pub fn RI_FOOTPRINT() -> i32 { return 2i32; }   // the group key and the aggregate arguments
 
-pub fn ri_render(r: i32) -> str {
+pub fn ri_render(r: i32) -> &str {
     if r == RI_ROW()       { return "the WHOLE ROW, field by field — a `str` field is held as an owned `String`, a float field by `f64_canon_bits` (all zeros one value, all NaNs one value, the multiplicity map's identity), a field of a named type by its own `Eq` (copied, or cloned when it is not `Copy`) — so a retraction of a row the handle never held is refused even where it agrees on every value the fold reads, and a `count` sees the row and not only its group"; }
     if r == RI_FOOTPRINT() { return "the fold's FOOTPRINT, the group key followed by every aggregate argument — a field of the row is not a scalar, `str`, `String`, float, or a named type with `Eq` and `Copy` or `Clone` (or the row has more than 12 fields), so the row has no identity this store can hold; two rows that agree on the footprint are one row to this handle, and a `count` sees only the group"; }
     return "";
 }
-pub fn ri_name(r: i32) -> str {
+pub fn ri_name(r: i32) -> &str {
     if r == RI_ROW()       { return "row"; }
     if r == RI_FOOTPRINT() { return "footprint"; }
     return "unset";
@@ -1399,13 +1399,13 @@ pub fn ri_name(r: i32) -> str {
 pub fn DR_EMIT() -> i32   { return 1i32; }   // the four-phase driver is emitted
 pub fn DR_FLOAT() -> i32  { return 2i32; }   // an aggregate accumulates in f64
 pub fn DR_MINMAX() -> i32 { return 3i32; }   // a min/max needs the retraction surface's map
-pub fn dr_render(r: i32) -> str {
+pub fn dr_render(r: i32) -> &str {
     if r == DR_EMIT()   { return "the four-phase DRed epoch driver `__wql_<q>_scc<c>_dred` — `_od` then `_odp` then `_cpt` then `_i`, on driver-local state, with `DE ⊆ __edb` enforced EXACTLY against the accumulated input before phase 1a and a SIGNED group fold (`__rm_<m>` at −1, the post-`_cpt` suffix at +1). ATOMIC AT THE HANDLE: every phase runs on a full local copy and the caller's handle is written once, at the end, so an `Err` from any phase or either fold half leaves it byte-identical. THE PUBLIC RETRACTION SURFACE FOLLOWS — `<q>_retract(&mut h, de, …)`, `<q>_epoch`'s signature exactly, forwarding here; `incr_retract_eligible` still declines (`retr` stays false, so no `<q>_apply` and no `__wd`) and the surface is emitted from this admission instead. ⚠ AND IT IS A PESSIMIZATION THE CALLER PAYS FOR: measured 1.15-1.9x a from-scratch recompute over the survivors, losing WORSE as the re-derived set grows, with no crossover anywhere in the reachable range — the repair that changes the direction is the EDB-delta occurrence list, which changes the ENUMERATION rather than choosing between two enumerations"; }
     if r == DR_FLOAT()  { return "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and the driver's NEGATIVE fold is exactly the `(S+x)-x != S` arithmetic that is Victor's OPEN decision D4 — the same `retract_ok` derivation `incr_retract_eligible` reads, asked of a rel-backed query for the first time"; }
     if r == DR_MINMAX() { return "an aggregate is `min`/`max` — it retracts by RESCAN over a per-(group, aggregate) value→multiplicity MAP, and that map is a handle field built only on the RETRACTION surface (`want_map = retr && is_mm`), which a rel-backed query does not have; the −1 fold would have nothing to rescan. A MISSING STATE refusal, not an arithmetic one"; }
     return "";
 }
-pub fn dr_name(r: i32) -> str {
+pub fn dr_name(r: i32) -> &str {
     if r == DR_EMIT()   { return "emit"; }
     if r == DR_FLOAT()  { return "float_acc"; }
     if r == DR_MINMAX() { return "min_max"; }
@@ -1415,12 +1415,12 @@ pub fn dr_name(r: i32) -> str {
 // ══ THE AGGREGATE'S GROUP-FRAME CLASS (E3) ════════════════════════════════════
 pub fn AC_PURE() -> i32 { return 1i32; }   // clauses above the group read key + outputs only
 pub fn AC_REP() -> i32  { return 2i32; }   // a clause reads a source row: carry a representative
-pub fn ac_render(r: i32) -> str {
+pub fn ac_render(r: i32) -> &str {
     if r == AC_PURE() { return "`select`/`having`/`order by` are over `key` + aggregate outputs only — the group frame is the whole answer"; }
     if r == AC_REP()  { return "a clause above the group names a SOURCE ROW — the group must carry a representative base row"; }
     return "";
 }
-pub fn ac_verdict(r: i32) -> str {
+pub fn ac_verdict(r: i32) -> &str {
     if r == AC_PURE() { return "PURE"; }
     if r == AC_REP()  { return "REP"; }
     return "UNSET";
@@ -1445,7 +1445,7 @@ pub fn MS_FALLIBLE() -> i32     { return 8i32; }   // checked arithmetic could f
 pub fn MS_NONREC() -> i32       { return 10i32; }  // not recursive: a restriction saves no evaluation
 pub fn MS_SUBSUME() -> i32      { return 11i32; }  // a recursive rel with `subsume`
 
-pub fn ms_render(r: i32) -> str {
+pub fn ms_render(r: i32) -> &str {
     if r == MS_DEMAND()    { return "a reader binds columns of this rel, so only rows carrying the bound values can reach that reader: the reader reads an ADORNED COPY evaluated on demand — its bodies restricted to the values in `__m_<copy>`, which holds one magic rule per bound occurrence (the reader's atoms to the left of it, in max-bound order, and the reader's own magic rel), so the restriction carries into a fixpoint by induction (the magic-sets transformation, Soufflé's MST); a reader that binds nothing still reads the whole rel"; }
     if r == MS_SHARED()    { return "a clause that is evaluated reads the whole rel (it binds none of its columns: the entry, a rel read whole, or an adorned body), so the rel is evaluated whole anyway, and an adorned copy for its bound readers would only add work"; }
     if r == MS_NEG_AGG()   { return "a body of the rel aggregates or finds: such a rel is read whole (Soufflé leaves aggregated relations un-adorned too); an anti join's atom is always read whole and a magic rule never contains one, which only widens a demand"; }
@@ -1454,7 +1454,7 @@ pub fn ms_render(r: i32) -> str {
     if r == MS_FALLIBLE()  { return "a body of the rel, or the entry's WHERE / ON, evaluates checked arithmetic (`+ - * / %`, negation), which returns an `ElError` on overflow or division by zero: the naive program evaluates it on rows outside the demand, so restricting the rows could turn an `Err` into an `Ok`. Soufflé's MST excludes order-dependent functors (`/`, `%`) for the same reason; here every integer operator is checked, so all of them count"; }
     return "";
 }
-pub fn ms_name(r: i32) -> str {
+pub fn ms_name(r: i32) -> &str {
     if r == MS_DEMAND()    { return "demand"; }
     if r == MS_SHARED()    { return "shared"; }
     if r == MS_NEG_AGG()   { return "neg_agg"; }
@@ -1463,7 +1463,7 @@ pub fn ms_name(r: i32) -> str {
     if r == MS_SUBSUME()   { return "subsume"; }
     return "unset";
 }
-pub fn ms_verdict(r: i32) -> str {
+pub fn ms_verdict(r: i32) -> &str {
     if r == MS_DEMAND() { return "demand-driven"; }
     return "fully materialized";
 }

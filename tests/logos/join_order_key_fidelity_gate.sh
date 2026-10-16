@@ -215,7 +215,7 @@ for pl in 'QfPlan' 'QnPlan'; do
     lit=$(awk -v want="${pl}" '
         /^impl [A-Za-z0-9_]+ \{/ { cur = $2 }
         grab { print; grab = 0 }
-        cur == want && /pub fn explain\(&self\) -> str \{/ { grab = 1 }
+        cur == want && /pub fn explain\(&self\) -> &?str \{/ { grab = 1 }
     ' "${DUMPS[@]}" 2>/dev/null | head -1)
     case "$lit" in
         *'return "`order by` names a sequence, but C1'*) ;;

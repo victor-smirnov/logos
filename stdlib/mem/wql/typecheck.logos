@@ -68,7 +68,7 @@ fn cond_where(cl: &CClause) -> WAny {
 }
 
 /// Every step's `on`, in step order (`dplan::plan_nest`'s reading).
-fn ons_ok(cl: &CClause, ty: &ElTypes, ctx: str) -> bool {
+fn ons_ok(cl: &CClause, ty: &ElTypes, ctx: &str) -> bool {
     let ch: DNest = plan_nest(cl);
     let mut i: i64 = 0i64;
     while i < ch.n {
@@ -88,7 +88,7 @@ fn ons_ok(cl: &CClause, ty: &ElTypes, ctx: str) -> bool {
     return true;
 }
 
-fn cond_ok(e: WAny, ty: &ElTypes, ctx: str) -> bool {
+fn cond_ok(e: WAny, ty: &ElTypes, ctx: &str) -> bool {
     if e.is_null() { return true; }
     if !reject_tuple_in(sx(e), ty, ctx) { return false; }
     return check_calls(sx(e), ty, ctx);
@@ -98,8 +98,8 @@ fn cond_ok(e: WAny, ty: &ElTypes, ctx: str) -> bool {
 /// head, the conditions, the group, the order key.
 fn stamp_rule_names(ru: &CRule, ty: &mut ElTypes) {
     let cl: &CClause = &ru.clause;
-    let mut vars: Vec<str> = Vec::<str>::new();
-    let mut tys: Vec<str> = Vec::<str>::new();
+    let mut vars: Vec<&str> = Vec::<&str>::new();
+    let mut tys: Vec<&str> = Vec::<&str>::new();
     clause_vars(cl, &mut vars, &mut tys);
     if !cl.head.is_null() { stamp_free_names(sx(cl.head), ty, &vars, &tys); }
     let bs: &[CLit] = cl.body.as_slice();
@@ -132,10 +132,10 @@ fn stamp_rule_names(ru: &CRule, ty: &mut ElTypes) {
 /// no `Copy`.
 fn head_is_row_var(cl: &CClause) -> bool {
     if cl.head.is_null() { return false; }
-    let n: str = root_ident_name(sx(cl.head));
+    let n: &str = root_ident_name(sx(cl.head));
     if n.len() == 0i64 { return false; }
-    let mut vars: Vec<str> = Vec::<str>::new();
-    let mut tys: Vec<str> = Vec::<str>::new();
+    let mut vars: Vec<&str> = Vec::<&str>::new();
+    let mut tys: Vec<&str> = Vec::<&str>::new();
     clause_vars(cl, &mut vars, &mut tys);
     let mut k: i64 = 0i64;
     while k < vars.len() { if str_eq(vars.get(k), n) { return true; } k = k + 1i64; }
@@ -192,7 +192,7 @@ fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ
     stamp_rule_names(ru, &mut ty);
     // The whole-row gate's vars: the base and every step but a scalar-element
     // traversal, which binds a value (a legitimate select component).
-    let mut vars: Vec<str> = Vec::<str>::new();
+    let mut vars: Vec<&str> = Vec::<&str>::new();
     vars.push(ch.base_var);
     let mut vi: i64 = 0i64;
     while vi < ch.n {
@@ -266,7 +266,7 @@ fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ
 /// (the group's representative row, as in an aggregate query); a join step's
 /// var is out of scope.
 fn check_group_rel(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, g: &CGroup, ty0: ElTypes,
-                   h: &Writ, ch: &DNest, vars: &Vec<str>, nv: i64) -> bool {
+                   h: &Writ, ch: &DNest, vars: &Vec<&str>, nv: i64) -> bool {
     let cl: &CClause = &ru.clause;
     let mut ty: ElTypes = ty0;
     let key_e: SExpr = sx(g.key);
@@ -279,7 +279,7 @@ fn check_group_rel(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, g: &CGr
     if !type_aggs(view, &g.aggs, &mut ty, h, &mut gt) { return false; }
     if !cond_ok(cond_where(cl), &ty, "wql!: rel `where`") { return false; }
     if !ons_ok(cl, &ty, "wql!: rel `on`") { return false; }
-    let mut steps: Vec<str> = Vec::<str>::new();
+    let mut steps: Vec<&str> = Vec::<&str>::new();
     let mut k: i64 = 0i64;
     while k < ch.n { steps.push(ch.var[k]); k = k + 1i64; }
     let proj_opt: SExpr = simplify_sexpr(sx(cl.head), h).any().view::<SExpr>();
@@ -296,8 +296,8 @@ fn check_group_rel(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, g: &CGr
     return aggs_ok(&g.aggs, &ty, &gt, h);
 }
 
-fn group_scope_ok(e: SExpr, steps: &Vec<str>, prm: &MacroParams, ri: i64, base_var: str,
-                  ty: &ElTypes, what: str) -> bool {
+fn group_scope_ok(e: SExpr, steps: &Vec<&str>, prm: &MacroParams, ri: i64, base_var: &str,
+                  ty: &ElTypes, what: &str) -> bool {
     let vi: i64 = first_var_read(e, steps);
     if vi < 0i64 { return true; }
     let mut m: String = String::new();
@@ -314,14 +314,14 @@ fn group_scope_ok(e: SExpr, steps: &Vec<str>, prm: &MacroParams, ri: i64, base_v
     return false;
 }
 
-fn var_index(vars: &Vec<str>, n: str) -> i64 {
+fn var_index(vars: &Vec<&str>, n: &str) -> i64 {
     let mut k: i64 = 0i64;
     while k < vars.len() { if str_eq(vars.get(k), n) { return k; } k = k + 1i64; }
     return -1i64;
 }
 
 /// The index of the first of `vars` that `e` reads (-1 = none).
-fn first_var_read(e: SExpr, vars: &Vec<str>) -> i64 {
+fn first_var_read(e: SExpr, vars: &Vec<&str>) -> i64 {
     match e {
         SExpr::Lit(_) => { return -1i64; }
         SExpr::Bin(b)  => { let l: i64 = first_var_read(b.lhs_expr(), vars); if l >= 0i64 { return l; } return first_var_read(b.rhs_expr(), vars); }
@@ -388,10 +388,10 @@ fn rel_proj_calls_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, ty: 
 /// order is partial: no least upper bound.
 fn lattice_value_ok(view: &OView, prm: &MacroParams, ri: i64) -> bool {
     let voff: i64 = prm.rel_coff[ri];
-    let vcty: str = resolve_alias_name(view, prm.relc_ty[voff + prm.rel_ccnt[ri] - 1i64]);
+    let vcty: &str = resolve_alias_name(view, prm.relc_ty[voff + prm.rel_ccnt[ri] - 1i64]);
     let vct: ElTy = el_ty(vcty);
     if vct.cls == EL_TY_INT() || vct.cls == EL_TY_BOOL() || str_eq(vcty, "str") { return true; }
-    let mut miss: str = "";
+    let mut miss: &str = "";
     if vct.cls < 0i32 {
         if !named_has_ord(vcty) { miss = "`Ord`"; }
         else if !named_is_copy(vcty) { miss = "`Copy` (each improving value is copied into the best map)"; }
@@ -481,14 +481,14 @@ fn outer_row_free(e: SExpr, ty: &ElTypes) -> bool {
             }
             let be: SExpr = f.base_expr();
             // `v.f` reads a field; only a deeper path through `v` is refused
-            let rn: str = root_ident_name(be);
+            let rn: &str = root_ident_name(be);
             if rn.len() > 0i64 { return true; }
             // `v.x.y` over an optional `v`: `v.x` is an Option, which has no fields
             match be {
                 SExpr::Field(bf) => {
                     let bb: WRef<SExpr> = bf.base;
                     if !bb.any().is_null() {
-                        let vr: str = root_ident_name(bf.base_expr());
+                        let vr: &str = root_ident_name(bf.base_expr());
                         if vr.len() > 0i64 && ty.opt_is_var(vr) {
                             let mut m2: String = String::new();
                             m2.push_str("wql!: `");
@@ -555,7 +555,7 @@ fn check_group_entry(view: &OView, prm: &MacroParams, ru: &CRule, g: &CGroup, ty
 
 /// A group key needs an identity: its type's own `==` and hash, kept through
 /// the emitted bucket key; a named key needs `Eq` and `Copy`.
-fn group_key_ok(key_opt: SExpr, ty: &ElTypes, key_ty: str) -> bool {
+fn group_key_ok(key_opt: SExpr, ty: &ElTypes, key_ty: &str) -> bool {
     match key_opt {
         SExpr::Tuple(tp) => {
             // A tuple key is an identity iff each component is one.
@@ -590,8 +590,8 @@ fn group_key_ok(key_opt: SExpr, ty: &ElTypes, key_ty: str) -> bool {
     // linear scan over `__g_key: Vec<K>`, so it needs equality and a key that can
     // be copied out of the row — asked of the impls, and the missing one named.
     if key_ety == EL_TY_NAMED() {
-        let kn: str = string_as_str(&key_tn3s);
-        let mut miss: str = "";
+        let kn: &str = string_as_str(&key_tn3s);
+        let mut miss: &str = "";
         if !named_has_eq_strict(kn) { miss = "`Eq` — the groups are found by the frame's `==`, which compares keys through `Eq` (`PartialEq` alone is not enough here)"; }
         else if !named_is_copy(kn) { miss = "`Copy` — each group's key is copied out of its first row"; }
         if miss.len() > 0i64 {
@@ -650,7 +650,7 @@ fn aggs_ok(aggs: &Vec<CAgg>, t: &ElTypes, gt: &GroupTy, h: &Writ) -> bool {
 }
 
 // Is `name` one of the body's bound row vars?
-fn is_bound_var(name: str, vars: &Vec<str>, nvars: i64) -> bool {
+fn is_bound_var(name: &str, vars: &Vec<&str>, nvars: i64) -> bool {
     let mut i: i64 = 0i64;
     while i < nvars {
         if str_eq(vars[i], name) { return true; }
@@ -666,8 +666,8 @@ fn is_bound_var(name: str, vars: &Vec<str>, nvars: i64) -> bool {
 // a borrowed view; the call's String temporary would dangle). Errors are
 // NAMED per rel/column. Returns false with the error surfaced.
 fn rel_select_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, t: &ElTypes,
-                 vars: &Vec<str>, nvars: i64) -> bool {
-    let rel_name: str = prm.rel_names[ri];
+                 vars: &Vec<&str>, nvars: i64) -> bool {
+    let rel_name: &str = prm.rel_names[ri];
     let nc: i64  = prm.rel_ccnt[ri];
     let off: i64 = prm.rel_coff[ri];
     if nc >= 2i64 {
@@ -720,9 +720,9 @@ fn rel_select_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, t: &ElTy
 }
 
 // One select component vs its declared column: whole-row / String / type.
-fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
-                      view: &OView, t: &ElTypes, vars: &Vec<str>, nvars: i64) -> bool {
-    let rn: str = root_ident_name(comp);
+fn rel_select_comp_ok(comp: SExpr, rel_name: &str, col_name: &str, col_ty: &str,
+                      view: &OView, t: &ElTypes, vars: &Vec<&str>, nvars: i64) -> bool {
+    let rn: &str = root_ident_name(comp);
     if rn.len() > 0i64 && is_bound_var(rn, vars, nvars) {
         let mut m: String = String::new();
         m.push_str("wql!: rel '");
@@ -750,7 +750,7 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
     // ⚠ THE DECLARED COLUMN TYPE IS A SPELLING, and the component's type was
     // resolved through the module's aliases when it was stamped — so the column's
     // is resolved too before the two are compared (`type Ratio = f64;`).
-    let want: str = resolve_alias_name(view, col_ty);
+    let want: &str = resolve_alias_name(view, col_ty);
     if !int_lit_fits(comp, want) {
         let mut m3: String = String::new();
         m3.push_str("wql!: rel '");
@@ -851,10 +851,10 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
 // So this seam refuses only what it KNOWS is lossy — the ORDER question's
 // default-deny stays where it belongs, on the licence (`el_order_faithful`), which
 // denies an unresolvable name without denying the query.
-pub fn key_norm_ok(tn: str, kv: str, ctx: str) -> bool { return key_norm_ok_in(tn, kv, -1i64, &el_types_new(), ctx); }
+pub fn key_norm_ok(tn: &str, kv: &str, ctx: &str) -> bool { return key_norm_ok_in(tn, kv, -1i64, &el_types_new(), ctx); }
 
 /// `key_norm_ok`, reported at the key's place in the query (`at`, < 0 = unlocated).
-pub fn key_norm_ok_in(tn: str, kv: str, at: i64, env: &ElTypes, ctx: str) -> bool {
+pub fn key_norm_ok_in(tn: &str, kv: &str, at: i64, env: &ElTypes, ctx: &str) -> bool {
     let t: ElTy = el_ty(tn);
     if t.cls < 0i32           { return true; }   // lenient — the host is the oracle
     // ⚠ THE VECTOR MUST BE ABLE TO HOLD THE TYPE, and that is a SECOND antecedent,

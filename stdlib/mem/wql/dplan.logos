@@ -66,14 +66,14 @@ pub struct DScan {
 
 /// A slice parameter with no registry identity — read through a `SliceStream`
 /// wrap (ADR 0025 R-A). THE one copy of this predicate.
-pub fn dp_slice_stream_src(prm: &MacroParams, src: str) -> bool {
+pub fn dp_slice_stream_src(prm: &MacroParams, src: &str) -> bool {
     if prm.rel_find_src(src) >= 0i64 { return false; }
     return prm.is_source(src);
 }
 
 /// The entry scan's shape, from the facts the access plan left on the
 /// registry. `has_sort`: the query writes an `order by`.
-pub fn plan_entry_scan(prm: &MacroParams, src: str, has_sort: bool) -> DScan {
+pub fn plan_entry_scan(prm: &MacroParams, src: &str, has_sort: bool) -> DScan {
     let elided: bool = has_sort && prm.rel_src_ord_noop(src);
     let sorts: bool = has_sort && !elided;
     let slice: bool = dp_slice_stream_src(prm, src);
@@ -105,7 +105,7 @@ pub fn plan_group_pure(ru: &CRule) -> bool {
     match &ru.clause.group {
         Option::None => { return false; }
         Option::Some(g) => {
-            let onames: Vec<str> = group_out_names(g);
+            let onames: Vec<&str> = group_out_names(g);
             match &ru.env.order {
                 Option::Some(o) => { if !sexpr_over_group_names((*o).view::<SExpr>(), &onames, onames.len()) { return false; } }
                 Option::None => { }
@@ -116,8 +116,8 @@ pub fn plan_group_pure(ru: &CRule) -> bool {
 }
 
 /// The names a grouped clause's `select` / `having` may read besides `key`.
-pub fn group_out_names(g: &CGroup) -> Vec<str> {
-    let mut onames: Vec<str> = Vec::<str>::new();
+pub fn group_out_names(g: &CGroup) -> Vec<&str> {
+    let mut onames: Vec<&str> = Vec::<&str>::new();
     let ags: &[CAgg] = g.aggs.as_slice();
     let mut j: i64 = 0i64;
     while j < g.aggs.len() { onames.push(ags[j].name); j = j + 1i64; }
@@ -130,7 +130,7 @@ pub fn clause_group_pure(cl: &CClause) -> bool {
     match &cl.group {
         Option::None => { return false; }
         Option::Some(g) => {
-            let onames: Vec<str> = group_out_names(g);
+            let onames: Vec<&str> = group_out_names(g);
             let n: i64 = onames.len();
             if !sexpr_over_group_names(cl.head.view::<SExpr>(), &onames, n) { return false; }
             match &g.having {
@@ -180,7 +180,7 @@ pub struct DSimple {
 // `limit 0` empties it; identity needs a single bare source, no distinct or
 // limit, and a select that is the row variable (or `find`). `cond` is the
 // rule's one `where` (null = none).
-fn dp_fold_entry(ru: &CRule, src: str, row_ty: str, var: str, cond: WAny, single: bool,
+fn dp_fold_entry(ru: &CRule, src: &str, row_ty: &str, var: &str, cond: WAny, single: bool,
                  h: &Writ) -> DSimple {
     let find: bool = match &ru.env.mode { CMode::Find => { true } CMode::All => { false } CMode::First => { false } };
     let mut empty: bool = false;
@@ -232,7 +232,7 @@ fn dp_fold_entry(ru: &CRule, src: str, row_ty: str, var: str, cond: WAny, single
     let mut has_limit: bool = false;
     let mut limit_n: i64 = 0i64;
     let mut limit_is_param: bool = false;
-    let mut limit_param: str = "";
+    let mut limit_param: &str = "";
     match &ru.env.limit {
         CLimit::None => { }
         CLimit::N(n) => { has_limit = true; limit_n = *n; if *n == 0i64 { empty = true; } }
@@ -399,7 +399,7 @@ pub fn dscan_backward(d: &DScan) -> bool {
     }
 }
 
-pub fn dscan_arm_name(d: &DScan) -> str {
+pub fn dscan_arm_name(d: &DScan) -> &str {
     match &d.arm {
         DScanArm::SortSlice => { return "sort-slice"; }
         DScanArm::SortIndexed => { return "sort-indexed"; }
@@ -466,14 +466,14 @@ pub struct DNest {
 
 pub fn dnest_new() -> DNest {
     return DNest { base_src: "", base_ty: "", base_var: "", n: 0i64,
-                    src: Vec::<str>::new(), ty: Vec::<str>::new(), var: Vec::<str>::new(),
+                    src: Vec::<&str>::new(), ty: Vec::<&str>::new(), var: Vec::<&str>::new(),
                     anti: Vec::<bool>::new(), outer: Vec::<i32>::new(), onw: Vec::<i64>::new(), edge: Vec::<bool>::new(),
                     byval: Vec::<bool>::new(), jstrat: Vec::<i32>::new(), jsel: Vec::<i64>::new(),
                     jground: Vec::<i64>::new() };
 }
 
 // Append one step (the decision fields as the plan left them on the node).
-pub fn dn_push(ch: &mut DNest, src: str, ty: str, var: str, anti: bool, onw: i64, edge: bool,
+pub fn dn_push(ch: &mut DNest, src: &str, ty: &str, var: &str, anti: bool, onw: i64, edge: bool,
            byval: bool, jstrat: i32, jsel: i64, jground: i64) {
     ch.src.push(src); ch.ty.push(ty); ch.var.push(var); ch.anti.push(anti); ch.onw.push(onw);
     ch.outer.push(0i32);
@@ -625,10 +625,10 @@ pub fn plan_scc(prm: &MacroParams, scc: &RelScc, c: i64, h: &Writ) -> DScc {
                 if pos.len() == 0i64 { m.seeds.push(b); }
                 let mut v: i64 = 0i64;
                 while v < pos.len() {
-                    let mut ovr: Vec<str> = Vec::<str>::new();
+                    let mut ovr: Vec<&str> = Vec::<&str>::new();
                     let mut w: i64 = 0i64;
                     while w < pos.len() {
-                        let nm_w: str = if w == v { string_as_str(&prm.rel_dsrcs[orel[w]]) }
+                        let nm_w: &str = if w == v { string_as_str(&prm.rel_dsrcs[orel[w]]) }
                                         else      { string_as_str(&prm.rel_srcs[orel[w]]) };
                         let sl: i64 = pos[w] + 1i64;
                         while ovr.len() <= sl { ovr.push(""); }
@@ -647,7 +647,7 @@ pub fn plan_scc(prm: &MacroParams, scc: &RelScc, c: i64, h: &Writ) -> DScc {
                     }
                     if reordered.is_some() {
                         let rc: CClause = reordered.unwrap();
-                        let mut ovr2: Vec<str> = Vec::<str>::new();
+                        let mut ovr2: Vec<&str> = Vec::<&str>::new();
                         let rinv: Vec<bool> = clause_slot_invariance(&rc, scc, c);
                         let rbs: &[CLit] = rc.body.as_slice();
                         let mut sl2: i64 = 0i64;
@@ -655,7 +655,7 @@ pub fn plan_scc(prm: &MacroParams, scc: &RelScc, c: i64, h: &Writ) -> DScc {
                         while q < rc.body.len() {
                             match &rbs[q] {
                                 CLit::Atom(a) => {
-                                    let mut nm2: str = "";
+                                    let mut nm2: &str = "";
                                     if a.reg >= 0i64 && scc.comp[a.reg] == c {
                                         nm2 = if sl2 == 0i64 { string_as_str(&prm.rel_dsrcs[a.reg]) } else { string_as_str(&prm.rel_srcs[a.reg]) };
                                     }
@@ -698,7 +698,7 @@ pub fn plan_scc(prm: &MacroParams, scc: &RelScc, c: i64, h: &Writ) -> DScc {
 /// key differently. Later steps are left `JS_NONE`; `plan_insert_drains` reads
 /// that as "not proven read-once" and drains the step's source on
 /// `MG_UNDECIDED`.
-fn core_base_var_of(cl: &CClause) -> str {
+fn core_base_var_of(cl: &CClause) -> &str {
     if cl.body.len() < 1i64 { return ""; }
     match &cl.body.as_slice()[0i64] { CLit::Atom(a) => { return a.var; } CLit::Trav(t) => { return t.var; } CLit::Cond(_c) => { return ""; } }
 }
@@ -761,7 +761,7 @@ fn lit_copy(l: &CLit) -> CLit {
             let mut cs2: Vec<WAny> = Vec::<WAny>::new();
             let mut k2: i64 = 0i64;
             while k2 < t.conds.len() { cs2.push(t.conds.get(k2)); k2 = k2 + 1i64; }
-            let mut path: Vec<str> = Vec::<str>::new();
+            let mut path: Vec<&str> = Vec::<&str>::new();
             let mut k3: i64 = 0i64;
             while k3 < t.path.len() { path.push(t.path.get(k3)); k3 = k3 + 1i64; }
             return CLit::Trav(CTrav { name: t.name, base: t.base, path: path, var: t.var, row_ty: t.row_ty, neg: t.neg, outer: t.outer, conds: cs2 });
@@ -808,7 +808,7 @@ pub fn delta_first(prm: &MacroParams, cl: &CClause, dslot: i64, h: &Writ) -> Opt
     let mut k: i64 = 0i64;
     while k < srcs.len() { if k != dslot { order.push(srcs[k]); } k = k + 1i64; }
     // the var each new position binds ("" for a negation: it binds nothing)
-    let mut vars: Vec<str> = Vec::<str>::new();
+    let mut vars: Vec<&str> = Vec::<&str>::new();
     let mut p: i64 = 0i64;
     while p < order.len() {
         match &bs[order[p]] {
@@ -869,7 +869,7 @@ pub fn plan_sccs(prm: &MacroParams, scc: &RelScc, h: &Writ) -> Vec<DScc> {
 }
 
 /// A measurement switch: set (to anything) in the compiler's environment.
-pub fn env_on(name: str) -> bool {
+pub fn env_on(name: &str) -> bool {
     let mut n: String = String::new();
     n.push_str(name);
     n.push_u8(0u8);
@@ -899,7 +899,7 @@ pub fn dincr_none() -> DIncr { return DIncr { admit: false, retract: false, dred
 
 /// Decide the incremental handle of the group entry `ds` (form Scan). `qn` is
 /// the query's bare name (the trace subject).
-pub fn plan_incremental(ds: &DSimple, prm: &MacroParams, qn: str, h: &Writ) -> DIncr {
+pub fn plan_incremental(ds: &DSimple, prm: &MacroParams, qn: &str, h: &Writ) -> DIncr {
     let ru: &CRule = &prm.plan_core.entry;
     let cl: &CClause = &ru.clause;
     let g: &CGroup = match &cl.group { Option::Some(x) => { x } Option::None => { return dincr_none(); } };
@@ -978,10 +978,10 @@ pub fn plan_incremental(ds: &DSimple, prm: &MacroParams, qn: str, h: &Writ) -> D
 // function — which is the class of unobservable derived decision this compiler
 // has already paid for once at the join-order axis.
 pub fn incr_admit(ch: &DNest, ty: &ElTypes, aggs: &Vec<CAgg>,
-              uda: &Vec<bool>, act: &Vec<str>, key_ty: str,
-              result_ty: str, tres: i32, has_having: bool, proj_e: SExpr,
+              uda: &Vec<bool>, act: &Vec<&str>, key_ty: &str,
+              result_ty: &str, tres: i32, has_having: bool, proj_e: SExpr,
               having: WAny, has_where: bool, has_sort: bool, has_limit: bool,
-              distinct: bool, prm: &MacroParams, retr: bool, qn: str) -> bool {
+              distinct: bool, prm: &MacroParams, retr: bool, qn: &str) -> bool {
     let acount: i64 = aggs.len();
     // ── A DECLARED `rel` IS A SET, AND A HANDLE OVER ONE ANSWERS WRONG ──────
     //
@@ -1116,7 +1116,7 @@ pub fn incr_admit(ch: &DNest, ty: &ElTypes, aggs: &Vec<CAgg>,
         let coff: i64 = prm.rel_coff[rel_m];
         let mut ci2: i64 = 0i64;
         while ci2 < prm.rel_ccnt[rel_m] {
-            let ct: str = prm.relc_ty[coff + ci2];
+            let ct: &str = prm.relc_ty[coff + ci2];
             if !incr_ty_ok(ct) || el_class_lookup(ct) == EL_TY_FLT() || el_class_lookup(ct) < 0i32 {
                 return incr_decline_r(qn, IR_REL_COL_TY());
             }
@@ -1237,7 +1237,7 @@ pub fn incr_admit(ch: &DNest, ty: &ElTypes, aggs: &Vec<CAgg>,
     // `select` and `having` must be evaluable from the GROUP ROW alone — no
     // source row (its index is meaningless across epochs) and no scalar
     // parameter (it is a per-call value, and `<q>_snapshot` takes none).
-    let mut onames: Vec<str> = Vec::<str>::new();
+    let mut onames: Vec<&str> = Vec::<&str>::new();
     let mut j: i64 = 0i64;
     while j < acount { onames.push(aggs.as_slice()[j].name); j = j + 1i64; }
     if !sexpr_over_group_names(proj_e, &onames, acount) {
@@ -1272,7 +1272,7 @@ pub fn incr_admit(ch: &DNest, ty: &ElTypes, aggs: &Vec<CAgg>,
 /// by the eligibility fixture so that they cannot become silently mishandled.
 /// Everything else the EL lattice admits — the integer family, `bool`, `f64` —
 /// is a self-contained value.
-pub fn incr_ty_ok(t: str) -> bool {
+pub fn incr_ty_ok(t: &str) -> bool {
     if str_eq(t, "String") { return false; }
     return el_ty(t).cls != EL_TY_STR();
 }
@@ -1300,14 +1300,14 @@ pub fn incr_ty_ok(t: str) -> bool {
 /// retract, and −0.0 == +0.0 lets a retraction of one cancel an insert of the
 /// other. That is Victor's open 2026-08-07 decision about the multiplicity map's
 /// key wearing a different hat, and an emitter may not answer it in passing.
-pub fn incr_row_ty_ok(t: &ElTypes, row_ty: str) -> bool {
+pub fn incr_row_ty_ok(t: &ElTypes, row_ty: &str) -> bool {
     if row_ty.len() == 0i64 { return false; }
     if !t.type_stamped(row_ty) { return false; }
     let mut i: i64 = 0i64;
     while true {
         let e: i64 = t.type_field_at(row_ty, i);
         if e < 0i64 { return true; }
-        let ftn: str = t.binding_ty_name_at(e);
+        let ftn: &str = t.binding_ty_name_at(e);
         if ftn.len() == 0i64 { return false; }
         if el_class_lookup(ftn) < 0i32 { return false; }
         if !incr_ty_ok(ftn) { return false; }
@@ -1354,7 +1354,7 @@ pub fn incr_proj_ty_ok(e: SExpr, t: &ElTypes) -> bool {
 /// ⚠ NATIVE is excluded deliberately and the ground is in `incr_eligible`: a
 /// native rel has neither dedup nor recursion, so it carries no property of the
 /// accumulated input for an epoch boundary to lose.
-pub fn incr_src_is_derived_rel(prm: &MacroParams, src: str) -> bool {
+pub fn incr_src_is_derived_rel(prm: &MacroParams, src: &str) -> bool {
     let i: i64 = prm.rel_find_src(src);
     if i < 0i64 { return false; }
     return !prm.rel_native[i];
@@ -1362,7 +1362,7 @@ pub fn incr_src_is_derived_rel(prm: &MacroParams, src: str) -> bool {
 
 /// A refusal named by its RULE (why.logos `IR_*`): the sentence is the rule's
 /// rendering, and `[facts]` names the rule — the antecedent that failed (E3).
-pub fn incr_decline_r(qn: str, r: i32) -> bool {
+pub fn incr_decline_r(qn: &str, r: i32) -> bool {
     plan_trace("incremental", "declined", qn, ir_render(r));
     incr_facts(qn, r);
     return false;
@@ -1370,18 +1370,18 @@ pub fn incr_decline_r(qn: str, r: i32) -> bool {
 
 /// The one refusal whose sentence is an OPERAND — the rel registry's own ground
 /// for a rel that cannot be accumulated (`rel_incr_why`), under one rule.
-pub fn incr_decline_dyn(qn: str, r: i32, why: str) -> bool {
+pub fn incr_decline_dyn(qn: &str, r: i32, why: &str) -> bool {
     plan_trace("incremental", "declined", qn, why);
     incr_facts(qn, r);
     return false;
 }
 
-pub fn incr_emit(qn: str, r: i32) {
+pub fn incr_emit(qn: &str, r: i32) {
     plan_trace("incremental", "EMITTED", qn, ir_render(r));
     incr_facts(qn, r);
 }
 
-pub fn incr_facts(qn: str, r: i32) {
+pub fn incr_facts(qn: &str, r: i32) {
     if !plan_trace_facts_on() { return; }
     let mut fl: String = String::new();
     fl.push_str("[facts] "); fl.push_str(qn); fl.push_str(" incremental rule=");
@@ -1389,7 +1389,7 @@ pub fn incr_facts(qn: str, r: i32) {
     plan_trace_raw(string_as_str(&fl));
 }
 
-pub fn retract_facts(qn: str, r: i32) {
+pub fn retract_facts(qn: &str, r: i32) {
     if !plan_trace_facts_on() { return; }
     let mut fl: String = String::new();
     fl.push_str("[facts] "); fl.push_str(qn); fl.push_str(" retraction rule=");
@@ -1398,7 +1398,7 @@ pub fn retract_facts(qn: str, r: i32) {
 }
 
 /// The refusal named by its rule (why.logos `RT_*`, E3).
-pub fn incr_no_retract_r(qn: str, r: i32) -> bool {
+pub fn incr_no_retract_r(qn: &str, r: i32) -> bool {
     plan_trace("retraction", "declined", qn, rt_render(r));
     retract_facts(qn, r);
     return false;
@@ -1408,7 +1408,7 @@ pub fn incr_no_retract_r(qn: str, r: i32) -> bool {
 /// A separate channel name from `incr_decline`'s because it is a different
 /// answer: the query DOES get a handle, it does not get a `<q>_retract`.
 /// The DRed driver's verdict, named by its rule (why.logos `DR_*`, E3).
-pub fn dred_trace(bare: str, verdict: str, r: i32) {
+pub fn dred_trace(bare: &str, verdict: &str, r: i32) {
     plan_trace("rel dred driver", verdict, bare, dr_render(r));
     if !plan_trace_facts_on() { return; }
     let mut fl: String = String::new();
@@ -1468,7 +1468,7 @@ pub fn dred_trace(bare: str, verdict: str, r: i32) {
 /// to trace and to shape the emitted fns. Both read THIS function, so they cannot
 /// answer differently — the `accw`/`compute_acc_tys` failure mode this file
 /// already carries two warnings about.
-pub fn retract_ok(aggs: &Vec<CAgg>, acc: &Vec<str>) -> bool {
+pub fn retract_ok(aggs: &Vec<CAgg>, acc: &Vec<&str>) -> bool {
     let mut i: i64 = 0i64;
     while i < aggs.len() {
         let fnid: i32 = agg_of_name(aggs.as_slice()[i].func);
@@ -1500,8 +1500,8 @@ pub fn aggs_any_minmax(aggs: &Vec<CAgg>) -> bool {
     return false;
 }
 
-pub fn incr_retract_eligible(aggs: &Vec<CAgg>, acc: &Vec<str>,
-                         rel_backed: bool, qn: str) -> bool {
+pub fn incr_retract_eligible(aggs: &Vec<CAgg>, acc: &Vec<&str>,
+                         rel_backed: bool, qn: &str) -> bool {
     // ── RETRACTION THROUGH RECURSION IS REFUSED, AND THE GROUND IS A FACT ───
     //
     // ⚠ ASKED FIRST, AHEAD OF THE AGGREGATE LIST, because it is the STRONGER
@@ -1569,7 +1569,7 @@ pub fn incr_retract_eligible(aggs: &Vec<CAgg>, acc: &Vec<str>,
 /// `str`, `String`, float — a named type is not walked, for `incr_row_ty_ok`'s
 /// transitivity reason — or the row was never stamped. `owned` is set when a
 /// component is a `String`, so the store's copies must clone.
-pub fn incr_rowid_text(t: &ElTypes, row_ty: str, v: str, ty_out: &mut String,
+pub fn incr_rowid_text(t: &ElTypes, row_ty: &str, v: &str, ty_out: &mut String,
                    ex_out: &mut String, owned: &mut bool) -> bool {
     if row_ty.len() == 0i64 { return false; }
     if !t.type_stamped(row_ty) { return false; }
@@ -1579,8 +1579,8 @@ pub fn incr_rowid_text(t: &ElTypes, row_ty: str, v: str, ty_out: &mut String,
     while true {
         let e: i64 = t.type_field_at(row_ty, i);
         if e < 0i64 { break; }
-        let ftn: str = t.binding_ty_name_at(e);
-        let col: str = t.binding_col_at(e);
+        let ftn: &str = t.binding_ty_name_at(e);
+        let col: &str = t.binding_col_at(e);
         if ftn.len() == 0i64 || col.len() == 0i64 { return false; }
         if i > 0i64 { ty_out.push_str(", "); ex_out.push_str(", "); }
         if str_eq(ftn, "String") {
@@ -1634,7 +1634,7 @@ pub fn incr_rowid_text(t: &ElTypes, row_ty: str, v: str, ty_out: &mut String,
 }
 
 /// What a bare-scan retraction is matched on, named by its rule (why.logos `RI_*`).
-pub fn rid_trace(qn: str, r: i32) {
+pub fn rid_trace(qn: &str, r: i32) {
     plan_trace("retract identity", ri_name(r), qn, ri_render(r));
     if !plan_trace_facts_on() { return; }
     let mut fl: String = String::new();

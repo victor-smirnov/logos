@@ -360,7 +360,7 @@ pub fn BFN_TO_NUMBER()   -> i32 { return 13i32; }
 pub fn BFN_POW()         -> i32 { return 14i32; }
 
 // Resolve a call name → builtin id (BFN_*). Unknown ⇒ BFN_UNKNOWN.
-pub fn builtin_of_name(name: str) -> i32 {
+pub fn builtin_of_name(name: &str) -> i32 {
     if str_eq(name, "len")         { return BFN_LEN(); }
     if str_eq(name, "upper")       { return BFN_UPPER(); }
     if str_eq(name, "lower")       { return BFN_LOWER(); }
@@ -412,7 +412,7 @@ pub fn builtin_ret_ty(bfn: i32) -> i32 {
 /// `substr(s, i, n)` as Soufflé's (`std::string::substr` over bytes): an index
 /// outside `[0, len]` gives the empty string, a negative or overlong `n` runs
 /// to the end.
-pub fn wql_substr(s: str, i: i64, n: i64) -> String {
+pub fn wql_substr(s: &str, i: i64, n: i64) -> String {
     let mut out: String = String::new();
     let len: i64 = s.len();
     if i < 0i64 || i > len { return out; }
@@ -454,7 +454,7 @@ pub fn wql_pow(b: i64, e: i64) -> Result<i64, ElError> {
     return Result::Ok(acc);
 }
 
-pub fn wql_to_number(s: str) -> Result<i64, ElError> {
+pub fn wql_to_number(s: &str) -> Result<i64, ElError> {
     let n: i64 = s.len();
     let mut k: i64 = 0i64;
     let mut neg: bool = false;
@@ -482,14 +482,14 @@ pub fn wql_to_number(s: str) -> Result<i64, ElError> {
 }
 
 /// `a + b` over two strings — the EL's concatenation, an owned `String`.
-pub fn wql_cat(a: str, b: str) -> String {
+pub fn wql_cat(a: &str, b: &str) -> String {
     let mut out: String = String::new();
     out.push_str(a);
     out.push_str(b);
     return out;
 }
 
-pub fn wql_upper(s: str) -> String {
+pub fn wql_upper(s: &str) -> String {
     let mut out: String = String::new();
     let n: i64 = s.len();
     let mut i: i64 = 0i64;
@@ -501,7 +501,7 @@ pub fn wql_upper(s: str) -> String {
     }
     return out;
 }
-pub fn wql_lower(s: str) -> String {
+pub fn wql_lower(s: &str) -> String {
     let mut out: String = String::new();
     let n: i64 = s.len();
     let mut i: i64 = 0i64;
@@ -555,12 +555,12 @@ pub fn EL_TY_NAMED() -> i32 { return 4i32; }
 pub fn el_option_inner<'a>(ty: &'a str) -> &'a str {
     let n: i64 = ty.len();
     if n < 9i64 || str_byte_at(ty, n - 1i64) != 62u8 { return ""; }
-    let h: str = unsafe { str_from_raw(ty.as_ptr(), 7i64) };
+    let h: &str = unsafe { str_from_raw(ty.as_ptr(), 7i64) };
     if !str_eq(h, "Option<") { return ""; }
     return unsafe { str_from_raw((ty.as_ptr() as i64 + 7i64) as *const u8, n - 8i64) };
 }
 
-pub fn el_is_generic_spelling(ty: str) -> bool {
+pub fn el_is_generic_spelling(ty: &str) -> bool {
     let n: i64 = ty.len();
     if n < 3i64 || str_byte_at(ty, n - 1i64) != 62u8 { return false; }   // '>'
     let c0: u8 = str_byte_at(ty, 0i64);
@@ -574,7 +574,7 @@ pub fn el_is_generic_spelling(ty: str) -> bool {
 // `str`/`String` → STR, `bool` → BOOL, `f64`/`f32` → FLT, everything else →
 // INT. This holds no module view, so it cannot know a NAMED type; a caller with
 // an `ElTypes` asks `ElTypes::class_of_name`, which can.
-pub fn el_ty_of_name(name: str) -> i32 {
+pub fn el_ty_of_name(name: &str) -> i32 {
     let c: i32 = el_class_lookup(name);
     if c < 0i32 { return EL_TY_INT(); }
     return c;
@@ -600,7 +600,7 @@ pub fn el_ty_of_name(name: str) -> i32 {
 // is exactly how column widths were lost before `infer_ty_name` existed.
 // THE definition: `el` sits below `codegen`, and a second copy up there is
 // what this replaced.
-pub fn el_class_repr(ty: i32) -> str {
+pub fn el_class_repr(ty: i32) -> &str {
     if ty == EL_TY_STR()  { return "str"; }
     if ty == EL_TY_BOOL() { return "bool"; }
     if ty == EL_TY_FLT()  { return "f64"; }
@@ -713,7 +713,7 @@ pub fn el_ty_has_ident(t: ElTy) -> bool { return t.ident == EL_ID_OK(); }
 /// ⚠ `el` sits BELOW the reflection boundary and holds no module view: `name`
 /// must already BE a type, not an alias for one. Alias resolution happens at the
 /// READ sites (`reflect::resolve_alias_name`).
-pub fn el_ty(name: str) -> ElTy { return el_ty_complete(el_ty_stored_of(name)); }
+pub fn el_ty(name: &str) -> ElTy { return el_ty_complete(el_ty_stored_of(name)); }
 
 /// The type admitted at index `i`, complete. The enumeration `el_ty` scans.
 pub fn el_ty_at(i: i64) -> ElTy { return el_ty_complete(el_ty_stored(i)); }
@@ -727,7 +727,7 @@ pub fn el_ty_arity() -> i64 { return 21i64; }
 /// The STORED row of a NAME — THE one place a name is admitted, by scan over the
 /// enumeration. Nothing here derives anything, which is what keeps completion
 /// (whose composition reads the REPRESENTATIVE's stored row) from recurring.
-fn el_ty_stored_of(name: str) -> ElTy {
+fn el_ty_stored_of(name: &str) -> ElTy {
     let n: i64 = el_ty_arity();
     let mut i: i64 = 0i64;
     while i < n {
@@ -807,7 +807,7 @@ fn el_ty_stored(i: i64) -> ElTy {
 /// The row for a name the lattice does not admit: every fact DENIED. The
 /// default-deny that keeps a type added later from inheriting a licence resting
 /// on a comparison nobody has checked.
-fn el_ty_denied(name: str) -> ElTy {
+fn el_ty_denied(name: &str) -> ElTy {
     return ElTy { name: name, cls: -1i32, bits: 0i64, signed: false, repr: "",
                   canon: false, fits: false, ident: EL_ID_UNNAMED(),
                   ord: EL_ORD_UNNAMED(), self_ord: EL_ORD_UNNAMED(),
@@ -817,7 +817,7 @@ fn el_ty_denied(name: str) -> ElTy {
 /// A STORED row: the five properties nothing derives, and nothing else. The
 /// derived fields are left DENIED so that a row read before completion cannot be
 /// mistaken for an answer.
-fn el_ty_raw(name: str, cls: i32, bits: i64, signed: bool,
+fn el_ty_raw(name: &str, cls: i32, bits: i64, signed: bool,
              self_ord: i32, self_ident: i32) -> ElTy {
     return ElTy { name: name, cls: cls, bits: bits, signed: signed,
                   repr: "", canon: false, fits: false, ident: EL_ID_UNNAMED(),
@@ -833,7 +833,7 @@ fn el_ty_raw(name: str, cls: i32, bits: i64, signed: bool,
 /// instructions the backend selects, which no property of the type entails.
 fn el_ty_complete(s: ElTy) -> ElTy {
     if s.cls < 0i32 { return s; }
-    let repr: str = el_class_repr(s.cls);
+    let repr: &str = el_class_repr(s.cls);
     // Every value survives the conversion to `repr`. For the integer family that
     // is the i64 range: a signed type of ≤ 64 bits fits exactly, an unsigned one
     // needs its top bit free. f32 → f64 is exact; str/bool are not converted.
@@ -888,10 +888,10 @@ fn el_ord_of(cls: i32, bits: i64, fits: bool, r_ord: i32) -> i32 {
 /// lattice. The coarse VIEW of `el_ty` — kept because a join strategy and a
 /// literal-emission route genuinely want a four-way answer, but no longer the
 /// place any fact LIVES.
-pub fn el_class_lookup(name: str) -> i32 { return el_ty(name).cls; }
+pub fn el_class_lookup(name: &str) -> i32 { return el_ty(name).cls; }
 
 /// STRICT classification: an out-of-lattice name is reported, not guessed.
-pub fn el_ret_class(name: str) -> i32 { return el_class_lookup(name); }
+pub fn el_ret_class(name: &str) -> i32 { return el_class_lookup(name); }
 
 // ── A STRING LITERAL'S VALUE ─────────────────────────────────────────────
 fn el_hex_digit(c: u8) -> i64 {
@@ -908,7 +908,7 @@ fn el_hex_digit(c: u8) -> i64 {
 /// the host compiler is the one that refuses it when the literal is emitted.
 /// Code generation re-emits the spelling (`codegen::emit_str_spelling`); this is
 /// for the evaluators that need the value itself.
-pub fn el_str_unescape(s: str, out: &mut String) {
+pub fn el_str_unescape(s: &str, out: &mut String) {
     let n: i64 = s.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -958,7 +958,7 @@ pub fn el_str_unescape(s: str, out: &mut String) {
 /// of the same): a value is normalized exactly when its type is NOT its own
 /// repr, and only for the numeric classes — `String` is also non-canon and is
 /// converted by borrowing, not by casting.
-pub fn el_norm_cast(name: str) -> str {
+pub fn el_norm_cast(name: &str) -> &str {
     let t: ElTy = el_ty(name);
     if t.cls != EL_TY_INT() && t.cls != EL_TY_FLT() { return ""; }
     if t.canon { return ""; }
@@ -1000,7 +1000,7 @@ pub fn el_norm_cast(name: str) -> str {
 /// change). And with no caller it carries NO GATE: `wql_agg_arg_seam_e2e` used
 /// to be its measurement and now measures `el_agg_arg_reaches` instead. Do not
 /// read this as a measured claim until something asks it again.
-pub fn el_host_carries(name: str, want: str) -> bool {
+pub fn el_host_carries(name: &str, want: &str) -> bool {
     if str_eq(name, want) { return true; }
     let t: ElTy = el_ty(name);
     if t.cls != EL_TY_INT() { return false; }        // no float is widened
@@ -1052,7 +1052,7 @@ pub fn el_host_carries(name: str, want: str) -> bool {
 /// type, and `tests/logos/fail/wql_agg_f32_arg_fail` keeps that refusal visible
 /// with a diagnostic that names the remedy (`sum(s.x * 1.0f64)` — the widening
 /// requested by the query, at the arithmetic seam, where it is the query's).
-pub fn el_agg_arg_reaches(name: str, want: str) -> bool {
+pub fn el_agg_arg_reaches(name: &str, want: &str) -> bool {
     if str_eq(name, want) { return true; }
     let t: ElTy = el_ty(name);
     if t.cls != EL_TY_INT() { return false; }
@@ -1082,7 +1082,7 @@ pub fn el_agg_arg_reaches(name: str, want: str) -> bool {
 /// ⚠ NOT ASKED OF A FLOAT. Both classes are checked so the answer is total, but
 /// `el_agg_arg_reaches` refuses a float above this call for a reason that is
 /// neither the value's nor the position's — see its header.
-pub fn el_int_widens(name: str, want: str) -> bool {
+pub fn el_int_widens(name: &str, want: &str) -> bool {
     let s: ElTy = el_ty(name);
     let d: ElTy = el_ty(want);
     if s.cls != EL_TY_INT() || d.cls != EL_TY_INT() { return false; }
@@ -1193,18 +1193,18 @@ pub fn EL_ORD_NO_CMP()  -> i32 { return 5i32; }
 /// ⚠ THIS USED TO BE A SECOND LIST OF NAMES beside the lattice table, so a type
 /// admitted there and forgotten here would have been silently treated as fitting.
 /// It is now the type's own width.
-pub fn el_int_fits_i64(name: str) -> bool {
+pub fn el_int_fits_i64(name: &str) -> bool {
     let t: ElTy = el_ty(name);
     return t.cls == EL_TY_INT() && t.fits;
 }
 
 /// How faithfully does the emitted comparison realize `name`'s own order? One of
 /// the `EL_ORD_*` codes — a stored field of the resolved type.
-pub fn el_order_fidelity(name: str) -> i32 { return el_ty(name).ord; }
+pub fn el_order_fidelity(name: &str) -> i32 { return el_ty(name).ord; }
 
 /// The licence predicate: the emitted comparison realizes THIS type's order, so
 /// a decision resting on "the sort determines the sequence" may be taken.
-pub fn el_order_faithful(name: str) -> bool {
+pub fn el_order_faithful(name: &str) -> bool {
     return el_order_fidelity(name) == EL_ORD_OK();
 }
 
@@ -1218,7 +1218,7 @@ pub fn el_order_faithful(name: str) -> bool {
 /// established that the value is normalized `as i64` where it stands. It is NOT
 /// the sort's question, and while the two shared one sentence this rendered a
 /// claim about the sort at a site that is not the sort — see `el_ord_why_code`.
-pub fn el_order_why(name: str) -> str {
+pub fn el_order_why(name: &str) -> &str {
     return el_ord_why_code(el_order_fidelity(name), EL_WHY_NORM());
 }
 
@@ -1257,7 +1257,7 @@ pub fn el_wrap_ord_key(x: i64) -> i64 { return x ^ (-9223372036854775807i64 - 1i
 /// later, false for every width that fits (u8..u32/u24/u56 arrive non-negative
 /// and their order survives) and for `i128`/`u128`, whose failure is TRUNC — bits
 /// dropped, no key can repair that, and their refusal is a different site's job.
-pub fn el_ord_wraps(name: str) -> bool { return el_ty(name).ord == EL_ORD_WRAP(); }
+pub fn el_ord_wraps(name: &str) -> bool { return el_ty(name).ord == EL_ORD_WRAP(); }
 
 // The two EXTREMA of the wrapped order, as RAW `i64` payloads — the seeds a
 // fold over an `EL_ORD_WRAP` column must use, DERIVED here rather than restated
@@ -1417,7 +1417,7 @@ pub fn EL_WHY_SORT() -> i32 { return 1i32; }   // a key collected into a vector 
 /// normalization position ever reaches one of them, the sentence it gets is the
 /// sort's and will read wrong; that is the same defect one row over, and the
 /// derivation above is what makes it visible instead of silent.
-pub fn el_ord_why_code(f: i32, q: i32) -> str {
+pub fn el_ord_why_code(f: i32, q: i32) -> &str {
     if f == EL_ORD_PARTIAL() {
         return "an f64/f32 key is only PARTIALLY ordered — a NaN compares false against every value including itself, so on a NaN row BOTH disjuncts of `prev > cur || (prev == cur && tiebreak)` are false and the tiebreak is never reached. The remedy is a key whose comparison is total: an integer within the i64 range, a `str`, or a `bool`";
     }
@@ -1468,7 +1468,7 @@ pub fn el_ord_why_code(f: i32, q: i32) -> str {
 // speaks: WRAP/TRUNC when the conversion lost the value, PARTIAL when the emitted
 // comparison is not total, UNNAMED when either type is outside the lattice or the
 // two are related by no conversion this table knows.
-pub fn el_cmp_fidelity(named: str, emitted: str) -> i32 {
+pub fn el_cmp_fidelity(named: &str, emitted: &str) -> i32 {
     let n: ElTy = el_ty(named);
     let e: ElTy = el_ty(emitted);
     if n.cls < 0i32 || e.cls < 0i32 { return EL_ORD_UNNAMED(); }
@@ -1481,7 +1481,7 @@ pub fn el_cmp_fidelity(named: str, emitted: str) -> i32 {
 /// The IDENTITY counterpart of `el_cmp_fidelity`, for the sites that need `==`
 /// plus a hash rather than a ranking — a `group by` bucket, an equi-join key.
 /// Same two conjuncts, same "which one failed" discipline.
-pub fn el_cmp_ident(named: str, emitted: str) -> i32 {
+pub fn el_cmp_ident(named: &str, emitted: &str) -> i32 {
     let n: ElTy = el_ty(named);
     let e: ElTy = el_ty(emitted);
     if n.cls < 0i32 || e.cls < 0i32 { return EL_ID_UNNAMED(); }
@@ -1520,7 +1520,7 @@ pub fn el_cmp_ident_why<'a>(named: &'a str, emitted: &'a str) -> &'a str {
 ///
 /// THE shared antecedent of `key_norm_ok` and `step_key_ty_of`: one asks it to
 /// admit, the other to pick a common type for two sides of an equi-term.
-pub fn el_key_reaches(n: str, kv: str) -> bool {
+pub fn el_key_reaches(n: &str, kv: &str) -> bool {
     let t: ElTy = el_ty(n);
     if t.cls < 0i32   { return false; }
     if str_eq(n, kv)  { return true; }
@@ -1539,7 +1539,7 @@ pub fn el_key_reaches(n: str, kv: str) -> bool {
 /// borrows the row var, which dies with the loop body. So `String` is the one
 /// lattice type this denies — and it is denied HERE rather than in the identity
 /// or order tables, because its equality and its order are both perfectly fine.
-pub fn el_vec_key_ok(name: str) -> bool {
+pub fn el_vec_key_ok(name: &str) -> bool {
     let t: ElTy = el_ty(name);
     if t.cls < 0i32          { return false; }
     if t.cls == EL_TY_STR()  { return str_eq(name, "str"); }   // `String` is not Copy
@@ -1558,7 +1558,7 @@ pub fn el_vec_key_ok(name: str) -> bool {
 // live long enough`, on the emitted shape), so a `String` equi-key falls to the LOOP
 // tier, where `String == String` is exact. No index, correct answer. What deletes
 // this clause: an index that owns its keys.
-pub fn el_index_key_borrow_ok(name: str) -> bool {
+pub fn el_index_key_borrow_ok(name: &str) -> bool {
     let t: ElTy = el_ty(name);
     if t.cls < 0i32          { return false; }
     if t.cls == EL_TY_STR()  { return str_eq(name, "str"); }   // not `String`
@@ -1608,7 +1608,7 @@ pub fn EL_TOW_DENY() -> i32 { return 3i32; }
 pub fn EL_TOW_I128() -> i32 { return 4i32; }   // `i128` — `el_addq`/…/`el_negq`
 pub fn EL_TOW_U128() -> i32 { return 5i32; }   // `u128` — `el_addqu`/…
 
-pub fn el_arith_tower(name: str) -> i32 {
+pub fn el_arith_tower(name: &str) -> i32 {
     let t: ElTy = el_ty(name);
     if t.cls < 0i32         { return EL_TOW_NONE(); }  // lenient: the host decides
     if t.cls != EL_TY_INT() { return EL_TOW_NONE(); }  // float arithmetic is infix
@@ -1628,7 +1628,7 @@ pub fn el_arith_tower(name: str) -> i32 {
 
 /// The type the tower's operations take and return — what the emitter prints for
 /// an arithmetic node computing in it, and what its operands are normalized to.
-pub fn el_tower_repr(tw: i32) -> str {
+pub fn el_tower_repr(tw: i32) -> &str {
     if tw == EL_TOW_U64()  { return "u64"; }
     if tw == EL_TOW_I128() { return "i128"; }
     if tw == EL_TOW_U128() { return "u128"; }
@@ -1660,7 +1660,7 @@ pub fn el_tower_join(a: i32, b: i32) -> i32 {
 /// a tower at all? Kept because "u128 has no checked set" and "u64 has a
 /// different one" are different answers and callers that only branch on the
 /// first should not have to spell the second.
-pub fn el_arith_ok(name: str) -> bool {
+pub fn el_arith_ok(name: &str) -> bool {
     return el_arith_tower(name) != EL_TOW_DENY();
 }
 
@@ -1737,20 +1737,20 @@ pub fn el_quot_ty(t: i32) -> i32 {
 }
 
 // True iff `name` is a builtin aggregate function.
-pub fn is_builtin_agg(name: str) -> bool {
+pub fn is_builtin_agg(name: &str) -> bool {
     return str_eq(name, "count") || str_eq(name, "sum") || str_eq(name, "min")
         || str_eq(name, "max")   || str_eq(name, "avg");
 }
 
 // Does the builtin aggregate take an argument? (count is the sole nullary.)
-pub fn agg_takes_arg(name: str) -> bool {
+pub fn agg_takes_arg(name: &str) -> bool {
     return is_builtin_agg(name) && !str_eq(name, "count");
 }
 
 // THE rule table: the EL result type of `fn(arg: arg_ty)`. `arg_ty` is ignored
 // for `count` (pass anything). Returns -1 for an unknown aggregate name or an
 // argument outside the rule's domain (sum/min/max/avg need numeric INT/FLT).
-pub fn agg_result_ty(fn_name: str, arg_ty: i32) -> i32 {
+pub fn agg_result_ty(fn_name: &str, arg_ty: i32) -> i32 {
     if str_eq(fn_name, "count") { return EL_TY_INT(); }
     if str_eq(fn_name, "sum") || str_eq(fn_name, "min") || str_eq(fn_name, "max") {
         if arg_ty == EL_TY_INT() || arg_ty == EL_TY_FLT() { return arg_ty; }
@@ -1808,7 +1808,7 @@ pub fn agg_result_ty(fn_name: str, arg_ty: i32) -> i32 {
 // "i64"/"f64" and therefore refused a `u64` sum; that cell closed on 2026-08-06
 // and its answers are `tests/logos/pass/wql_agg_wide_int_arg_e2e` and
 // `tests/logos/pass/deem_incr_static_minmax_u64_e2e`.
-pub fn agg_acc_ty(arg_ty_name: str) -> str {
+pub fn agg_acc_ty(arg_ty_name: &str) -> &str {
     let t: ElTy = el_ty(arg_ty_name);
     if t.cls == EL_TY_FLT() { return "f64"; }
     if t.cls == EL_TY_INT() && t.ord == EL_ORD_WRAP() { return "u64"; }
@@ -1826,16 +1826,16 @@ pub fn agg_acc_ty(arg_ty_name: str) -> str {
 /// extrema are 0 and 2^64-1 and they are writable as u64 literals — which is
 /// exactly the "right by construction" the typing is for. `greatest` is the seed
 /// for `min` and `least` is the seed for `max`.
-pub fn agg_acc_least(acc: str) -> str {
+pub fn agg_acc_least(acc: &str) -> &str {
     if str_eq(acc, "u64") { return "0u64"; }
     return "-9223372036854775808i64";
 }
-pub fn agg_acc_greatest(acc: str) -> str {
+pub fn agg_acc_greatest(acc: &str) -> &str {
     if str_eq(acc, "u64") { return "18446744073709551615u64"; }
     return "9223372036854775807i64";
 }
 /// The ZERO of `acc` — `sum`'s seed and `count`'s.
-pub fn agg_acc_zero(acc: str) -> str {
+pub fn agg_acc_zero(acc: &str) -> &str {
     if str_eq(acc, "u64") { return "0u64"; }
     if str_eq(acc, "f64") { return "0.0f64"; }
     return "0i64";
@@ -1955,16 +1955,16 @@ pub fn el_types_new() -> ElTypes {
     return ElTypes {
         // Every table grows by its setter; none has a capacity.
         tns:    vec_new::<String>(),
-        names:  vec_new::<str>(),
+        names:  vec_new::<&str>(),
         n:      0i64,
-        udf_names: vec_new::<str>(),
-        udf_rets:  vec_new::<str>(),
+        udf_names: vec_new::<&str>(),
+        udf_rets:  vec_new::<&str>(),
         udf_arity: vec_new::<i64>(),
         udf_n:     0i64,
-        rb_var: vec_new::<str>(),
-        rb_col: vec_new::<str>(),
+        rb_var: vec_new::<&str>(),
+        rb_col: vec_new::<&str>(),
         rb_idx: vec_new::<i64>(),
-        rb_tn:  vec_new::<str>(),
+        rb_tn:  vec_new::<&str>(),
         rb_kind: vec_new::<i64>(),
         rb_n:   0i64,
         named:  vec_new::<String>(),
@@ -2022,34 +2022,34 @@ pub fn el_types_clone(t: &ElTypes) -> ElTypes {
 
 impl ElTypes {
     /// Mark row var `v` as the optional side of an outer join (live).
-    pub fn opt_add(self: &mut ElTypes, v: str) {
+    pub fn opt_add(self: &mut ElTypes, v: &str) {
         if self.opt_index(v) >= 0i64 { return; }
         self.opt_vars.push(String::from_str(v)); self.opt_live.push(true);
     }
-    fn opt_index(self: &ElTypes, v: str) -> i64 {
+    fn opt_index(self: &ElTypes, v: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.opt_vars.len() { if str_eq(self.opt_vars[i].as_str(), v) { return i; } i = i + 1i64; }
         return -1i64;
     }
     /// `v` reads as possibly absent here (an outer var, outside its own `on`).
-    pub fn opt_is_live(self: &ElTypes, v: str) -> bool {
+    pub fn opt_is_live(self: &ElTypes, v: &str) -> bool {
         let i: i64 = self.opt_index(v);
         return i >= 0i64 && self.opt_live[i];
     }
-    pub fn opt_is_var(self: &ElTypes, v: str) -> bool { return self.opt_index(v) >= 0i64; }
-    pub fn opt_set_live(self: &mut ElTypes, v: str, live: bool) {
+    pub fn opt_is_var(self: &ElTypes, v: &str) -> bool { return self.opt_index(v) >= 0i64; }
+    pub fn opt_set_live(self: &mut ElTypes, v: &str, live: bool) {
         let i: i64 = self.opt_index(v);
         if i >= 0i64 { self.opt_live[i] = live; }
     }
     /// Record that the rule reads field `col` (of type `inner`) of outer var `v`.
-    pub fn ov_add(self: &mut ElTypes, v: str, col: str, inner: str) {
+    pub fn ov_add(self: &mut ElTypes, v: &str, col: &str, inner: &str) {
         if self.ov_find(v, col) >= 0i64 { return; }
         let mut ty: String = String::new(); ty.push_str("Option<"); ty.push_str(inner); ty.push_str(">");
         let mut lc: String = String::new(); lc.push_str("__ov_"); lc.push_str(v); lc.push_str("_"); lc.push_str(col);
         self.ov_var.push(String::from_str(v)); self.ov_col.push(String::from_str(col));
         self.ov_inner.push(String::from_str(inner)); self.ov_ty.push(ty); self.ov_local.push(lc);
     }
-    pub fn ov_find(self: &ElTypes, v: str, col: str) -> i64 {
+    pub fn ov_find(self: &ElTypes, v: &str, col: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.ov_var.len() {
             if str_eq(self.ov_var[i].as_str(), v) && str_eq(self.ov_col[i].as_str(), col) { return i; }
@@ -2065,13 +2065,13 @@ impl ElTypes {
     // EMPTY — so `ty_name_of` INVENTED the class's representative and a `u64`
     // column came back out as `i64`. There is now one column, the TYPE, and the
     // class is a view of it.
-    pub fn ty_of(self: &ElTypes, name: str) -> i32 {
+    pub fn ty_of(self: &ElTypes, name: &str) -> i32 {
         return self.class_of_name(self.ty_name_of(name));
     }
 
     /// The class of a type NAME: the lattice's, `EL_TY_NAMED` for a declared
     /// plain struct/enum or a generic instantiation, the lenient INT otherwise.
-    pub fn class_of_name(self: &ElTypes, ty: str) -> i32 {
+    pub fn class_of_name(self: &ElTypes, ty: &str) -> i32 {
         let c: i32 = el_class_lookup(ty);
         if c >= 0i32 { return c; }
         if self.is_named(ty) { return EL_TY_NAMED(); }
@@ -2084,7 +2084,7 @@ impl ElTypes {
         return EL_TY_INT();
     }
 
-    pub fn is_named(self: &ElTypes, ty: str) -> bool {
+    pub fn is_named(self: &ElTypes, ty: &str) -> bool {
         if ty.len() == 0i64 { return false; }
         let mut i: i64 = 0i64;
         while i < self.named.len() {
@@ -2094,7 +2094,7 @@ impl ElTypes {
         return false;
     }
 
-    pub fn note_named(self: &mut ElTypes, ty: str) {
+    pub fn note_named(self: &mut ElTypes, ty: &str) {
         if self.is_named(ty) { return; }
         self.named.push(String::from_str(ty));
     }
@@ -2103,7 +2103,7 @@ impl ElTypes {
     // needs about the binding is derivable from the type, so the type is what is
     // kept. Reflection over a struct's fields, a native rel's columns, the
     // parameter list and every by-value element binding come through here.
-    pub fn set_ty_named(self: &mut ElTypes, name: str, ty_name: str) {
+    pub fn set_ty_named(self: &mut ElTypes, name: &str, ty_name: &str) {
         let mut i: i64 = 0i64;
         while i < self.n {
             if str_eq(self.names[i], name) { self.tns[i] = String::from_str(ty_name); return; }
@@ -2119,7 +2119,7 @@ impl ElTypes {
     // lattice baseline, the same answer the class view has always given).
     /// Is `name` recorded at all? `ty_name_of` answers the `i64` baseline for a
     /// name it never saw (an imported const, say), which is not a type.
-    pub fn knows(self: &ElTypes, name: str) -> bool {
+    pub fn knows(self: &ElTypes, name: &str) -> bool {
         let mut i: i64 = 0i64;
         while i < self.n {
             if str_eq(self.names[i], name) { return true; }
@@ -2128,7 +2128,7 @@ impl ElTypes {
         return false;
     }
 
-    pub fn ty_name_of(self: &ElTypes, name: str) -> str {
+    pub fn ty_name_of(self: &ElTypes, name: &str) -> &str {
         let mut i: i64 = 0i64;
         while i < self.n {
             if str_eq(self.names[i], name) { return string_as_str(&self.tns[i]); }
@@ -2139,7 +2139,7 @@ impl ElTypes {
     }
 
     // The UDF-table index of the fn named `name`, or -1 when unregistered.
-    pub fn udf_find(self: &ElTypes, name: str) -> i64 {
+    pub fn udf_find(self: &ElTypes, name: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.udf_n {
             if str_eq(self.udf_names[i], name) { return i; }
@@ -2150,7 +2150,7 @@ impl ElTypes {
 
     // Register a reflected user fn (first registration wins — module items are
     // walked in declaration order and names are unique per module anyway).
-    pub fn udf_add(self: &mut ElTypes, name: str, ret_name: str, arity: i64) {
+    pub fn udf_add(self: &mut ElTypes, name: &str, ret_name: &str, arity: i64) {
         if self.udf_find(name) >= 0i64 { return; }
         self.udf_names.push(name);
         self.udf_rets.push(ret_name);
@@ -2165,7 +2165,7 @@ impl ElTypes {
 
     // True iff `name` resolves to a UDF returning an OWNED `String` (the
     // returns-String treatment: `.as_str()` borrow / owned result element).
-    pub fn udf_returns_string(self: &ElTypes, name: str) -> bool {
+    pub fn udf_returns_string(self: &ElTypes, name: &str) -> bool {
         let i: i64 = self.udf_find(name);
         if i < 0i64 { return false; }
         return str_eq(self.udf_rets[i], "String");
@@ -2189,14 +2189,14 @@ impl ElTypes {
     /// `set_ty_named` has. A source is stamped more than once per query (the
     /// planner stamps to decide, the emitter stamps to emit), and appending
     /// would have exhausted the table on a re-walk rather than on a wide query.
-    pub fn rel_bind_named(self: &mut ElTypes, var: str, col: str, idx: i64,
-                          ty_name: str) {
+    pub fn rel_bind_named(self: &mut ElTypes, var: &str, col: &str, idx: i64,
+                          ty_name: &str) {
         self.bind_col(CB_VAR(), var, col, idx, ty_name);
     }
 
     /// THE binding write. `kind` says whether `owner` names a row var or a type.
-    fn bind_col(self: &mut ElTypes, kind: i64, owner: str, col: str, idx: i64,
-                ty_name: str) {
+    fn bind_col(self: &mut ElTypes, kind: i64, owner: &str, col: &str, idx: i64,
+                ty_name: &str) {
         let e: i64 = self.find_col(kind, owner, col);
         if e >= 0i64 {
             self.rb_idx[e] = idx;
@@ -2212,7 +2212,7 @@ impl ElTypes {
     }
 
     /// THE binding lookup — the entry index, or -1.
-    fn find_col(self: &ElTypes, kind: i64, owner: str, col: str) -> i64 {
+    fn find_col(self: &ElTypes, kind: i64, owner: &str, col: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.rb_n {
             if self.rb_kind[i] == kind && str_eq(self.rb_var[i], owner)
@@ -2228,7 +2228,7 @@ impl ElTypes {
     /// and the surviving type was applied to BOTH.
     /// Is `name` a ROW variable — one whose fields are bound (a source's row,
     /// held by reference in the emitted loop) — rather than a value?
-    pub fn is_row_var(self: &ElTypes, name: str) -> bool {
+    pub fn is_row_var(self: &ElTypes, name: &str) -> bool {
         let mut i: i64 = 0i64;
         while i < self.rb_n {
             if self.rb_kind[i] == CB_VAR() && str_eq(self.rb_var[i], name) { return true; }
@@ -2237,19 +2237,19 @@ impl ElTypes {
         return false;
     }
 
-    pub fn field_bind_named(self: &mut ElTypes, var: str, col: str, ty_name: str) {
+    pub fn field_bind_named(self: &mut ElTypes, var: &str, col: &str, ty_name: &str) {
         self.bind_col(CB_VAR(), var, col, COL_FIELD(), ty_name);
     }
 
     /// Bind (STRUCT TYPE, col) → the field's declared type. What a NESTED path
     /// resolves against: `a.b.c` has no row var of its own, but `a.b`'s type is a
     /// struct NAME, and that name plus `c` is a key as precise as (var, col).
-    pub fn type_bind_named(self: &mut ElTypes, ty_of: str, col: str, ty_name: str) {
+    pub fn type_bind_named(self: &mut ElTypes, ty_of: &str, col: &str, ty_name: &str) {
         self.bind_col(CB_TYPE(), ty_of, col, COL_FIELD(), ty_name);
     }
 
     /// The declared type NAME of field `col` of STRUCT `ty_of`, or "".
-    pub fn type_col_ty_name(self: &ElTypes, ty_of: str, col: str) -> str {
+    pub fn type_col_ty_name(self: &ElTypes, ty_of: &str, col: &str) -> &str {
         let e: i64 = self.find_col(CB_TYPE(), ty_of, col);
         if e < 0i64 { return ""; }
         return self.rb_tn[e];
@@ -2257,7 +2257,7 @@ impl ElTypes {
 
     /// True iff struct `ty_of`'s fields have already been stamped — the guard
     /// that terminates the reflection walk on a self-referential schema.
-    pub fn type_stamped(self: &ElTypes, ty_of: str) -> bool {
+    pub fn type_stamped(self: &ElTypes, ty_of: &str) -> bool {
         let mut i: i64 = 0i64;
         while i < self.rb_n {
             if self.rb_kind[i] == CB_TYPE() && str_eq(self.rb_var[i], ty_of) { return true; }
@@ -2275,7 +2275,7 @@ impl ElTypes {
     /// `stamp_schema_by_type`). Anything that must reason about ALL
     /// of a struct's fields must ALSO require `type_stamped`, which says the
     /// reflection walk reached this type at all.
-    pub fn type_field_at(self: &ElTypes, ty_of: str, i: i64) -> i64 {
+    pub fn type_field_at(self: &ElTypes, ty_of: &str, i: i64) -> i64 {
         let mut e: i64 = 0i64;
         let mut seen: i64 = 0i64;
         while e < self.rb_n {
@@ -2289,19 +2289,19 @@ impl ElTypes {
     }
 
     /// The declared type NAME at a binding-table index from `type_field_at`.
-    pub fn binding_ty_name_at(self: &ElTypes, e: i64) -> str {
+    pub fn binding_ty_name_at(self: &ElTypes, e: i64) -> &str {
         if e < 0i64 || e >= self.rb_n { return ""; }
         return self.rb_tn[e];
     }
 
     /// The COLUMN name at a binding-table index from `type_field_at`.
-    pub fn binding_col_at(self: &ElTypes, e: i64) -> str {
+    pub fn binding_col_at(self: &ElTypes, e: i64) -> &str {
         if e < 0i64 || e >= self.rb_n { return ""; }
         return self.rb_col[e];
     }
 
     /// The declared type NAME of `var.col`, or "" when this is not a rel binding.
-    pub fn rel_col_ty_name(self: &ElTypes, var: str, col: str) -> str {
+    pub fn rel_col_ty_name(self: &ElTypes, var: &str, col: &str) -> &str {
         let e: i64 = self.find_col(CB_VAR(), var, col);
         if e < 0i64 { return ""; }
         return self.rb_tn[e];
@@ -2309,7 +2309,7 @@ impl ElTypes {
 
     // The ACCESS code of `var.col` (`COL_*` or a tuple index), or `COL_WHOLE`
     // when unbound — meaningless unless `rel_col_ty` has said the pair is bound.
-    pub fn rel_col_of(self: &ElTypes, var: str, col: str) -> i64 {
+    pub fn rel_col_of(self: &ElTypes, var: &str, col: &str) -> i64 {
         let e: i64 = self.find_col(CB_VAR(), var, col);
         if e < 0i64 { return -1i64; }
         return self.rb_idx[e];
@@ -2317,14 +2317,14 @@ impl ElTypes {
 
     // The EL value-type of `var.col`, or -1 (not a rel binding) — the class VIEW
     // of the bound type, and also the existence test the callers use.
-    pub fn rel_col_ty(self: &ElTypes, var: str, col: str) -> i32 {
+    pub fn rel_col_ty(self: &ElTypes, var: &str, col: &str) -> i32 {
         let e: i64 = self.find_col(CB_VAR(), var, col);
         if e < 0i64 { return -1i32; }
         return self.class_of_name(self.rb_tn[e]);
     }
 
     // True iff `var` is a rel-bound row var (any column bound under it).
-    pub fn rel_var_bound(self: &ElTypes, var: str) -> bool {
+    pub fn rel_var_bound(self: &ElTypes, var: &str) -> bool {
         let mut i: i64 = 0i64;
         while i < self.rb_n {
             if self.rb_kind[i] == CB_VAR() && str_eq(self.rb_var[i], var) { return true; }
@@ -2357,7 +2357,7 @@ pub fn agg_algebra(fnid: i32) -> i32 {
     return AGG_CLASS_GROUP();
 }
 
-pub fn agg_of_name(name: str) -> i32 {
+pub fn agg_of_name(name: &str) -> i32 {
     if str_eq(name, "count") { return AGG_COUNT(); }
     if str_eq(name, "sum")   { return AGG_SUM(); }
     if str_eq(name, "min")   { return AGG_MIN(); }
@@ -2407,7 +2407,7 @@ pub struct QueryLoc {
 /// body's own start, which is the honest answer while the item's head column is
 /// not recorded.
 pub fn qsrc_resolve(q: &QSrc, soff: i64) -> QueryLoc {
-    let text: str = q.text.as_str();
+    let text: &str = q.text.as_str();
     let mut off: i64 = soff;
     if off < 0i64 { off = 0i64; }
     if off > text.len() { off = text.len(); }
@@ -2437,7 +2437,7 @@ pub fn qsrc_resolve(q: &QSrc, soff: i64) -> QueryLoc {
 }
 
 /// 1-based (line, col) of `off` counted from `lo` — the segment's own start.
-fn line_col_in(text: str, lo: i64, off: i64) -> (i64, i64) {
+fn line_col_in(text: &str, lo: i64, off: i64) -> (i64, i64) {
     let b: &[u8] = text.as_bytes();
     let mut line: i64 = 1i64;
     let mut last_nl: i64 = lo - 1i64;
@@ -2479,7 +2479,7 @@ pub fn qloc_prefix(loc: &QueryLoc) -> String {
 /// The decimal digits of an integer literal as written (`txt`, the token),
 /// without `_` separators and without its suffix `sfx` — the value of a literal
 /// above `i64::MAX`, which the lexer keeps no value for (ADR 0031 R4.4).
-pub fn el_lit_digits(txt: str, sfx: str, out: &mut String) {
+pub fn el_lit_digits(txt: &str, sfx: &str, out: &mut String) {
     let n: i64 = txt.len() - sfx.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -2491,7 +2491,7 @@ pub fn el_lit_digits(txt: str, sfx: str, out: &mut String) {
 
 // Borrow a `String`'s bytes as a `str` view (valid while the String is alive
 // and unmodified). Shared spelling for the emit handlers.
-pub fn string_as_str(s: &String) -> str {
+pub fn string_as_str(s: &String) -> &str {
     return unsafe { str_from_raw(s.as_ptr(), s.len()) };
 }
 
@@ -2506,7 +2506,7 @@ pub fn string_as_str(s: &String) -> str {
 extern fn getenv(name: *const u8) -> *const u8;
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 
-fn el_trace_ty_default(name: str) {
+fn el_trace_ty_default(name: &str) {
     let mut c: String = String::new();
     c.push_str("LOGOS_TRACE_PLAN");
     c.push_u8(0u8);

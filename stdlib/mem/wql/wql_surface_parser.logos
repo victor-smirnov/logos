@@ -80,7 +80,7 @@ impl Copy for WqTokCell {}
 
 pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, WqMemoCell>, pub tbuf: Vec<WqTokCell>, pub far: Token, pub base: i64 }
 
-pub fn lexer_new(src: str) -> Lexer {
+pub fn lexer_new(src: &str) -> Lexer {
     let mut tb: Vec<WqTokCell> = vec_new::<WqTokCell>();
     let sent: WqTokCell = WqTokCell { tk: 0i32, tstart: 0i64, tlen: 0i64, tline: 0i64, endpos: 0i64 - 1i64, endline: 0i64 };
     let mut i: i64 = 0i64;
@@ -370,7 +370,7 @@ impl Lexer {
 
 const WqNULLP: *const u8 = 0i64 as *const u8;
 // Intern a str into the arena; return the raw WString pointer (0 never).
-fn wstr_p(doc: &Writ, s: str) -> *const u8 {
+fn wstr_p(doc: &Writ, s: &str) -> *const u8 {
     let ws: &WString = doc.wstring(s);
     return ws as *const WString as *const u8;
 }
@@ -447,13 +447,13 @@ fn wstr_unquote(doc: &Writ, p: *const u8) -> *const u8 {
     let s: &str = wstr_as_str(p);
     let n: i64 = s.len();
     if n < 2i64 { return wstr_p(doc, s); }
-    let inner: str = unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };
+    let inner: &str = unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };
     return wstr_p(doc, inner);
 }
 
 // Is a structural keyword at byte `p` (word boundary on both sides)? The
 // keyword-delimited embed's stop set — every alpha-keyword token.
-fn embed_at_kw(src: str, p: i64, len: i64) -> bool {
+fn embed_at_kw(src: &str, p: i64, len: i64) -> bool {
     let before: u8 = if p > 0i64 { str_byte_at(src, p - 1i64) } else { 32u8 };
     if lx_is_alnum(before) { return false; }
     if p + 3i64 <= len && str_byte_at(src, p + 0i64) == 114u8 && str_byte_at(src, p + 1i64) == 101u8 && str_byte_at(src, p + 2i64) == 108u8 && (p + 3i64 >= len || !lx_is_alnum(str_byte_at(src, p + 3i64))) { return true; }
@@ -488,7 +488,7 @@ fn embed_at_kw(src: str, p: i64, len: i64) -> bool {
 // INSIDE a call / comprehension are NOT stops. EOI is a valid stop (the last
 // clause). Mirrors the hand QLexer's take_until_kw / take_until_colon /
 // take_until_any3 / aggregate-arg depth-balancing, unified into one scan.
-fn embed_find_close(src: str, pos: i64, len: i64) -> i64 {
+fn embed_find_close(src: &str, pos: i64, len: i64) -> i64 {
     let mut p: i64 = pos;
     let mut depth: i64 = 0i64;   // () and [] nesting
     let mut tern: i64 = 0i64;    // '?' opened, closed by ':'
@@ -2324,7 +2324,7 @@ fn alt_where_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     if ecl_cap1 < 0i64 { lex.reset(sp, sln); return WqNULLP; }
     let mut eend_cap1: i64 = ecl_cap1;
     if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
-    let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
+    let esub_cap1: &str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
     let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr_at(esub_cap1, doc, lex.base + est_cap1);
     lex.reset(eend_cap1, lex.save_line());
     let cap1: *const u8 = if eroot_cap1.is_null() { WqNULLP } else { eroot_cap1.raw() as *const u8 };
@@ -2348,7 +2348,7 @@ fn alt_sel_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     if ecl_cap1 < 0i64 { lex.reset(sp, sln); return WqNULLP; }
     let mut eend_cap1: i64 = ecl_cap1;
     if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
-    let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
+    let esub_cap1: &str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
     let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr_at(esub_cap1, doc, lex.base + est_cap1);
     lex.reset(eend_cap1, lex.save_line());
     let cap1: *const u8 = if eroot_cap1.is_null() { WqNULLP } else { eroot_cap1.raw() as *const u8 };
@@ -2386,7 +2386,7 @@ fn alt_on_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     if ecl_cap1 < 0i64 { lex.reset(sp, sln); return WqNULLP; }
     let mut eend_cap1: i64 = ecl_cap1;
     if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
-    let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
+    let esub_cap1: &str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
     let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr_at(esub_cap1, doc, lex.base + est_cap1);
     lex.reset(eend_cap1, lex.save_line());
     let cap1: *const u8 = if eroot_cap1.is_null() { WqNULLP } else { eroot_cap1.raw() as *const u8 };
@@ -2424,7 +2424,7 @@ fn alt_key_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     if ecl_cap1 < 0i64 { lex.reset(sp, sln); return WqNULLP; }
     let mut eend_cap1: i64 = ecl_cap1;
     if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
-    let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
+    let esub_cap1: &str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
     let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr_at(esub_cap1, doc, lex.base + est_cap1);
     lex.reset(eend_cap1, lex.save_line());
     let cap1: *const u8 = if eroot_cap1.is_null() { WqNULLP } else { eroot_cap1.raw() as *const u8 };
@@ -2448,7 +2448,7 @@ fn alt_agg_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     if ecl_cap1 < 0i64 { lex.reset(sp, sln); return WqNULLP; }
     let mut eend_cap1: i64 = ecl_cap1;
     if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
-    let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
+    let esub_cap1: &str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
     let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr_at(esub_cap1, doc, lex.base + est_cap1);
     lex.reset(eend_cap1, lex.save_line());
     let cap1: *const u8 = if eroot_cap1.is_null() { WqNULLP } else { eroot_cap1.raw() as *const u8 };
@@ -2472,7 +2472,7 @@ fn alt_having_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     if ecl_cap1 < 0i64 { lex.reset(sp, sln); return WqNULLP; }
     let mut eend_cap1: i64 = ecl_cap1;
     if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
-    let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
+    let esub_cap1: &str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
     let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr_at(esub_cap1, doc, lex.base + est_cap1);
     lex.reset(eend_cap1, lex.save_line());
     let cap1: *const u8 = if eroot_cap1.is_null() { WqNULLP } else { eroot_cap1.raw() as *const u8 };
@@ -2496,7 +2496,7 @@ fn alt_order_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     if ecl_cap1 < 0i64 { lex.reset(sp, sln); return WqNULLP; }
     let mut eend_cap1: i64 = ecl_cap1;
     if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
-    let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
+    let esub_cap1: &str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
     let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr_at(esub_cap1, doc, lex.base + est_cap1);
     lex.reset(eend_cap1, lex.save_line());
     let cap1: *const u8 = if eroot_cap1.is_null() { WqNULLP } else { eroot_cap1.raw() as *const u8 };
@@ -2520,7 +2520,7 @@ fn alt_find_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     if ecl_cap1 < 0i64 { lex.reset(sp, sln); return WqNULLP; }
     let mut eend_cap1: i64 = ecl_cap1;
     if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
-    let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
+    let esub_cap1: &str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
     let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr_at(esub_cap1, doc, lex.base + est_cap1);
     lex.reset(eend_cap1, lex.save_line());
     let cap1: *const u8 = if eroot_cap1.is_null() { WqNULLP } else { eroot_cap1.raw() as *const u8 };
@@ -2646,17 +2646,17 @@ fn rule_agg_item(lex: &mut Lexer, doc: &Writ) -> *const u8 {
 
 // ── Public entry points (one per %export rule) ─────────────────────────────
 
-pub fn parse_program(src: str, doc: &Writ) -> WAny {
+pub fn parse_program(src: &str, doc: &Writ) -> WAny {
     return parse_program_at(src, doc, 0i64);
 }
-pub fn parse_program_at(src: str, doc: &Writ, base: i64) -> WAny {
+pub fn parse_program_at(src: &str, doc: &Writ, base: i64) -> WAny {
     let mut lex: Lexer = lexer_new(src);
     lex.base = base;
     let root: *const u8 = rule_program(&mut lex, doc);
     if !lex.at_eof() { return unsafe { WAny::ref_to(WqNULLP) }; }
     return unsafe { WAny::ref_to(root) };
 }
-pub fn parse_program_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {
+pub fn parse_program_far(src: &str, doc: &Writ, out_root: &mut WAny) -> i64 {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_program(&mut lex, doc);
     if !lex.at_eof() { *out_root = unsafe { WAny::ref_to(WqNULLP) }; return lex.far.line; }
@@ -2664,17 +2664,17 @@ pub fn parse_program_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {
     return lex.far.line;
 }
 
-pub fn parse_rel_list(src: str, doc: &Writ) -> WAny {
+pub fn parse_rel_list(src: &str, doc: &Writ) -> WAny {
     return parse_rel_list_at(src, doc, 0i64);
 }
-pub fn parse_rel_list_at(src: str, doc: &Writ, base: i64) -> WAny {
+pub fn parse_rel_list_at(src: &str, doc: &Writ, base: i64) -> WAny {
     let mut lex: Lexer = lexer_new(src);
     lex.base = base;
     let root: *const u8 = rule_rel_list(&mut lex, doc);
     if !lex.at_eof() { return unsafe { WAny::ref_to(WqNULLP) }; }
     return unsafe { WAny::ref_to(root) };
 }
-pub fn parse_rel_list_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {
+pub fn parse_rel_list_far(src: &str, doc: &Writ, out_root: &mut WAny) -> i64 {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_rel_list(&mut lex, doc);
     if !lex.at_eof() { *out_root = unsafe { WAny::ref_to(WqNULLP) }; return lex.far.line; }

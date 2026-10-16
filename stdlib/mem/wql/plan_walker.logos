@@ -101,8 +101,8 @@ use logos.std.wql.optimize;       // refs_mask — does a clause read a row var
 // ADR 0031 R6.1 — THE SHAPE AND THE ENVELOPE ARE THE CORE'S. The four surface
 // shapes are read off the rule: a group is an aggregate, `Find` mode is `find`,
 // more than one source literal is a join chain, and one is a single scan.
-pub fn walk_query(name: str, params_text: str, prm: &MacroParams,
-                  jp: JoinPlan, prelude: str, h: &Writ) -> bool {
+pub fn walk_query(name: &str, params_text: &str, prm: &MacroParams,
+                  jp: JoinPlan, prelude: &str, h: &Writ) -> bool {
     let ru: &CRule = &prm.plan_core.entry;
     let env: &CEnvelope = &ru.env;
     let has_rty: bool = env.result_ty.len() > 0i64;
@@ -291,7 +291,7 @@ struct SrcRes { ok: bool, is_rel: bool, idx: i64, row_ty: str }
 
 fn src_fail() -> SrcRes { return SrcRes { ok: false, is_rel: false, idx: -1i64, row_ty: "" }; }
 
-fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps) -> SrcRes {
+fn resolve_source(prm: &MacroParams, src: &str, cur_rel: i64, deps: &mut RelDeps) -> SrcRes {
     let i: i64 = prm.index_of(src);
     if i >= 0i64 {
         if prm.is_slice[i] {
@@ -359,12 +359,12 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
 // reflection (check_edge_step), which yields the ELEMENT type. Scalar-element vars (Vec<str> → str) append to `cv` — the
 // callers reject field access rooted at them across every clause. Which NAMES a
 // clause may read is `check::core_scope_ok`'s (ADR 0031 R2).
-fn check_steps(cl: &CClause, base_var: str, base_ty: str, prm: &MacroParams,
+fn check_steps(cl: &CClause, base_var: &str, base_ty: &str, prm: &MacroParams,
                cur_rel: i64, deps: &mut RelDeps,
-               relvars: &mut Vec<str>, nrelv: &mut i64,
+               relvars: &mut Vec<&str>, nrelv: &mut i64,
                cv: &mut ClauseVars) -> bool {
     let bs: &[CLit] = cl.body.as_slice();
-    let mut vars: Vec<str> = Vec::<str>::new();
+    let mut vars: Vec<&str> = Vec::<&str>::new();
     let mut vtys: Vec<String> = Vec::<String>::new();
     let mut vanti: Vec<bool> = Vec::<bool>::new();
     vars.push(base_var);
@@ -374,7 +374,7 @@ fn check_steps(cl: &CClause, base_var: str, base_ty: str, prm: &MacroParams,
     let mut i: i64 = 1i64;
     while i < cl.body.len() {
         let mut vty: String = String::new();
-        let mut v: str = "";
+        let mut v: &str = "";
         let mut neg: bool = false;
         let mut is_src: bool = false;
         match &bs[i] {
@@ -424,9 +424,9 @@ fn check_steps(cl: &CClause, base_var: str, base_ty: str, prm: &MacroParams,
 // fields; the FINAL segment must be a collection (Vec<E> / &[E] / [E; N] —
 // single references `&T`/`Box<T>` are the named error below). On success
 // `elem_out` holds the element type.
-fn check_edge_step(bv: str, path: &Vec<str>, var: str,
-                   vars: &Vec<str>, vtys: &Vec<String>, vanti: &Vec<bool>, nv: i64,
-                   relvars: &Vec<str>, nrelv: i64,
+fn check_edge_step(bv: &str, path: &Vec<&str>, var: &str,
+                   vars: &Vec<&str>, vtys: &Vec<String>, vanti: &Vec<bool>, nv: i64,
+                   relvars: &Vec<&str>, nrelv: i64,
                    cv: &mut ClauseVars, elem_out: &mut String) -> bool {
     // 1. The base var: bound earlier, non-anti, not rel-rowed, not scalar.
     let mut bi: i64 = -1i64;
@@ -485,10 +485,10 @@ fn check_edge_step(bv: str, path: &Vec<str>, var: str,
     let view: OView = oview_module_ast();
     let np: i64 = path.len();
     if np < 1i64 { error("wql!: empty traversal path"); return false; }   // unreachable via grammar
-    let mut cur_ty: str = string_as_str(&vtys[bi]);
+    let mut cur_ty: &str = string_as_str(&vtys[bi]);
     let mut k: i64 = 0i64;
     while k < np {
-        let seg: str = path.get(k);
+        let seg: &str = path.get(k);
         // The traversal path walks TYPE SPELLINGS: `cur_ty` starts as a source's
         // declared element type and is then the declared type of each intermediate
         // field, either of which may be an alias. Resolved here, where it is read.
@@ -513,7 +513,7 @@ fn check_edge_step(bv: str, path: &Vec<str>, var: str,
             error(string_as_str(&m5));
             return false;
         }
-        let elem: str = field_traversal_elem(&view, decl, seg);
+        let elem: &str = field_traversal_elem(&view, decl, seg);
         if k < np - 1i64 {
             // INTERMEDIATE segment: must be a SINGULAR plain struct field.
             if elem.len() > 0i64 {
@@ -528,7 +528,7 @@ fn check_edge_step(bv: str, path: &Vec<str>, var: str,
                 error(string_as_str(&m6));
                 return false;
             }
-            let tn: str = logos.std.wql.reflect::field_type_name(&view, decl, seg);
+            let tn: &str = logos.std.wql.reflect::field_type_name(&view, decl, seg);
             if tn.len() == 0i64 {
                 let mut m7: String = String::new();
                 m7.push_str("wql!: traversal path: intermediate segment `.");
@@ -543,7 +543,7 @@ fn check_edge_step(bv: str, path: &Vec<str>, var: str,
         } else {
             // FINAL segment: must be a collection field.
             if elem.len() == 0i64 {
-                let tn2: str = logos.std.wql.reflect::field_type_name(&view, decl, seg);
+                let tn2: &str = logos.std.wql.reflect::field_type_name(&view, decl, seg);
                 let mut m8: String = String::new();
                 m8.push_str("wql!: `join ");
                 m8.push_str(bv);
@@ -579,10 +579,10 @@ fn check_edge_step(bv: str, path: &Vec<str>, var: str,
 struct ClauseVars { pub name: Vec<str>, pub n: i64 }
 
 fn clause_vars_new() -> ClauseVars {
-    return ClauseVars { name: Vec::<str>::new(), n: 0i64 };
+    return ClauseVars { name: Vec::<&str>::new(), n: 0i64 };
 }
 
-fn cv_push(cv: &mut ClauseVars, v: str) {
+fn cv_push(cv: &mut ClauseVars, v: &str) {
     cv.name.push(v); cv.n = cv.n + 1i64;
 }
 
@@ -594,7 +594,7 @@ fn no_scalar_field(e: SExpr, cv: &ClauseVars) -> bool {
         SExpr::Field(f) => {
             let bref: WRef<SExpr> = f.base;
             if bref.any().is_null() { return true; }
-            let rn: str = root_ident_name(f.base_expr());
+            let rn: &str = root_ident_name(f.base_expr());
             if rn.len() > 0i64 {
                 let mut i: i64 = 0i64;
                 while i < cv.n {
@@ -671,9 +671,9 @@ fn steps_clause_ok(cl: &CClause, cv: &ClauseVars) -> bool {
 // projection defeats the EL scalar lattice). Diagnosed here, which also gates
 // the identity/head-row thin collapses OFF rel sources (they only trigger on
 // bare-var selects).
-fn sel_whole_row_ok(sel: SExpr, relvars: &Vec<str>, n: i64) -> bool {
+fn sel_whole_row_ok(sel: SExpr, relvars: &Vec<&str>, n: i64) -> bool {
     if n == 0i64 { return true; }
-    let rn: str = root_ident_name(sel);
+    let rn: &str = root_ident_name(sel);
     if rn.len() > 0i64 {
         let mut i: i64 = 0i64;
         while i < n {
@@ -707,14 +707,14 @@ fn sel_whole_row_ok(sel: SExpr, relvars: &Vec<str>, n: i64) -> bool {
 }
 
 // ── One rel body: shape + modifier gate + source resolution/rewrite ─────────
-fn check_rel_body(ru: &CRule, rel_name: str, cur_rel: i64,
+fn check_rel_body(ru: &CRule, rel_name: &str, cur_rel: i64,
                   prm: &MacroParams, deps: &mut RelDeps) -> bool {
     let cl: &CClause = &ru.clause;
     let bs: &[CLit] = cl.body.as_slice();
-    let mut relvars: Vec<str> = Vec::<str>::new();
+    let mut relvars: Vec<&str> = Vec::<&str>::new();
     let mut nrelv: i64 = 0i64;
-    let base_name: str = core_base_name(cl);
-    let base_var: str = core_base_var(cl);
+    let base_name: &str = core_base_name(cl);
+    let base_var: &str = core_base_var(cl);
     match &cl.group {
         Option::Some(g) => {
             // An aggregate rel body. In slice-1 the ADMISSIBLE case is a
@@ -781,22 +781,22 @@ fn check_rel_body(ru: &CRule, rel_name: str, cur_rel: i64,
     }
     // Classify bare select idents (Track A). Bound vars = base + every
     // non-anti step var (anti-step vars are scoped to their own `on`).
-    let bv: Vec<str> = core_bound_vars(cl);
+    let bv: Vec<&str> = core_bound_vars(cl);
     if !ward_sel_idents_ok(head, &bv, bv.len(), prm, rel_name) { return false; }
     return true;
 }
 
 /// The base atom's source as written ("" when the clause has none).
-fn core_base_name(cl: &CClause) -> str {
+fn core_base_name(cl: &CClause) -> &str {
     if cl.body.len() < 1i64 { return ""; }
     let bs: &[CLit] = cl.body.as_slice();
     match &bs[0i64] { CLit::Atom(a) => { return a.name; } CLit::Trav(t) => { return t.name; } CLit::Cond(_c) => { return ""; } }
 }
 
 /// The row variables a clause binds outside a negation, in order.
-fn core_bound_vars(cl: &CClause) -> Vec<str> {
+fn core_bound_vars(cl: &CClause) -> Vec<&str> {
     let bs: &[CLit] = cl.body.as_slice();
-    let mut v: Vec<str> = Vec::<str>::new();
+    let mut v: Vec<&str> = Vec::<&str>::new();
     let mut i: i64 = 0i64;
     while i < cl.body.len() {
         match &bs[i] {
@@ -814,9 +814,9 @@ fn core_bound_vars(cl: &CClause) -> Vec<str> {
 // and `Hash`; nothing else is asked. The column is stored and read as the type
 // it is declared with. `f64` has no `Eq` (a NaN is unequal to itself), and a
 // struct gains both by `#[derive_partial_eq] #[derive_eq]` / `#[derive_hash]`.
-fn rel_col_ty_ok(rel_name: str, col_name: str, t: str) -> bool {
+fn rel_col_ty_ok(rel_name: &str, col_name: &str, t: &str) -> bool {
     let view: OView = oview_module_ast();
-    let rt: str = resolve_alias_name(&view, t);
+    let rt: &str = resolve_alias_name(&view, t);
     let eq: bool = named_has_eq_strict(rt);
     let hs: bool = has_trait_named("logos.lang.hash::Hash", rt);
     if eq && hs { return true; }
@@ -889,9 +889,9 @@ struct WardX {
 
 fn wardx_new() -> WardX {
     return WardX {
-        vv: Vec::<str>::new(), vc: Vec::<str>::new(), par: Vec::<i64>::new(), nvar: 0i64,
-        exn: Vec::<str>::new(), exi: Vec::<i64>::new(), nexn: 0i64, exctr: 100000i64,
-        esrc: Vec::<str>::new(), epid: Vec::<i64>::new(), nedb: 0i64,
+        vv: Vec::<&str>::new(), vc: Vec::<&str>::new(), par: Vec::<i64>::new(), nvar: 0i64,
+        exn: Vec::<&str>::new(), exi: Vec::<i64>::new(), nexn: 0i64, exctr: 100000i64,
+        esrc: Vec::<&str>::new(), epid: Vec::<i64>::new(), nedb: 0i64,
         prel: Vec::<i64>::new(), pbod: Vec::<i64>::new(),
     };
 }
@@ -913,7 +913,7 @@ fn wx_find(x: &WardX, i: i64) -> i64 {
 }
 
 // Get-or-add the union-find slot for (rv, col); returns its slot index.
-fn wx_slot(x: &mut WardX, rv: str, col: str) -> i64 {
+fn wx_slot(x: &mut WardX, rv: &str, col: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < x.nvar {
         if str_eq(x.vv[i], rv) && str_eq(x.vc[i], col) { return i; }
@@ -926,12 +926,12 @@ fn wx_slot(x: &mut WardX, rv: str, col: str) -> i64 {
 }
 
 // The variable id (union-find root) of (rv, col).
-fn wx_class(x: &mut WardX, rv: str, col: str) -> i64 {
+fn wx_class(x: &mut WardX, rv: &str, col: &str) -> i64 {
     let s: i64 = wx_slot(x, rv, col);
     return wx_find(x, s);
 }
 
-fn wx_union(x: &mut WardX, ra: str, ca: str, rb: str, cb: str) {
+fn wx_union(x: &mut WardX, ra: &str, ca: &str, rb: &str, cb: &str) {
     let a: i64 = wx_slot(x, ra, ca);
     let b: i64 = wx_slot(x, rb, cb);
     let fa: i64 = wx_find(x, a);
@@ -940,7 +940,7 @@ fn wx_union(x: &mut WardX, ra: str, ca: str, rb: str, cb: str) {
 }
 
 // Get-or-add an EDB predicate for source `src`.
-fn wx_edb_pid(x: &mut WardX, wp: &mut WardProg, src: str) -> i64 {
+fn wx_edb_pid(x: &mut WardX, wp: &mut WardProg, src: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < x.nedb {
         if str_eq(x.esrc[i], src) { return x.epid[i]; }
@@ -994,7 +994,7 @@ fn sx_colref(e: SExpr) -> ColRef {
         SExpr::Field(f) => {
             if f.base.any().is_null() { return ColRef { ok: false, rv: "", col: "" }; }
             let base: SExpr = f.base_expr();
-            let rv: str = root_ident_name(base);
+            let rv: &str = root_ident_name(base);
             if rv.len() > 0i64 { return ColRef { ok: true, rv: rv, col: f.name }; }
             return ColRef { ok: false, rv: "", col: "" };
         }
@@ -1003,7 +1003,7 @@ fn sx_colref(e: SExpr) -> ColRef {
 }
 
 // A bare identifier (null-base field or comprehension var), or "" if `e` is not one.
-fn sx_bare_ident(e: SExpr) -> str {
+fn sx_bare_ident(e: SExpr) -> &str {
     match e {
         SExpr::Field(f) => { if f.base.any().is_null() { return f.name; } return ""; }
         SExpr::Var(v)   => { return v.name; }
@@ -1016,7 +1016,7 @@ fn sx_bare_ident(e: SExpr) -> str {
 fn wx_fresh_id(x: &mut WardX, c: SCall) -> i64 {
     let a: SExprArr = c.args_arr();
     if a.len() >= 1i64 {
-        let nm: str = sx_bare_ident(a.arg_at(0i64));
+        let nm: &str = sx_bare_ident(a.arg_at(0i64));
         if nm.len() > 0i64 {
             let mut i: i64 = 0i64;
             while i < x.nexn { if str_eq(x.exn[i], nm) { return x.exi[i]; } i = i + 1i64; }
@@ -1049,14 +1049,14 @@ fn wx_collect_on(x: &mut WardX, e: SExpr) {
 }
 
 // ── Extraction diagnostics ────────────────────────────────────────────────────
-fn ward_frag_err(rn: str) {
+fn ward_frag_err(rn: &str) {
     let mut m: String = String::new();
     m.push_str("wql!: rel '");
     m.push_str(rn);
     m.push_str("': an existential (fresh) program cannot use anti-join / traversal / aggregate bodies — outside the positive-TGD fragment the wardedness checker covers");
     error(string_as_str(&m));
 }
-fn ward_freshpos_err(rn: str) {
+fn ward_freshpos_err(rn: &str) {
     let mut m: String = String::new();
     m.push_str("wql!: rel '");
     m.push_str(rn);
@@ -1110,14 +1110,14 @@ fn ward_emit_head(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
 // existential heads defined for that rel elsewhere — critique C3); an EDB source
 // uses first-seen ordinals (EDB positions are never affected). Returns 0.
 fn ward_emit_atom(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
-                  r: i64, rv: str, ridx: i64, src: str) -> i32 {
+                  r: i64, rv: &str, ridx: i64, src: &str) -> i32 {
     if ridx >= 0i64 {
         let k: i64 = wp.add_body(r, ridx);
         let coff: i64 = prm.rel_coff[ridx];
         let ccnt: i64 = prm.rel_ccnt[ridx];
         let mut i: i64 = 0i64;
         while i < ccnt {
-            let cn: str = prm.relc_name[coff + i];
+            let cn: &str = prm.relc_name[coff + i];
             wp.set_body(r, k, i, wx_class(x, rv, cn));
             i = i + 1i64;
         }
@@ -1265,18 +1265,18 @@ fn ward_verdict(pc: &CProgram, nr: i64, prm: &MacroParams) -> bool {
 // existential) silently fell through to codegen and produced an opaque downstream
 // Logos error. A `fresh(...)` marker is NOT a bare ident (it is a Call) → never
 // misclassified; the ward path owns markers.
-fn ward_var_in(vars: &Vec<str>, nv: i64, nm: str) -> bool {
+fn ward_var_in(vars: &Vec<&str>, nv: i64, nm: &str) -> bool {
     let mut i: i64 = 0i64;
     while i < nv { if str_eq(vars[i], nm) { return true; } i = i + 1i64; }
     return false;
 }
 
-fn ward_sel_idents_ok(sel: SExpr, vars: &Vec<str>, nv: i64,
-                      prm: &MacroParams, rel_name: str) -> bool {
+fn ward_sel_idents_ok(sel: SExpr, vars: &Vec<&str>, nv: i64,
+                      prm: &MacroParams, rel_name: &str) -> bool {
     match sel {
         SExpr::Field(f) => {
             if !f.base.any().is_null() { return true; }   // `rv.col` — root validated by the emit path.
-            let nm: str = f.name;
+            let nm: &str = f.name;
             if ward_var_in(vars, nv, nm) { return true; }  // whole-row (gated by sel_whole_row_ok).
             if prm.is_scalar(nm) { return true; }          // a bare scalar-param projection.
             let mut m: String = String::new();
@@ -1293,7 +1293,7 @@ fn ward_sel_idents_ok(sel: SExpr, vars: &Vec<str>, nv: i64,
             return false;
         }
         SExpr::Var(v) => {
-            let nm: str = v.name;
+            let nm: &str = v.name;
             if ward_var_in(vars, nv, nm) { return true; }
             if prm.is_scalar(nm) { return true; }
             let mut m: String = String::new();
@@ -1345,8 +1345,8 @@ fn ward_sel_idents_ok(sel: SExpr, vars: &Vec<str>, nv: i64,
 // String buffers backing the rel registry (emitted source names + row-type
 // texts) and the prelude live in THIS frame — everything downstream is called
 // from here, so the borrowed `str` views stay valid for the whole walk.
-pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str,
-                           natspec: str, prm: &mut MacroParams, h: &Writ) -> bool {
+pub fn walk_program_params(root: WAny, pc: CProgram, name: &str, params_text: &str,
+                           natspec: &str, prm: &mut MacroParams, h: &Writ) -> bool {
     if root.is_null() { error("wql!: empty query plan"); return false; }
     // The query is a source, and every check downstream may need to say where
     // it is (ADR 0024 S0). Carried in the walker's context because that is what
@@ -1383,7 +1383,7 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
         while i < nr {
             let rels_c: &[CRel] = early.rels.as_slice();
             let rel: &CRel = &rels_c[i];
-            let rname: str = rel.name;
+            let rname: &str = rel.name;
             if prm.index_of(rname) >= 0i64 {
                 let mut m: String = String::new();
                 m.push_str("wql!: rel '");
@@ -1451,13 +1451,13 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
             // registered under the type it stands for, so every check and the
             // row type read one spelling.
             let view0: OView = oview_module_ast();
-            let mut ctys: Vec<str> = Vec::<str>::new();
+            let mut ctys: Vec<&str> = Vec::<&str>::new();
             let mut kn: i64 = 0i64;
             while kn < nc {
                 let mut full: String = String::new();
                 if resolve_alias_spelling(&view0, cols[kn].ty, &mut full) {
                     let ws: &WString = h.wstring(string_as_str(&full));
-                    let wv: str = ws.as_str();
+                    let wv: &str = ws.as_str();
                     ctys.push(unsafe { str_from_raw(wv.as_ptr(), wv.len()) });
                 } else {
                     ctys.push(cols[kn].ty);
@@ -1571,14 +1571,14 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
 
     // ── The ENTRY query: resolve + check its sources ────────────────────────
     // ADR 0031 R3.0 — the entry's sources and clauses, checked on the core.
-    let mut relvars: Vec<str> = Vec::<str>::new();
+    let mut relvars: Vec<&str> = Vec::<&str>::new();
     let mut nrelv: i64 = 0i64;
     {
         let ru: &CRule = &early.entry;
         let cl: &CClause = &ru.clause;
         let head: WAny = cl.head;
-        let base_name: str = core_base_name(cl);
-        let base_var: str = core_base_var(cl);
+        let base_name: &str = core_base_name(cl);
+        let base_var: &str = core_base_var(cl);
         let find: bool = match &ru.env.mode { CMode::Find => true, CMode::All => false, CMode::First => false };
         let grouped: bool = match &cl.group { Option::Some(_g) => true, Option::None => false };
         let sr: SrcRes = resolve_source(prm, base_name, -1i64, &mut deps);
@@ -1742,9 +1742,9 @@ fn push_call_args(out: &mut String, prm: &MacroParams, mask: &RelSet) {
 // Register ONE native rel; returns its registry idx or −1 (cap/dup errors
 // surfaced by the caller). `disp` = the rel's DECLARED name text (backed by
 // the caller's frame Strings).
-fn reg_native(prm: &mut MacroParams, disp: str, rowty: str,
-              mat: str, marg: str, marg2: str, module: str, iter: bool,
-              batch: bool, ity: str, szfn: str, szty: str,
+fn reg_native(prm: &mut MacroParams, disp: &str, rowty: &str,
+              mat: &str, marg: &str, marg2: &str, module: &str, iter: bool,
+              batch: bool, ity: &str, szfn: &str, szty: &str,
               srcb: &mut String, dsrcb: &mut String, ssrcb: &mut String,
               szatb: &mut String) -> i64 {
     srcb.push_str("__rel_");
@@ -1795,7 +1795,7 @@ fn reg_native(prm: &mut MacroParams, disp: str, rowty: str,
 // planner knows by convention, and not inside the container's own handler.
 
 /// The column named by a root-shaped field reference (`e.key`), or "".
-fn pw_field_col(e: SExpr) -> str {
+fn pw_field_col(e: SExpr) -> &str {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
@@ -1814,7 +1814,7 @@ fn pw_field_col(e: SExpr) -> str {
 /// which node kind a name arrives as depends on how far resolution has got, and
 /// guessing it is how the parameter case was missed twice. Whether the name is a
 /// query PARAMETER is not decided here; `MacroParams::ty_of` is the authority.
-fn pw_bare_name(e: SExpr) -> str {
+fn pw_bare_name(e: SExpr) -> &str {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
@@ -1829,7 +1829,7 @@ fn pw_bare_name(e: SExpr) -> str {
 
 /// The comparison class name for an EL operator, read FROM the column's point
 /// of view. `col_left = false` mirrors it: `42 > e.key` is `key < 42`.
-fn pw_cmp_name(op: i32, col_left: bool) -> str {
+fn pw_cmp_name(op: i32, col_left: bool) -> &str {
     let mut o: i32 = op;
     if !col_left {
         if o == OP_LT() { o = OP_GT(); }
@@ -1946,7 +1946,7 @@ fn core_source_regs(cl: &CClause) -> Vec<i64> {
 }
 
 /// The base atom's row variable ("" when the clause has none).
-fn core_base_var(cl: &CClause) -> str {
+fn core_base_var(cl: &CClause) -> &str {
     if cl.body.len() < 1i64 { return ""; }
     let bs: &[CLit] = cl.body.as_slice();
     match &bs[0i64] { CLit::Atom(a) => { return a.var; } CLit::Trav(t) => { return t.var; } CLit::Cond(_c) => { return ""; } }
@@ -1989,7 +1989,7 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
     }
     match wexpr.view::<SExpr>() {
         SExpr::Bin(b) => {
-            let mut col: str = pw_field_col(b.lhs_expr());
+            let mut col: &str = pw_field_col(b.lhs_expr());
             let mut col_left: bool = col.len() > 0i64;
             if !col_left { col = pw_field_col(b.rhs_expr()); }
             if !ag_fact(&mut g, AA_COL(), col.len() != 0i64) {
@@ -2002,7 +2002,7 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
             // be answering a different question.
             let cti: i64 = prm.rel_coff[ri];
             let cn: i64 = prm.rel_ccnt[ri];
-            let mut colty: str = "";
+            let mut colty: &str = "";
             let mut c0: i64 = 0i64;
             while c0 < cn {
                 if str_eq(prm.relc_name[cti + c0], col) {
@@ -2030,7 +2030,7 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
             // (emitted by name).
             let mut argk: i32 = 0i32;
             let mut lit: i64 = 0i64;
-            let mut pnm: str = "";
+            let mut pnm: &str = "";
             match b.rhs_expr() {
                 SExpr::Lit(l) => {
                     let w: WAny = l.val;
@@ -2064,7 +2064,7 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
             // would reach the host compiler as a bad argument to a generated
             // call, which is the diagnostic this ADR exists to abolish.
             if argk == 2i32 {
-                let pty: str = prm.ty_of(pnm);
+                let pty: &str = prm.ty_of(pnm);
                 if !ag_fact(&mut g, AA_PARAM(), pty.len() != 0i64) {
                     ap.scan(ri, &mut g, AR_SCAN_NOT_PARAM());
                     return;
@@ -2074,7 +2074,7 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
                     return;
                 }
             }
-            let cmp: str = pw_cmp_name(b.op, col_left);
+            let cmp: &str = pw_cmp_name(b.op, col_left);
             if !ag_fact(&mut g, AA_CMP(), cmp.len() != 0i64) {
                 ap.scan(ri, &mut g, AR_SCAN_NO_CMP());
                 return;
@@ -2181,10 +2181,10 @@ fn plan_decide_joins(prm: &MacroParams, pc: &mut CProgram, h: &Writ) {
 /// step order. Under `order by` the join order would be free to drive another
 /// side; a merge step pins the written nest instead (`WG_MERGE`), since a
 /// reordered nest is a different pair of walks.
-fn plan_decide_merge(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &Writ, qn: str) {
+fn plan_decide_merge(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &Writ, qn: &str) {
     if core_source_count(&pc.entry.clause) < 2i64 || pc.entry.clause.body.len() < 2i64 { return; }
     let mut b0: i64 = -1i64;
-    let mut bvar: str = "";
+    let mut bvar: &str = "";
     match &pc.entry.clause.body[0i64] { CLit::Atom(a) => { if !a.neg && a.outer == 0i32 { b0 = a.reg; bvar = a.var; } } CLit::Trav(_t) => { return; } CLit::Cond(_c) => { return; } }
     if b0 < 0i64 || b0 >= prm.rel_n || prm.rel_ordcol[b0].len() == 0i64 { return; }
     // EVERY step on its own: the base is the outermost loop, so a step probed
@@ -2200,15 +2200,15 @@ fn plan_decide_merge(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &
 }
 
 // The merge decision of the step at body position `i`, against base `b0`.
-fn merge_decide_step(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &Writ, qn: str,
-                     i: i64, b0: i64, bvar: str) {
+fn merge_decide_step(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &Writ, qn: &str,
+                     i: i64, b0: i64, bvar: &str) {
     let cl: &CClause = &pc.entry.clause;
     let mut on: WAny = WAny::null();
     if i + 1i64 < cl.body.len() {
         match &cl.body[i + 1i64] { CLit::Cond(c) => { match &c.site { CSite::On => { on = c.e; } CSite::Where => { } } } CLit::Atom(_a) => { } CLit::Trav(_t) => { } }
     }
     let mut s1: i64 = -1i64;
-    let mut svar: str = "";
+    let mut svar: &str = "";
     let mut sel: i64 = -1i64;
     let mut decided: bool = false;
     match &cl.body[i] {
@@ -2231,8 +2231,8 @@ fn merge_decide_step(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &
     if sel >= stt.tl.n { return; }
     let sd: EquiSides = equi_term_sides(merge_sexpr(stt.tl.w[sel]), svar);
     if sd.bw == 0i64 || sd.pw == 0i64 { return; }
-    let mut why: str = "";
-    let mut rule: str = "admit";
+    let mut why: &str = "";
+    let mut rule: &str = "admit";
     if !merge_bare_col(merge_sexpr(sd.bw), svar, prm.rel_ordcol[s1])
            || !merge_bare_col(merge_sexpr(sd.pw), bvar, prm.rel_ordcol[b0]) {
         why = "the key is not the step's declared order column against the base's"; rule = "not_order_col";
@@ -2244,7 +2244,7 @@ fn merge_decide_step(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &
     match &cl.body[i] { CLit::Atom(a) => { outer_step = a.outer != 0i32; } CLit::Trav(_t) => { } CLit::Cond(_c) => { } }
     // an outer step's columns are `Option<T>` after the step and `T` inside its
     // own `on`: the key's type is the base side's
-    let ktn: str = if outer_step { step_key_ty_of(merge_sexpr(sd.pw), merge_sexpr(sd.pw), &t) }
+    let ktn: &str = if outer_step { step_key_ty_of(merge_sexpr(sd.pw), merge_sexpr(sd.pw), &t) }
                    else { step_key_ty_of(merge_sexpr(sd.bw), merge_sexpr(sd.pw), &t) };
     if why.len() == 0i64 && !join_key_caps_named(ktn).ord {
         why = "the key type's emitted comparison does not realize its order"; rule = "key_order";
@@ -2265,7 +2265,7 @@ fn merge_decide_step(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &
 fn merge_sexpr(w: i64) -> SExpr { return unsafe { WAny::ref_to(w as *const u8) }.view::<SExpr>(); }
 
 /// `var.col`, spelled bare: no cast, no call, no arithmetic.
-fn merge_bare_col(e: SExpr, var: str, col: str) -> bool {
+fn merge_bare_col(e: SExpr, var: &str, col: &str) -> bool {
     match e {
         SExpr::Field(f) => {
             if !str_eq(f.name, col) || f.base.any().is_null() { return false; }
@@ -2544,7 +2544,7 @@ pub fn plan_insert_drains(prm: &MacroParams, pc: &CProgram, ap: &mut AccessPlan)
 /// asserts the emitted query's ANSWER SEQUENCE at run time and not merely the
 /// trace: a trace can only repeat what the declaration said.
 fn ap_order_is_noop(prm: &MacroParams, ap: &AccessPlan, ri: i64,
-                    key: WAny, desc: bool, var: str) -> bool {
+                    key: WAny, desc: bool, var: &str) -> bool {
     if ri < 0i64 || ri >= prm.rel_n { return false; }
     if prm.rel_ordcol[ri].len() == 0i64 { return false; }   // (1)
     if !ap_offers(ap, prm, ri) { return false; }            // (2)
@@ -3040,7 +3040,7 @@ fn plan_mark_rel_landings(prm: &mut MacroParams, ap: &mut AccessPlan, scc: &RelS
     }
 }
 
-fn register_native_rels(prm: &mut MacroParams, natspec: str,
+fn register_native_rels(prm: &mut MacroParams, natspec: &str,
                         srcb: &mut Vec<String>, dsrcb: &mut Vec<String>,
                         rowtyb: &mut Vec<String>, ssrcb: &mut Vec<String>,
                         szatb: &mut Vec<String>) -> bool {
@@ -3056,7 +3056,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // <regname>=
         let s0: i64 = i;
         while i < n && str_byte_at(natspec, i) != 61u8 { i = i + 1i64; }     // '='
-        let regname: str = pw_slice(natspec, s0, i);
+        let regname: &str = pw_slice(natspec, s0, i);
         i = i + 1i64;
         // <matfn>[!<flags>][#<arg>][@<module>]:
         let s1: i64 = i;
@@ -3064,7 +3064,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
               && str_byte_at(natspec, i) != 35u8
               && str_byte_at(natspec, i) != 33u8
               && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; } // '@'|'#'|'!'|':'
-        let mat: str = pw_slice(natspec, s1, i);
+        let mat: &str = pw_slice(natspec, s1, i);
         // `!<flags>` — properties of the BINDING. `i` = the producer returns an
         // iterator, so the plan MAY consume it in place (ADR 0024 S4).
         let mut mat_iter: bool = false;
@@ -3073,7 +3073,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         let mut mat_bidir:  bool = false;
         let mut mat_randac: bool = false;
         let mut mat_rowmaj: bool = false;
-        let mut mat_ity: str = "";
+        let mut mat_ity: &str = "";
         if i < n && str_byte_at(natspec, i) == 33u8 {
             i = i + 1i64;
             let fl: i64 = i;
@@ -3081,7 +3081,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
                   && str_byte_at(natspec, i) != 35u8
                   && str_byte_at(natspec, i) != 37u8
                   && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }   // …|'%'
-            let mat_fl: str = pw_slice(natspec, fl, i);
+            let mat_fl: &str = pw_slice(natspec, fl, i);
             mat_iter = pw_flag(mat_fl, 105u8);                                // 'i'
             // `b` (ADR 0025 §1): the PULL UNIT is a batch. Rides in the same
             // flag SET as `i` — membership, not equality, is what lets a third
@@ -3110,7 +3110,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
             }
         }
         // `#<arg>` — the narrowing constant, when this binding takes one.
-        let mut marg2: str = "";
+        let mut marg2: &str = "";
         if i < n && str_byte_at(natspec, i) == 35u8 {
             i = i + 1i64;
             let sa: i64 = i;
@@ -3118,7 +3118,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
                   && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }
             marg2 = pw_slice(natspec, sa, i);
         }
-        let mut module: str = "";
+        let mut module: &str = "";
         if i < n && str_byte_at(natspec, i) == 64u8 {
             i = i + 1i64;
             let s2: i64 = i;
@@ -3129,22 +3129,22 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // <param>(
         let s3: i64 = i;
         while i < n && str_byte_at(natspec, i) != 40u8 { i = i + 1i64; }     // '('
-        let marg: str = pw_slice(natspec, s3, i);
+        let marg: &str = pw_slice(natspec, s3, i);
         i = i + 1i64;
         // columns into rowty text, remembering (name, ty) pairs for rel_add_col.
         rowtyb[k].push_str("(");
-        let mut cnames: Vec<str> = Vec::<str>::new();
-        let mut ctys:   Vec<str> = Vec::<str>::new();
+        let mut cnames: Vec<&str> = Vec::<&str>::new();
+        let mut ctys:   Vec<&str> = Vec::<&str>::new();
         let mut nc: i64 = 0i64;
         loop {
             let c0: i64 = i;
             while i < n && str_byte_at(natspec, i) != 32u8 { i = i + 1i64; } // ' '
-            let cn: str = pw_slice(natspec, c0, i);
+            let cn: &str = pw_slice(natspec, c0, i);
             i = i + 1i64;
             let t0: i64 = i;
             while i < n && str_byte_at(natspec, i) != 44u8
                   && str_byte_at(natspec, i) != 41u8 { i = i + 1i64; }       // ',' | ')'
-            let ct: str = pw_slice(natspec, t0, i);
+            let ct: &str = pw_slice(natspec, t0, i);
             if nc > 0i64 { rowtyb[k].push_str(", "); }
             rowtyb[k].push_str(ct);
             cnames.push(cn); ctys.push(ct); nc = nc + 1i64;
@@ -3156,13 +3156,13 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // Absent for a source that declares none, which is every hand-written
         // one until it says otherwise. Held in locals here and registered
         // after the rel itself is (rel_add_op keys off the LAST registered).
-        let mut op_col: Vec<str> = Vec::<str>::new();
-        let mut op_cmp: Vec<str> = Vec::<str>::new();
-        let mut op_fn:  Vec<str> = Vec::<str>::new();
+        let mut op_col: Vec<&str> = Vec::<&str>::new();
+        let mut op_cmp: Vec<&str> = Vec::<&str>::new();
+        let mut op_fn:  Vec<&str> = Vec::<&str>::new();
         let mut op_ex:  Vec<bool> = Vec::<bool>::new();
         let mut op_it:  Vec<bool> = Vec::<bool>::new();
         let mut op_bt:  Vec<bool> = Vec::<bool>::new();
-        let mut op_ity: Vec<str> = Vec::<str>::new();
+        let mut op_ity: Vec<&str> = Vec::<&str>::new();
         let mut nops: i64 = 0i64;
         if i < n && str_byte_at(natspec, i) == 123u8 {                        // '{'
             i = i + 1i64;
@@ -3170,22 +3170,22 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
                 if i >= n || str_byte_at(natspec, i) == 125u8 { break; }      // '}'
                 let c0: i64 = i;
                 while i < n && str_byte_at(natspec, i) != 32u8 { i = i + 1i64; }
-                let ocol: str = pw_slice(natspec, c0, i);
+                let ocol: &str = pw_slice(natspec, c0, i);
                 i = i + 1i64;
                 let m0: i64 = i;
                 while i < n && str_byte_at(natspec, i) != 32u8 { i = i + 1i64; }
-                let ocmp: str = pw_slice(natspec, m0, i);
+                let ocmp: &str = pw_slice(natspec, m0, i);
                 i = i + 1i64;
                 let f0: i64 = i;
                 while i < n && str_byte_at(natspec, i) != 32u8 { i = i + 1i64; }
-                let ofn: str = pw_slice(natspec, f0, i);
+                let ofn: &str = pw_slice(natspec, f0, i);
                 i = i + 1i64;
                 let x0: i64 = i;
                 while i < n && str_byte_at(natspec, i) != 124u8
                       && str_byte_at(natspec, i) != 37u8
                       && str_byte_at(natspec, i) != 125u8 { i = i + 1i64; }
-                let oex: str = pw_slice(natspec, x0, i);
-                let mut oity: str = "";
+                let oex: &str = pw_slice(natspec, x0, i);
+                let mut oity: &str = "";
                 if i < n && str_byte_at(natspec, i) == 37u8 {                 // '%'
                     i = i + 1i64;
                     let t0: i64 = i;
@@ -3219,7 +3219,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // different state — an ordered producer whose source never said which
         // column — and a plan that could not tell it from "not ordered" could
         // not explain why it declined to elide.
-        let mut ordcol: str = "";
+        let mut ordcol: &str = "";
         if i < n && str_byte_at(natspec, i) == 94u8 {                          // '^'
             i = i + 1i64;
             let o0: i64 = i;
@@ -3230,7 +3230,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         }
         // `?<col>` per UNIQUE column (#322, ADR 0026 F8), from the source's
         // `unique <rel> = <col>;` declarations; written after `^`, before `$`.
-        let mut uniq: Vec<str> = Vec::<str>::new();
+        let mut uniq: Vec<&str> = Vec::<&str>::new();
         while i < n && str_byte_at(natspec, i) == 63u8 {                       // '?'
             i = i + 1i64;
             let q0: i64 = i;
@@ -3243,8 +3243,8 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // `$<fn>[%<ret-ty>]` — the source's declared SIZE operation (ADR 0024
         // S4). Absent for a source that reports no size, which stays perfectly
         // usable: the plan records that it could not ask.
-        let mut szfn: str = "";
-        let mut szty: str = "";
+        let mut szfn: &str = "";
+        let mut szty: &str = "";
         if i < n && str_byte_at(natspec, i) == 36u8 {                          // '$'
             i = i + 1i64;
             let z0: i64 = i;
@@ -3262,21 +3262,21 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         }
         // `~<col>=<fn>[%<ret-ty>]` — the source's declared DISTINCT-VALUE counts
         // (#726), registered after the rel (rel_add_ndv keys off the last one).
-        let mut ndv_col: Vec<str> = Vec::<str>::new();
-        let mut ndv_fn:  Vec<str> = Vec::<str>::new();
-        let mut ndv_ty:  Vec<str> = Vec::<str>::new();
+        let mut ndv_col: Vec<&str> = Vec::<&str>::new();
+        let mut ndv_fn:  Vec<&str> = Vec::<&str>::new();
+        let mut ndv_ty:  Vec<&str> = Vec::<&str>::new();
         let mut nndv: i64 = 0i64;
         while i < n && str_byte_at(natspec, i) == 126u8 {                      // '~'
             i = i + 1i64;
             let c0: i64 = i;
             while i < n && str_byte_at(natspec, i) != 61u8 { i = i + 1i64; }   // '='
-            let dcol: str = pw_slice(natspec, c0, i);
+            let dcol: &str = pw_slice(natspec, c0, i);
             i = i + 1i64;
             let f0: i64 = i;
             while i < n && str_byte_at(natspec, i) != 37u8 && str_byte_at(natspec, i) != 126u8
                   && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }
-            let dfn: str = pw_slice(natspec, f0, i);
-            let mut dty: str = "";
+            let dfn: &str = pw_slice(natspec, f0, i);
+            let mut dty: &str = "";
             if i < n && str_byte_at(natspec, i) == 37u8 {                      // '%'
                 i = i + 1i64;
                 let t0: i64 = i;
@@ -3289,7 +3289,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         i = i + 1i64;                                                        // ';'
         rowtyb[k].push_str(")");
         // Single-column rows are the bare type, not a 1-tuple.
-        let rowty: str = if nc == 1i64 { ctys[0] } else { string_as_str(&rowtyb[k]) };
+        let rowty: &str = if nc == 1i64 { ctys[0] } else { string_as_str(&rowtyb[k]) };
         let idx: i64 = reg_native(prm, regname, rowty, mat, marg, marg2, module,
                                   mat_iter, mat_batch, mat_ity, szfn, szty,
                                   &mut srcb[k], &mut dsrcb[k],
@@ -3339,7 +3339,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
 }
 
 // natspec sub-view [a, b).
-fn pw_slice(s: str, a: i64, b: i64) -> str {
+fn pw_slice(s: &str, a: i64, b: i64) -> &str {
     return unsafe { str_from_raw(((s.as_ptr() as i64) + a) as *const u8, b - a) };
 }
 
@@ -3347,7 +3347,7 @@ fn pw_slice(s: str, a: i64, b: i64) -> str {
 // what an operation's rows are, `i` says how they arrive, and the two are
 // independent. Testing membership rather than comparing the whole field is what
 // lets a third property be added without every reader changing.
-fn pw_flag(flags: str, c: u8) -> bool {
+fn pw_flag(flags: &str, c: u8) -> bool {
     let mut i: i64 = 0i64;
     while i < flags.len() {
         if str_byte_at(flags, i) == c { return true; }
@@ -3362,7 +3362,7 @@ fn pw_flag(flags: str, c: u8) -> bool {
 // NATIVE rel (ADR 0016 M1a): the materialization is the writ_graph helper —
 //   let __rel_<p>: Vec<WritEdgeRow> = writ_graph_edges(<p>);
 // (no `?` — the native walk has no EL fault path).
-fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
+fn emit_prelude_oneshot(prelude: &mut String, name: &str, prm: &MacroParams,
                         scc: &RelScc, r: i64) {
     if prm.rel_native[r] {
         // No size binding here (ADR 0026 F2): nothing in `_run` reads the size.
@@ -3572,7 +3572,7 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
 // Recursive SCC `c`: declare each member's total Vec, run the semi-naïve
 // fixpoint fn (members as `&mut Vec` out-params, earlier-stratum deps as
 // slices), bind the `as_slice()` views the entry/later strata scan.
-fn emit_prelude_scc(prelude: &mut String, name: str, prm: &MacroParams,
+fn emit_prelude_scc(prelude: &mut String, name: &str, prm: &MacroParams,
                     scc: &RelScc, c: i64) {
     let mut r: i64 = 0i64;
     while r < prm.rel_n {

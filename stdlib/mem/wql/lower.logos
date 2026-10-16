@@ -34,7 +34,7 @@ use logos.mem.string;
 
 // &String → borrowed str view (local copy of the codegen string_as_str shape —
 // this package must stay metaprog-free).
-fn lw_str(s: &String) -> str {
+fn lw_str(s: &String) -> &str {
     return unsafe { str_from_raw(s.as_ptr(), s.len()) };
 }
 
@@ -49,7 +49,7 @@ pub fn null_rref() -> WRef<RExpr> {
 }
 
 // Build an RScan leaf carrying the full source binding (self-describing IR).
-pub fn make_scan(h: &Writ, src_name: str, row_ty: str, var_name: str) -> WRef<RExpr> {
+pub fn make_scan(h: &Writ, src_name: &str, row_ty: &str, var_name: &str) -> WRef<RExpr> {
     let n: RScan = h.make::<RScan>();
     n.src_name = src_name;
     n.row_ty   = row_ty;
@@ -62,7 +62,7 @@ pub fn make_scan(h: &Writ, src_name: str, row_ty: str, var_name: str) -> WRef<RE
 // `find P` lowers with this selector so the tree stays a well-formed RProj and
 // the Phase-3 identity peephole recognizes it (find + const-true pred → head
 // row without a filter loop).
-pub fn make_ident_sel(h: &Writ, name: str) -> WRef<SExpr> {
+pub fn make_ident_sel(h: &Writ, name: &str) -> WRef<SExpr> {
     let n: SField = h.make::<SField>();
     n.base = null_sref();
     n.name = name;
@@ -98,4 +98,4 @@ pub fn make_ident_sel(h: &Writ, name: str) -> WRef<SExpr> {
 // row, no filter loop).
 
 /// The natspec entry that registers `__unit` (see `crewrite::core_desugar_facts`).
-pub fn UNIT_NATSPEC() -> str { return "__unit=wql_unit_rows@logos.std.wql.unit:(u i64);"; }
+pub fn UNIT_NATSPEC() -> &str { return "__unit=wql_unit_rows@logos.std.wql.unit:(u i64);"; }

@@ -78,7 +78,7 @@ pub fn prefix(loc: &QueryLoc) -> String { return qloc_prefix(loc); }
 /// Report `msg` against the query position `soff`. This is Deem's diagnostic
 /// channel: the message is located before it leaves, so the host never has to
 /// guess and never reports a position inside generated code.
-pub fn error_at_query(prog: &RQProgram, soff: i64, msg: str) {
+pub fn error_at_query(prog: &RQProgram, soff: i64, msg: &str) {
     let loc: QueryLoc = resolve(prog, soff);
     let mut out: String = String::new();
     out.push_str(prefix(&loc).as_str());
@@ -92,7 +92,7 @@ pub fn error_at_query(prog: &RQProgram, soff: i64, msg: str) {
 /// in hand wherever it fires — a position available only where it was produced
 /// is a position nobody can use. Falls back to the un-located form when the
 /// surface has no query root (trama!/catalog), so this is always safe to call.
-pub fn wql_error(prm: &MacroParams, msg: str) {
+pub fn wql_error(prm: &MacroParams, msg: &str) {
     let mut out: String = String::new();
     if !prm.src_root.is_null() {
         let prog: RQProgram = prm.src_root.view::<RQProgram>();
