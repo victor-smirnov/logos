@@ -1,0 +1,53 @@
+// ADR 0039 D7 (row M3b): a Canon family recovers the store of ITS node
+// profile (`store_of::<<P as StoreProfile>::Store>`), checked by type id. A
+// snapshot of another model — one that does have a node plane — is refused at
+// the first directory access instead of being reinterpreted as the profile's
+// store. Twin of memoria_node_store_absent_abort (no node plane at all); every
+// memoria_* fixture is the admitted side.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.pkd;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.str;
+use logos.mem.string;
+use logos.std.io;
+use logos.lang.any;
+use logos.lang.option;
+
+container Ledger {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+
+struct Other { id: u64 }
+
+impl Snapshot for Other {
+    fn snapshot_id(self: &Other) -> u64 { return self.id; }
+    fn commit(self: &Other) { }
+    fn remove(self: &Other) { }
+    fn status(self: &Other) -> u32 { return 0u32; }
+    fn snapshot_parent(self: &Other) -> u64 { return 0u64; }
+    fn set_as_branch(self: &Other, name: &str) { }
+    fn node_store(self: &Other) -> Option<&dyn NodeStore> { return Option::Some(self as &dyn NodeStore); }
+}
+
+impl NodeStore for Other {
+    fn assert_writable(self: &Other) { }
+    fn root_of(self: &Other, ctr_id: u64) -> DirEntry { return DirEntry { ctr_id: ctr_id, root: 0 as *mut u8, level: 0u32 }; }
+    fn root_of_mut(self: &Other, ctr_id: u64) -> DirEntry { return DirEntry { ctr_id: ctr_id, root: 0 as *mut u8, level: 0u32 }; }
+    fn set_root(self: &Other, ctr_id: u64, root: *mut u8, level: u32) { }
+    fn as_any(self: &Other) -> &dyn Any { return self as &dyn Any; }
+}
+
+fn main() -> i32 {
+    let s: Arc<dyn Snapshot> = arc_new::<Other>(Other { id: 7u64 }) as Arc<dyn Snapshot>;
+    { let mut m: String = String::new(); m.push_str("other model"); println_string(&m); }
+    let mut l = create_ctr::<typeof(Ledger)>(&s, 1u64);
+    l.insert(1u64, 10u64);
+    return 0i32;
+}
