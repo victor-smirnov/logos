@@ -3124,9 +3124,11 @@ lir_view::StmtRef SemaChecker::finish_return_(lir::LExprPtr val, TinyMapView vno
             vt = pool_->alloc(std::move(b));
             builder().retype_expr(val, vt);
         }
-        // A diverging value (`!`) fixes no hidden type.
+        // A diverging value (`!`) fixes no hidden type; nor does this function's own
+        // opaque type (a recursive call, `return f(n - 1)`): it IS the hidden type.
         if (TypeRef(vt).kind() != LogosType::Kind::Error &&
-            TypeRef(vt).kind() != LogosType::Kind::Never) {
+            TypeRef(vt).kind() != LogosType::Kind::Never &&
+            !(TypeRef(vt).kind() == LogosType::Kind::ImplTrait && types_equal(vt, ret_type_))) {
             if (!impl_ret_type_inferred_)
                 impl_ret_type_inferred_ = vt;
             else if (!types_equal(vt, impl_ret_type_inferred_))
