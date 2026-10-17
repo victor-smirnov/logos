@@ -198,6 +198,21 @@ fn has_nested_elided_ref(params: &str) -> bool {
     return false;
 }
 
+// How many borrows without a region `t` holds.
+fn elided_ref_count(t: &str) -> i64 {
+    let n: i64 = t.len();
+    let mut k: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        if str_byte_at(t, i) == 38u8 {
+            let nx: u8 = if i + 1i64 < n { str_byte_at(t, i + 1i64) } else { 0u8 };
+            if nx != 39u8 && nx != 38u8 { k = k + 1i64; }
+        }
+        i = i + 1i64;
+    }
+    return k;
+}
+
 // A borrow without a region (`&T`, not `&'r T` / `&&`) occurs in `t`.
 fn has_elided_ref(t: &str) -> bool {
     let n: i64 = t.len();
@@ -326,7 +341,14 @@ fn emit_fn_quote_blob(fn_name: &str, params_text: &str, tps: &str, ret_ty: &str,
     // for the reason `region_annotate` gives: it takes the query's params AND
     // its dep slices, so an elided result is E0106, and an elided out-param
     // row could not hold what the sources lend.
-    if vis_is_priv(fn_name) && (has_elided_ref(ret_ty) || has_nested_elided_ref(params_text)) {
+    let priv_rows: bool = vis_is_priv(fn_name) && (has_elided_ref(ret_ty) || has_nested_elided_ref(params_text));
+    // A PUBLIC query fn whose result borrows takes the same region: two
+    // borrowed params (`l: &Ledger, users: &[User]`) are E0106 in Rust, and so
+    // is one whose element hides a region (`e: &[DynEdge]`, `DynEdge<'d>`) —
+    // which the text cannot see. Every borrowed param is a source; with one and
+    // no hidden region, naming it is what elision would have chosen.
+    let pub_rows: bool = !vis_is_priv(fn_name) && has_elided_ref(ret_ty) && elided_ref_count(params_text) >= 1i64;
+    if priv_rows || pub_rows {
         let mut ps_a: String = String::new();
         region_annotate(params_text, false, &mut ps_a);
         let mut ret_a: String = String::new();
