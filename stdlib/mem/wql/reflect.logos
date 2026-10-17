@@ -40,7 +40,7 @@ fn sview_eq_str(sv: SView, name: &str) -> bool {
 
 // Materialise an `SView`'s borrowed bytes as a `str` view (shares the AST arena;
 // valid for the OView's lifetime). Empty `str` for a null view.
-fn sview_str(sv: SView) -> &str {
+fn sview_str<'a>(sv: SView) -> &'a str {
     if sv.ptr == (0 as *const u8) || sv.len == (0 as u64) { return ""; }
     return unsafe { str_from_raw(sv.ptr, sv.len as i64) };
 }

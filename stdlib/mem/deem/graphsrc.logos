@@ -49,7 +49,7 @@ struct RowSet<'d> {
     nrows: i64,
 }
 
-fn rs_new() -> RowSet {
+fn rs_new<'a>() -> RowSet<'a> {
     return RowSet { vars: [""; 32], nvars: 0i64, cells: vec_new::<RtVal>(), nrows: 0i64 };
 }
 
@@ -99,7 +99,7 @@ fn ts_is_container(v: WAny) -> bool {
 }
 
 // The child's friendly tag for the `kind` column ("obj" = open-world ref).
-fn ts_kind(v: WAny) -> &str {
+fn ts_kind(v: WAny) -> &'static str {
     if v.is_map()     { return "map"; }
     if v.is_array()   { return "arr"; }
     if v.is_tinymap() { return "tom"; }

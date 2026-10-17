@@ -45,7 +45,7 @@ struct NameScope<'d> {
     pub known: Vec<&'d str>, // names bound outside the chain: `key`, aggregate outputs
 }
 
-fn ns_new() -> NameScope {
+fn ns_new<'a>() -> NameScope<'a> {
     return NameScope { vars: Vec::<&str>::new(), anti: Vec::<bool>::new(), nv: 0i64,
                        upto: 0i64, own: -1i64, grouped: false, comp: "",
                        known: Vec::<&str>::new() };

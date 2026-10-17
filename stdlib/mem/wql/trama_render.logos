@@ -185,7 +185,7 @@ struct TVarTys<'d> {
     tys:   Vec<&'d str>,
     n:     i64,
 }
-fn tvartys_new() -> TVarTys {
+fn tvartys_new<'a>() -> TVarTys<'a> {
     return TVarTys {
         names: Vec::<&str>::new(),
         tys:   Vec::<&str>::new(),
@@ -216,7 +216,7 @@ struct StructEnv<'d> {
     tys:   Vec<&'d str>,
     n:     i64,
 }
-fn struct_env_new() -> StructEnv {
+fn struct_env_new<'a>() -> StructEnv<'a> {
     return StructEnv {
         names: Vec::<&str>::new(),
         tys:   Vec::<&str>::new(),

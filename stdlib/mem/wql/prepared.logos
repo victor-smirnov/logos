@@ -206,7 +206,7 @@ pub struct Prepared<'d> {
     pub w:        Why<'d>,
 }
 
-pub fn prep_off() -> Prepared {
+pub fn prep_off<'a>() -> Prepared<'a> {
     return Prepared { on: false, dynamic: false, deferred: false, nfl: 0i64, ncand: 0i64,
                       sz0: "", sz1: "", sz2: "", sz3: "", measure: "", tbl: "",
                       w: why_new() };
@@ -229,7 +229,7 @@ pub fn prep_fixed(w: Why) -> Prepared {
 /// in "no axis", so nine corpus plans with an explicit join reported "this query has
 /// no join whose order a plan could choose" one line under their own
 /// `hash join on i64`. The emitter holds the chain; it is the only thing that knows.
-pub fn prep_ground(g: i32, ax: i32) -> Prepared {
+pub fn prep_ground<'a>(g: i32, ax: i32) -> Prepared<'a> {
     return prep_fixed(why_of(g, ax));
 }
 

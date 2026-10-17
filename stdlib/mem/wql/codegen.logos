@@ -502,7 +502,7 @@ pub fn float_node_ty<'a>(e: SExpr, t: &'a ElTypes) -> &'a str {
 /// `f64` — or "" for an unsuffixed one (or `-N` over either). A suffix makes a
 /// literal a TYPED operand like a column: `r.f * 1.0f64` over an `f32` is a
 /// mismatch, as in Rust, instead of the suffix being dropped.
-pub fn lit_suffix(e: SExpr) -> &str {
+pub fn lit_suffix<'a>(e: SExpr) -> &'a str {
     match e {
         SExpr::Lit(l) => { return l.suffix(); }
         SExpr::Un(u) => { if u.op == OP_NEG() { return lit_suffix(u.arg_expr()); } return ""; }
@@ -584,7 +584,7 @@ pub fn el_computes_in_repr(e: SExpr) -> bool {
 // leaf (a null-base SField — the EL parser's bare-ident node — or an SVar /
 // SParam), "" otherwise. The rel-binding lookups key off this (a rel row var
 // is always a direct scan binding, never a nested path).
-pub fn root_ident_name(e: SExpr) -> &str {
+pub fn root_ident_name<'a>(e: SExpr) -> &'a str {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;

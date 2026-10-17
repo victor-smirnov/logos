@@ -340,7 +340,7 @@ pub fn decide_join_step<'a>(on: WRef<SExpr>, new_var: &str, t: &'a ElTypes, h: &
 /// can exist — it is a nested loop by construction, not by cascade. Stated as a
 /// decision anyway so that "why is this a loop" has an answer on the plan
 /// rather than only in a comment.
-pub fn traversal_step_sel() -> StepSel {
+pub fn traversal_step_sel<'a>() -> StepSel<'a> {
     let mut g: JoinGround = jg_new("");
     g.rule = JR_TRAVERSAL();
     return StepSel { strat: JS_LOOP(), key_tn: "", sel: -1i64, g: g };

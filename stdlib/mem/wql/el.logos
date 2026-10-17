@@ -716,7 +716,7 @@ pub fn el_ty_has_ident(t: ElTy) -> bool { return t.ident == EL_ID_OK(); }
 pub fn el_ty(name: &str) -> ElTy { return el_ty_complete(el_ty_stored_of(name)); }
 
 /// The type admitted at index `i`, complete. The enumeration `el_ty` scans.
-pub fn el_ty_at(i: i64) -> ElTy { return el_ty_complete(el_ty_stored(i)); }
+pub fn el_ty_at<'a>(i: i64) -> ElTy<'a> { return el_ty_complete(el_ty_stored(i)); }
 
 /// HOW MANY TYPES THE LATTICE ADMITS. Not a second list — `el_ty_stored` returns
 /// the denied row past the end, and the fixture pins `arity` against that boundary
@@ -755,7 +755,7 @@ fn el_ty_stored_of(name: &str) -> ElTy {
 /// emitted comparison is stored where the type is admitted and MEASURED by a gate
 /// that compares two values of that type at the extremes. If the lowering changes,
 /// the gate fails. That is what a class tag could never do.
-fn el_ty_stored(i: i64) -> ElTy {
+fn el_ty_stored<'a>(i: i64) -> ElTy<'a> {
     // Integer family — (bits, signed) is the whole of what distinguishes them,
     // and every one of them has a total `<` and an exact `==` in the language.
     if i == 0i64  { return el_ty_raw("i8",    EL_TY_INT(), 8i64,   true,  EL_ORD_OK(), EL_ID_OK()); }
@@ -1951,7 +1951,7 @@ pub fn COL_FIELD() -> i64 { return -2i64; }   // `var.col` — a struct field
 pub fn CB_VAR()  -> i64 { return 0i64; }      // a query row var
 pub fn CB_TYPE() -> i64 { return 1i64; }      // a declared struct type
 
-pub fn el_types_new() -> ElTypes {
+pub fn el_types_new<'a>() -> ElTypes<'a> {
     return ElTypes {
         // Every table grows by its setter; none has a capacity.
         tns:    vec_new::<String>(),

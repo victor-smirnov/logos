@@ -50,7 +50,7 @@ struct RBinds<'d> {
     words: [i64; 40],
     n:     i64,
 }
-fn rbinds_new() -> RBinds {
+fn rbinds_new<'a>() -> RBinds<'a> {
     return RBinds {
         names: [""; 40], kinds: [0i32; 40], ivals: [0i64; 40], fvals: [0.0f64; 40],
         bvals: [false; 40], svals: [""; 40], words: [0i64; 40], n: 0i64,
@@ -693,7 +693,7 @@ struct CBinds<'d> {
     ordws: [bool; 40],
     n:     i64,
 }
-fn cbinds_new() -> CBinds {
+fn cbinds_new<'a>() -> CBinds<'a> {
     return CBinds { names: [""; 40], tags: [0i32; 40], codes: [0u64; 40],
                     ordws: [false; 40], n: 0i64 };
 }

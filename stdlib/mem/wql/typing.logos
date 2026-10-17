@@ -507,7 +507,7 @@ pub fn type_group_outputs(view: &OView, g: &CGroup, t: &mut ElTypes, h: &Writ) -
     return type_aggs(view, &g.aggs, t, h, &mut gt);
 }
 
-pub fn group_ty_new() -> GroupTy {
+pub fn group_ty_new<'a>() -> GroupTy<'a> {
     return GroupTy { flt: Vec::<bool>::new(), cast: Vec::<bool>::new(), uda: Vec::<bool>::new(),
                      uda_fin: Vec::<bool>::new(), uda_acc: Vec::<&str>::new(), uda_ret: Vec::<&str>::new(),
                      acc: Vec::<&str>::new(), act: Vec::<&str>::new() };

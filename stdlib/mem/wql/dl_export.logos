@@ -531,7 +531,7 @@ fn dx_set(why: &mut String, w: &str) -> bool {
     return false;
 }
 
-fn dx_new_clause() -> DxClause {
+fn dx_new_clause<'a>() -> DxClause<'a> {
     return DxClause { body: String::new(), ok: true, nv: 0i64, vars: Vec::<&str>::new(), vsrc: Vec::<i64>::new(),
                       nparams: 0i64, params: Vec::<&str>::new(), consts: Vec::<&str>::new(), nal: 0i64, al_names: Vec::<&str>::new(),
                       al_vars: Vec::<&str>::new(), al_tys: Vec::<&str>::new(), al_kinds: Vec::<&str>::new(),
@@ -1811,7 +1811,7 @@ fn dx_outer_atom(p: &CProgram, cl: &mut DxClause, env: &DxEnv, a: &CAtom) -> boo
 // constant of their type, keep one tuple per joined row; each aggregate's
 // argument is a value column, computed where the optional columns are known.
 struct DxOAgg<'d> { pub on: bool, pub kes: Vec<SExpr>, pub vals: Vec<SExpr>, pub lvars: Vec<&'d str>, pub lsrc: Vec<i64> }
-fn dx_oagg_none() -> DxOAgg {
+fn dx_oagg_none<'a>() -> DxOAgg<'a> {
     return DxOAgg { on: false, kes: Vec::<SExpr>::new(), vals: Vec::<SExpr>::new(), lvars: Vec::<&str>::new(), lsrc: Vec::<i64>::new() };
 }
 

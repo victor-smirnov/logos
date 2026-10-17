@@ -108,7 +108,7 @@ fn wg_fnv2(a: i64, b: i64) -> i64 {
     return hh as i64;
 }
 
-fn wg_kind(v: WAny) -> &str {
+fn wg_kind(v: WAny) -> &'static str {
     if v.is_map()     { return "map"; }
     if v.is_array()   { return "arr"; }
     if v.is_tinymap() { return "tom"; }
