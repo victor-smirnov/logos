@@ -216,7 +216,7 @@ unsafe fn rd_f64(data: *const u8, pos: *mut i64, end: i64, err: *mut bool) -> f6
     *pos = *pos + 8i64;
     return tmp;
 }
-unsafe fn rd_str(data: *const u8, pos: *mut i64, end: i64, err: *mut bool) -> &str {
+unsafe fn rd_str<'a>(data: *const u8, pos: *mut i64, end: i64, err: *mut bool) -> &'a str {
     let len: i64 = rd_vlen(data, pos, end, err) as i64;
     // A length taken straight from the stream is untrusted: reject negative
     // (from a >i63 vlen) or a payload that overruns the buffer BEFORE building

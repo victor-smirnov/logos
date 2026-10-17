@@ -306,7 +306,7 @@ impl WAnyMut {
     /// Check `is_map()` first; the child can then set/grow in the same arena.
     /// PANICS if the element is not a `W_MAP` object (resolver-guard class — see the
     /// note at the top of `writ/array.logos`).
-    pub fn as_map_mut(self: WAnyMut) -> &mut WMap<WString, WAny> {
+    pub fn as_map_mut<'a>(self: WAnyMut) -> &'a mut WMap<WString, WAny> {
         let v: WAny = self.get();
         if !v.is_map() { panic("WAnyMut::as_map_mut: the element is not a W_MAP object — check is_map() first"); }
         return unsafe { zone_mut_ref::<WMap<WString, WAny>>(v.resolve() as *mut WMap<WString, WAny>, self.zone) };

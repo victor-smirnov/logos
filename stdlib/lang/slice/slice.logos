@@ -127,7 +127,7 @@ pub fn slice_copy_within<T: Copy>(s: &mut [T], src_lo: i64, src_hi: i64, dst: i6
 /// Constructs an `&[T]` fat pointer from a raw pointer and element count.
 /// Compiler intrinsic (sema intercepts the call); mirrors `str_from_raw` in `lang/str`.
 /// `ptr` must be valid for reads of `len` elements for as long as the result is used.
-pub unsafe fn slice_from_raw<T>(ptr: *const T, len: i64) -> &[T] {
+pub unsafe fn slice_from_raw<'a, T>(ptr: *const T, len: i64) -> &'a [T] {
     // Body unreachable — sema intercepts the call. If a call path ever
     // slips past the intercept, FAIL LOUDLY instead of returning an empty
     // slice (the old placeholder was a silent miscompile).
@@ -138,7 +138,7 @@ pub unsafe fn slice_from_raw<T>(ptr: *const T, len: i64) -> &[T] {
 /// Compiler intrinsic (sema intercepts the call), the `&mut` twin of `slice_from_raw`.
 /// `ptr` must be valid for reads and writes of `len` elements, unaliased, for as long
 /// as the result is used.
-pub unsafe fn slice_from_raw_mut<T>(ptr: *mut T, len: i64) -> &mut [T] {
+pub unsafe fn slice_from_raw_mut<'a, T>(ptr: *mut T, len: i64) -> &'a mut [T] {
     panic("slice_from_raw_mut: intrinsic call was not intercepted (compiler bug)");
 }
 

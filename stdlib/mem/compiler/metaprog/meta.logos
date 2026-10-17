@@ -18,7 +18,7 @@ package logos.std.compiler.metaprog;
 // printable string. Mirrors `LogosType::Kind` enum order from
 // `include/logos/compiler/sema.hpp`. Unknown tags → "?".
 /// Returns a short printable name for a `Type` kind tag; unknown tags yield `"?"`.
-pub fn kind_name(k: u32) -> &str {
+pub fn kind_name(k: u32) -> &'static str {
     if k == (0 as u32)  { return "Void"; }
     if k == (1 as u32)  { return "i32"; }
     if k == (2 as u32)  { return "i64"; }

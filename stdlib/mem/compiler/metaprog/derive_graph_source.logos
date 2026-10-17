@@ -55,7 +55,7 @@ use logos.lang.writ.anyval;
 use logos.mem.string;
 use logos.lang.str;
 
-fn gs_sv(s: SView) -> &str {
+fn gs_sv<'a>(s: SView) -> &'a str {
     return unsafe { str_from_raw(s.ptr, s.len as i64) };
 }
 
