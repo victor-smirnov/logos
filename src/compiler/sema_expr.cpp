@@ -14685,10 +14685,12 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         // minting site can tell them apart. A type that never reached a mint
         // keeps zero args and still yields at the comparison.
         // A binder offered two regions takes the meet token structlit_lt_subst_ minted, not the first region.
+        std::unordered_set<std::string> static_only;
         {
             auto bl_ng = structlit_lt_subst_(sinfo.lifetime_params, sinfo.fields, fields,
                                              sinfo.package.empty() ? std::string(sname)
-                                                                   : sinfo.package + "." + std::string(sname));
+                                                                   : sinfo.package + "." + std::string(sname),
+                                             &static_only);
             // The meet token — and a binder pinned by an INVARIANT occurrence —
             // replace the first region met (structlit_lt_subst_).
             for (auto& [k, v] : bl_ng) {
@@ -14696,6 +14698,23 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 // An inference region (structlit_lt_subst_: only a covariant 'static was
                 // offered) overrides this walk's first-wins 'static.
                 else if (v.empty() && flt.count(k) && outlives_is_static(flt[k])) flt.erase(k);
+            }
+        }
+        // (struct_shape_, not struct_region_shape_: only a binder the values left
+        // free or offered nothing but 'static is read off the expectation — 'static
+        // outlives it, so no implied bound is assumed.)
+        if (TypeRef sh = struct_shape_(); sh && TypeRef(sh).struct_name() == std::string(sname)) {
+            auto hl = TypeRef(sh).lifetime_args();
+            for (size_t i = 0; i < sinfo.lifetime_params.size() && i < hl.size(); ++i) {
+                const std::string& lp = sinfo.lifetime_params[i];
+                if (hl[i].empty() || hl[i] == "'_") continue;
+                // Only a region this scope can name: 'static or one of the
+                // signature's binders (a bare `CProgram` shape spells the struct's
+                // own `'d`, which is no region here).
+                if (!outlives_is_static(hl[i]) && !current_lt_binders().count(outlives_norm(hl[i]))) continue;
+                auto it = flt.find(lp);
+                if (it == flt.end() || (static_only.count(lp) && outlives_is_static(it->second)))
+                    flt[lp] = hl[i];
             }
         }
         logos::probe::census("lit.mint.sized");

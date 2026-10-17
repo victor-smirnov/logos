@@ -1730,6 +1730,10 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         // keeps the idiom internally — `Box`'s drop and `ptr::drop_in_place` move
         // an unsized pointee out through its fat pointer and let its own glue
         // destroy it — the way Rust's own `unsized_locals` is internal-only.
+        if (ann && bare_str_value(ann))
+            error(std::format("the size for values of type `{}` cannot be known at compilation time (E0277): "
+                              "a local variable must have a statically known size — bind `&str`",
+                              type_str(ann)));
         if (ann && !cur_package_.starts_with("logos.")) {
             // A BARE `dyn`: the grammar folds `&dyn` / `&mut dyn` into the same
             // node and marks them IS_REF.

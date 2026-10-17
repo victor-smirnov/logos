@@ -1,0 +1,7 @@
+// Twin: a binder the values DO name ('a, from a parameter) is not widened to the
+// expected 'static — rustc: lifetime may not live long enough.
+package structlit_expected_region_not_widened_refused;
+use logos.mem.collections.vec;
+struct S<'d> { pub v: Vec<&'d str>, pub c: &'d str }
+fn widen<'a>(x: &'a str) -> S<'static> { return S { v: Vec::<&str>::new(), c: x }; }
+fn main() -> i32 { return 0; }

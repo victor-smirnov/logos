@@ -1,0 +1,9 @@
+// A struct literal whose binder the values offer only a covariant 'static (a string
+// literal) or leave free (an elided `Vec<&str>`) takes the region the context expects:
+// rustc infers 'd = 'a from the return type (S is invariant in 'd through Vec). Prints 0.
+package structlit_static_field_takes_expected_region;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct S<'d> { pub v: Vec<&'d str>, pub c: &'d str }
+fn mk<'a>() -> S<'a> { return S { v: Vec::<&str>::new(), c: "" }; }
+fn main() -> i32 { let s: S = mk(); println!("{}", s.v.len()); return 0; }
