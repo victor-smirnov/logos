@@ -115,7 +115,7 @@ pub fn code_writer_new() -> CodeWriter {
 }
 
 /// True iff `s` holds `pat` at byte `at`.
-fn bytes_at(s: str, at: i64, pat: str) -> bool {
+fn bytes_at(s: &str, at: i64, pat: &str) -> bool {
     if at < 0i64 || at + pat.len() > s.len() { return false; }
     let mut k: i64 = 0i64;
     while k < pat.len() {
@@ -134,9 +134,9 @@ fn bytes_at(s: str, at: i64, pat: str) -> bool {
 /// twenty-odd sites, so the wrap is applied here, where every emitted line passes,
 /// rather than at each site. A call already written inside `unsafe { ` is copied
 /// as it is.
-fn push_wrapping_ref_to(buf: &mut String, text: str) {
-    let pat: str = "WAny::ref_to(";
-    let pre: str = "unsafe { ";
+fn push_wrapping_ref_to(buf: &mut String, text: &str) {
+    let pat: &str = "WAny::ref_to(";
+    let pre: &str = "unsafe { ";
     let n: i64 = text.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -167,7 +167,7 @@ fn push_wrapping_ref_to(buf: &mut String, text: str) {
 
 impl CodeWriter {
     // Emit one line at the current indent (empty `text` → a blank line, no indent).
-    pub fn line(self: &mut CodeWriter, text: str) {
+    pub fn line(self: &mut CodeWriter, text: &str) {
         if text.len() > 0i64 {
             let mut i: i64 = 0i64;
             while i < self.indent { self.buf.push_str("    "); i = i + 1i64; }
@@ -181,22 +181,22 @@ impl CodeWriter {
 
     // Emit a line built from up to a few str fragments (a terse `fmt` analogue —
     // Logos format! is heavier; these cover the call sites here).
-    pub fn l2(self: &mut CodeWriter, a: str, b: str) {
+    pub fn l2(self: &mut CodeWriter, a: &str, b: &str) {
         let mut s: String = String::new();
         s.push_str(a); s.push_str(b);
         self.line(s.as_str());
     }
-    pub fn l3(self: &mut CodeWriter, a: str, b: str, c: str) {
+    pub fn l3(self: &mut CodeWriter, a: &str, b: &str, c: &str) {
         let mut s: String = String::new();
         s.push_str(a); s.push_str(b); s.push_str(c);
         self.line(s.as_str());
     }
-    pub fn l4(self: &mut CodeWriter, a: str, b: str, c: str, d: str) {
+    pub fn l4(self: &mut CodeWriter, a: &str, b: &str, c: &str, d: &str) {
         let mut s: String = String::new();
         s.push_str(a); s.push_str(b); s.push_str(c); s.push_str(d);
         self.line(s.as_str());
     }
-    pub fn l5(self: &mut CodeWriter, a: str, b: str, c: str, d: str, e: str) {
+    pub fn l5(self: &mut CodeWriter, a: &str, b: &str, c: &str, d: &str, e: &str) {
         let mut s: String = String::new();
         s.push_str(a); s.push_str(b); s.push_str(c); s.push_str(d); s.push_str(e);
         self.line(s.as_str());
@@ -213,7 +213,7 @@ fn itos(v: i64) -> String {
 }
 
 // snake_case → PascalCase (for the parser type name).
-fn to_pascal(snake: str) -> String {
+fn to_pascal(snake: &str) -> String {
     let mut out: String = String::new();
     let mut cap: bool = true;
     let mut i: i64 = 0i64;
@@ -234,7 +234,7 @@ fn to_pascal(snake: str) -> String {
 }
 
 // ASCII upper-case copy.
-fn to_upper(s: str) -> String {
+fn to_upper(s: &str) -> String {
     let mut out: String = String::new();
     let mut i: i64 = 0i64;
     let n: i64 = s.len();
@@ -247,14 +247,14 @@ fn to_upper(s: str) -> String {
 }
 
 // First byte (or 0 for empty) — used for the UPPERCASE token-ref convention.
-fn first_byte(s: str) -> u8 {
+fn first_byte(s: &str) -> u8 {
     if s.len() == 0i64 { return 0u8; }
     return str_byte_at(s, 0i64);
 }
 
 // Strip surrounding double quotes (a literal token pattern keeps its quotes in
 // the doc; the lexer wants the inner text).
-fn unquote(s: str) -> str {
+fn unquote(s: &str) -> &str {
     let n: i64 = s.len();
     if n >= 2i64 && str_byte_at(s, 0i64) == 34u8 && str_byte_at(s, n - 1i64) == 34u8 {
         return unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };
@@ -386,7 +386,7 @@ pub fn codegen_new() -> Codegen {
 }
 
 // Look up the SchemaDecl for a %nodes/action node name; returns index or -1.
-fn find_schema(cg: &Codegen, name: str) -> i64 {
+fn find_schema(cg: &Codegen, name: &str) -> i64 {
     let n: i64 = cg.schemas.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -400,7 +400,7 @@ fn find_schema(cg: &Codegen, name: str) -> i64 {
 // A token pattern that is entirely alnum/underscore and at least two chars —
 // i.e. a WORD keyword, whose text could equally be an identifier. Punctuation
 // and single characters are excluded.
-fn tok_pattern_is_word(pat: str) -> bool {
+fn tok_pattern_is_word(pat: &str) -> bool {
     // Patterns arrive quoted ("fn") — compare the inside.
     let n: i64 = pat.len();
     let mut i: i64 = 0i64;
@@ -419,7 +419,7 @@ fn tok_pattern_is_word(pat: str) -> bool {
     return true;
 }
 
-fn schema_field_type(cg: &Codegen, sidx: i64, fname: str) -> String {
+fn schema_field_type(cg: &Codegen, sidx: i64, fname: &str) -> String {
     if sidx < 0i64 { return String::new(); }
     let nf: i64 = cg.schemas.borrow(sidx).fields.len();
     let mut i: i64 = 0i64;
@@ -438,7 +438,7 @@ fn schema_field_type(cg: &Codegen, sidx: i64, fname: str) -> String {
 // `cap<capidx>`. Used by the schema action's token->i64 hook: an INTEGER-token
 // capture into a WAny/scalar field is DECODED to its numeric value, not stored as
 // a WString ref. General over any token name.
-fn capture_is_token_named(cg: &Codegen, alt_idx: i64, capidx: i64, tok: str) -> bool {
+fn capture_is_token_named(cg: &Codegen, alt_idx: i64, capidx: i64, tok: &str) -> bool {
     if capidx < 1i64 { return false; }
     let n: i64 = cg.alts.borrow(alt_idx).seq.len();
     if capidx > n { return false; }
@@ -450,7 +450,7 @@ fn capture_is_token_named(cg: &Codegen, alt_idx: i64, capidx: i64, tok: str) -> 
 // True if `name` is a token-alias rule: no action, every alt a single TOKEN_REF
 // (e.g. `trait_kw <- KW_TRAIT / KW_GENOS`). The caller treats it like a token, so
 // its result must NOT be pushed into a parent's $... ITEMS list.
-fn is_token_alias(cg: &Codegen, name: str) -> bool {
+fn is_token_alias(cg: &Codegen, name: &str) -> bool {
     let nr: i64 = cg.rules.len();
     let mut ri: i64 = 0i64;
     while ri < nr {
@@ -483,7 +483,7 @@ fn is_token_alias(cg: &Codegen, name: str) -> bool {
 // always-succeeding rule the answer is always "matched". (Without this, `X <-
 // nullable_R Y` fails whenever `nullable_R` legitimately matches empty — e.g. an
 // `if` with no `else`.)
-fn rule_is_nullable(cg: &Codegen, name: str) -> bool {
+fn rule_is_nullable(cg: &Codegen, name: &str) -> bool {
     let nr: i64 = cg.rules.len();
     let mut ri: i64 = 0i64;
     while ri < nr {
@@ -522,7 +522,7 @@ fn alt_is_nullable(cg: &Codegen, alt_idx: i64) -> bool {
 
 // Does the item subtree rooted at `item_idx` contain a RULE_REF to `target`?
 // Walks the child item (OPT/REP/LOOKAHEAD) and any group alternatives.
-fn item_refs_rule(cg: &Codegen, item_idx: i64, target: str) -> bool {
+fn item_refs_rule(cg: &Codegen, item_idx: i64, target: &str) -> bool {
     if item_idx < 0i64 { return false; }
     if cg.items.borrow(item_idx).kind == RULE_REF
         && str_eq(cg.items.borrow(item_idx).name.as_str(), target) { return true; }
@@ -536,7 +536,7 @@ fn item_refs_rule(cg: &Codegen, item_idx: i64, target: str) -> bool {
     return false;
 }
 
-fn alt_refs_rule(cg: &Codegen, alt_idx: i64, target: str) -> bool {
+fn alt_refs_rule(cg: &Codegen, alt_idx: i64, target: &str) -> bool {
     let n: i64 = cg.alts.borrow(alt_idx).seq.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -552,7 +552,7 @@ fn alt_refs_rule(cg: &Codegen, alt_idx: i64, target: str) -> bool {
 // rules referenced once do not. Drives selective packrat memoization — only
 // high-fan-in rules carry a memo cache, matching the C++ generator's policy of
 // memoizing the ~12 expr/type rules (it hardcodes names; we derive from structure).
-fn rule_fanin(cg: &Codegen, target: str) -> i64 {
+fn rule_fanin(cg: &Codegen, target: &str) -> i64 {
     let mut cnt: i64 = 0i64;
     let nr: i64 = cg.rules.len();
     let mut ri: i64 = 0i64;
@@ -591,7 +591,7 @@ fn rep_is_fold(cg: &Codegen, sub: i64) -> bool {
 
 // True if `name` is a raw-group pseudo-token; the matching Lexer helper name is
 // `try_raw_group_paren|bracket|brace`.
-fn is_raw_group_name(name: str) -> bool {
+fn is_raw_group_name(name: &str) -> bool {
     return str_eq(name, "RAW_GROUP_PAREN")
         || str_eq(name, "RAW_GROUP_BRACKET")
         || str_eq(name, "RAW_GROUP_BRACE");
@@ -610,7 +610,7 @@ fn grammar_has_usize_suffix(cg: &Codegen) -> bool {
 }
 
 // True if the grammar declares a token named `name`.
-fn tok_present(cg: &Codegen, name: str) -> bool {
+fn tok_present(cg: &Codegen, name: &str) -> bool {
     let n: i64 = cg.tokens.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -628,7 +628,7 @@ fn detect_pseudo_tokens(cg: &mut Codegen) {
     while i < n {
         let it: &Item = cg.items.borrow(i);
         if it.kind == TOKEN_REF {
-            let nm: str = it.name.as_str();
+            let nm: &str = it.name.as_str();
             if str_eq(nm, "GT_TYPE") { cg.uses_gt_type = true; }
             else if str_eq(nm, "LT_TYPE") { cg.uses_lt_type = true; }
             else if is_raw_group_name(nm) { cg.uses_raw_group = true; }
@@ -661,7 +661,7 @@ fn detect_pseudo_tokens(cg: &mut Codegen) {
 fn is_keyword_literal(cg: &Codegen, i: i64) -> bool {
     let t: &TokenDecl = cg.tokens.borrow(i);
     if t.kind != TOKEN_LITERAL { return false; }
-    let pat: str = unquote(t.pattern.as_str());
+    let pat: &str = unquote(t.pattern.as_str());
     let n: i64 = pat.len();
     if n == 0i64 { return false; }
     let c0: u8 = str_byte_at(pat, 0i64);
@@ -709,7 +709,7 @@ fn gp_ident_byte(c: u8) -> bool {
 // rewrite a token START, never a substring of a longer identifier). `TK_` is
 // itself an identifier START (the token consts are `TK_<NAME>`), so this also
 // correctly prefixes the whole `TK_...` family via the 3-byte `TK_` token.
-fn gp_match_at(src: &str, i: i64, prev_is_ident: bool, name: str) -> bool {
+fn gp_match_at(src: &str, i: i64, prev_is_ident: bool, name: &str) -> bool {
     if prev_is_ident { return false; }
     let n: i64 = name.len();
     if i + n > src.len() { return false; }
@@ -722,7 +722,7 @@ fn gp_match_at(src: &str, i: i64, prev_is_ident: bool, name: str) -> bool {
 }
 
 // Whole-identifier textual prefixing of the four module-global names.
-fn apply_gprefix(src: &str, gp: str) -> String {
+fn apply_gprefix(src: &str, gp: &str) -> String {
     let mut out: String = String::new();
     let n: i64 = src.len();
     let mut i: i64 = 0i64;
@@ -1032,14 +1032,14 @@ fn read_grammar(cg: &mut Codegen, grammar: &Writ) {
 }
 
 // Read a string value from the string-keyed root map (empty if absent).
-fn fld_str_smap(root: &WMap<WString, WAny>, key: str) -> String {
+fn fld_str_smap(root: &WMap<WString, WAny>, key: &str) -> String {
     let v: WAny = root.get(key);
     if v.is_null() || !v.is_string() { return String::new(); }
     return String::from(v.as_string().as_str());
 }
 
 // Read a NAME_DECL array (writ.peg has no group blocks here) into fields/nodes.
-fn read_name_decls(cg: &mut Codegen, root: &WMap<WString, WAny>, key: str, into_fields: bool) {
+fn read_name_decls(cg: &mut Codegen, root: &WMap<WString, WAny>, key: &str, into_fields: bool) {
     let v: WAny = root.get(key);
     if v.is_null() || !v.is_array() { return; }
     let arr: &WArray<WAny> = v.as_array();
@@ -1089,7 +1089,7 @@ fn read_name_decls(cg: &mut Codegen, root: &WMap<WString, WAny>, key: str, into_
 // a grammar could ask for a different skip set and be silently ignored, and the
 // C++ backend (which DOES read the patterns) would then disagree with it.
 // Refuse anything the hardcoded matcher cannot honour, rather than lie.
-fn skip_is_ws_class(inner: str) -> bool {
+fn skip_is_ws_class(inner: &str) -> bool {
     let n: i64 = inner.len();
     if n < 3i64 { return false; }
     if str_byte_at(inner, 0i64) != 91u8 { return false; }              // [
@@ -1117,7 +1117,7 @@ fn validate_skips(cg: &Codegen) {
     while i < cg.tokens.len() {
         let t: &TokenDecl = cg.tokens.borrow(i);
         if t.kind == TOKEN_SKIP {
-            let inner: str = unquote_slash(t.pattern.as_str());
+            let inner: &str = unquote_slash(t.pattern.as_str());
             let n: i64 = inner.len();
             // `//…` / `/*…` — either spelled bare or with the slashes escaped
             // (`\/\/…`). A bare leading backslash is NOT enough: `\s+` starts
@@ -1174,7 +1174,7 @@ fn emit_prologue(cg: &mut Codegen, w: &mut CodeWriter) {
         // emit one `use <module>;` per module so a parser building nodes whose
         // fields span several modules (e.g. Trama's TStmt with `WRef<SExpr>` edges
         // into the `ir` module) resolves every referenced type.
-        let su: str = cg.schema_use.as_str();
+        let su: &str = cg.schema_use.as_str();
         let n: i64 = cg.schema_use.len();
         let mut start: i64 = 0i64;
         let mut j: i64 = 0i64;
@@ -1554,7 +1554,7 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
 // grammar. These bound the embedded EL expression (mirroring the hand parser's
 // find_close_expr/find_close_stmt). Trim variants (`-}}`/`-%}`) are handled by
 // the emitted scan noticing a preceding `-`.
-fn is_close_delim_pat(p: str) -> bool {
+fn is_close_delim_pat(p: &str) -> bool {
     return p.len() == 2i64 && str_byte_at(p, 1i64) == 125u8;   // second byte '}'
 }
 
@@ -1563,7 +1563,7 @@ fn is_close_delim_pat(p: str) -> bool {
 // delimiter (`}}` / `%}`), or -1 if none before EOI. Grammar-driven: the close
 // byte-pairs come from the 2-byte `}`-ending literal tokens.
 // Resolve a `%import` alias to its qualified package path (empty if unknown).
-fn import_path_of(cg: &Codegen, alias: str) -> String {
+fn import_path_of(cg: &Codegen, alias: &str) -> String {
     let n: i64 = cg.imports.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -1585,11 +1585,11 @@ fn import_path_of(cg: &Codegen, alias: str) -> String {
 // sub-parse over the expression bytes, its `WRef<SExpr>` root wired into the
 // enclosing template node's `expr` edge. `doc` (the caller's external arena) is
 // shared so the sub-parse builds into the SAME Writ.
-fn emit_embed_call(cg: &mut Codegen, w: &mut CodeWriter, iname: str, gram: str, cap: str, fail: str) {
+fn emit_embed_call(cg: &mut Codegen, w: &mut CodeWriter, iname: &str, gram: &str, cap: &str, fail: &str) {
     let path: String = import_path_of(cg, gram);
     // Unique per-callsite suffix from the capture var (`cap2` → `2`), so nested
     // embeds in one alt don't collide on the scratch var names.
-    let sfx: str = cap;
+    let sfx: &str = cap;
     w.line("// ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──");
     let mut es: String = String::new();
     es.push_str("let est_"); es.push_str(sfx); es.push_str(": i64 = lex.save_pos();");
@@ -1665,7 +1665,7 @@ fn emit_kw_embed_helper(cg: &mut Codegen, w: &mut CodeWriter) {
     let mut i: i64 = 0i64;
     while i < n {
         if is_keyword_literal(cg, i) {
-            let pat: str = unquote(cg.tokens.borrow(i).pattern.as_str());
+            let pat: &str = unquote(cg.tokens.borrow(i).pattern.as_str());
             let kn: i64 = pat.len();
             let mut c: String = String::new();
             c.push_str("    if p + "); c.push_i64(kn); c.push_str("i64 <= len");
@@ -1757,7 +1757,7 @@ fn emit_embed_helper(cg: &mut Codegen, w: &mut CodeWriter) {
     while i < n {
         let t: &TokenDecl = cg.tokens.borrow(i);
         if t.kind == TOKEN_LITERAL {
-            let pat: str = unquote(t.pattern.as_str());
+            let pat: &str = unquote(t.pattern.as_str());
             if is_close_delim_pat(pat) {
                 if any { cond.push_str(" || "); }
                 cond.push_str("(str_byte_at(src, p) == ");
@@ -1822,7 +1822,7 @@ fn emit_pseudo_helpers(cg: &mut Codegen, w: &mut CodeWriter) {
 // One try_raw_group_<kind> method: consume `open_tok`, then walk tokens tracking
 // nesting depth across all three delimiter kinds until the matching outer close.
 // Returns a Token spanning the inner source (kind unused; start<0 = fail/EOF).
-fn emit_one_raw_group(w: &mut CodeWriter, kind: str, open_tok: str) {
+fn emit_one_raw_group(w: &mut CodeWriter, kind: &str, open_tok: &str) {
     let mut sig: String = String::new();
     sig.push_str("    pub fn try_raw_group_"); sig.push_str(kind);
     sig.push_str("(self: &mut Self) -> Token {");
@@ -1948,22 +1948,22 @@ fn emit_lex_one(cg: &mut Codegen, w: &mut CodeWriter) {
 
 // A tag-OPEN literal: its first byte is the raw-text negated char X (`{`) — it
 // opens a `{{`/`{%` tag (incl. the `{{-`/`{%-` trim variants).
-fn lit_is_open(pat: str, x: u8) -> bool {
+fn lit_is_open(pat: &str, x: u8) -> bool {
     return pat.len() >= 1i64 && str_byte_at(pat, 0i64) == x;
 }
 // A tag-CLOSE literal: its LAST byte is `}` — `}}` / `%}` (and the `-}}`/`-%}`
 // whitespace-control variants). Exiting a close returns the lexer to TEXT mode.
-fn lit_is_close(pat: str) -> bool {
+fn lit_is_close(pat: &str) -> bool {
     return pat.len() >= 1i64 && str_byte_at(pat, pat.len() - 1i64) == 125u8;
 }
 // A whitespace-control trim-CLOSE (`-%}` / `-}}`): a close whose FIRST byte is `-`.
 // Its `-` marker drops the FOLLOWING text run's LEADING whitespace (jinja).
-fn lit_is_trim_close(pat: str) -> bool {
+fn lit_is_trim_close(pat: &str) -> bool {
     return lit_is_close(pat) && pat.len() >= 1i64 && str_byte_at(pat, 0i64) == 45u8;
 }
 // A whitespace-control trim-OPEN (`{%-` / `{{-`): an open whose LAST byte is `-`.
 // Its `-` marker drops the PRECEDING text run's TRAILING whitespace (jinja).
-fn lit_is_trim_open(pat: str, x: u8) -> bool {
+fn lit_is_trim_open(pat: &str, x: u8) -> bool {
     return lit_is_open(pat, x) && pat.len() >= 1i64 && str_byte_at(pat, pat.len() - 1i64) == 45u8;
 }
 
@@ -1989,7 +1989,7 @@ fn emit_lex_one_template(cg: &mut Codegen, w: &mut CodeWriter) {
     // Emit CLOSE + interior literals (longest-first), each flipping mode on close.
     emit_template_tag_literals(cg, w);
     // IDENT inside tags.
-    let idn: str = template_ident_name(cg);
+    let idn: &str = template_ident_name(cg);
     if idn.len() > 0i64 {
         w.line("            if lx_is_alpha(self.cur(0i64)) {");
         w.line("                self.pos = self.pos + 1i64;");
@@ -2017,7 +2017,7 @@ fn emit_lex_one_template(cg: &mut Codegen, w: &mut CodeWriter) {
 }
 
 // The raw-text (shape-4) token name in the grammar (empty if none).
-fn template_raw_text_name(cg: &Codegen) -> str {
+fn template_raw_text_name(cg: &Codegen) -> &str {
     let n: i64 = cg.tokens.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -2028,7 +2028,7 @@ fn template_raw_text_name(cg: &Codegen) -> str {
     return "";
 }
 // The IDENT-shaped (shape-3) token name in the grammar (empty if none).
-fn template_ident_name(cg: &Codegen) -> str {
+fn template_ident_name(cg: &Codegen) -> &str {
     let n: i64 = cg.tokens.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -2049,7 +2049,7 @@ fn emit_template_open_literals(cg: &mut Codegen, w: &mut CodeWriter) {
     while k < m {
         let ti: i64 = order.get(k);
         let t: &TokenDecl = cg.tokens.borrow(ti);
-        let pat: str = unquote(t.pattern.as_str());
+        let pat: &str = unquote(t.pattern.as_str());
         if lit_is_open(pat, x) {
             emit_template_literal(w, t.name.as_str(), pat, true, "true");
         }
@@ -2067,7 +2067,7 @@ fn emit_template_tag_literals(cg: &mut Codegen, w: &mut CodeWriter) {
     while k < m {
         let ti: i64 = order.get(k);
         let t: &TokenDecl = cg.tokens.borrow(ti);
-        let pat: str = unquote(t.pattern.as_str());
+        let pat: &str = unquote(t.pattern.as_str());
         // Opens never occur inside a tag (an open would have flipped us out); skip.
         if lit_is_open(pat, x) { k = k + 1i64; continue; }
         if lit_is_close(pat) {
@@ -2087,13 +2087,13 @@ fn emit_template_tag_literals(cg: &mut Codegen, w: &mut CodeWriter) {
 // `if self.in_tag {` / text block). `set_mode` (non-empty) emits
 // `self.in_tag = <set_mode>;` before returning; `word` adds a keyword word-
 // boundary check.
-fn emit_template_literal(w: &mut CodeWriter, name: str, pat: str, tag_ctx: bool, set_mode: str) {
+fn emit_template_literal(w: &mut CodeWriter, name: &str, pat: &str, tag_ctx: bool, set_mode: &str) {
     emit_template_literal_ex(w, name, pat, tag_ctx, set_mode, false);
 }
 
 // As `emit_template_literal`, plus (when `trim_close`) a whitespace-skip after the
 // pos advance so a `-%}`/`-}}` drops the following text run's LEADING whitespace.
-fn emit_template_literal_ex(w: &mut CodeWriter, name: str, pat: str, tag_ctx: bool, set_mode: str, trim_close: bool) {
+fn emit_template_literal_ex(w: &mut CodeWriter, name: &str, pat: &str, tag_ctx: bool, set_mode: &str, trim_close: bool) {
     let plen: i64 = pat.len();
     let is_word: bool = pat_is_word(pat);
     let mut cond: String = String::new();
@@ -2106,7 +2106,7 @@ fn emit_template_literal_ex(w: &mut CodeWriter, name: str, pat: str, tag_ctx: bo
     }
     if is_word { cond.push_str(" && !lx_is_alnum(self.cur("); cond.push_i64(plen); cond.push_str("i64))"); }
     // Indentation: TAG-mode body is one deeper than TEXT-mode.
-    let ind: str = if tag_ctx { "            " } else { "        " };
+    let ind: &str = if tag_ctx { "            " } else { "        " };
     let mut open: String = String::new();
     open.push_str(ind); open.push_str("if "); open.push_str(cond.as_str()); open.push_str(" {");
     w.line(open.as_str());
@@ -2138,7 +2138,7 @@ fn emit_template_literal_ex(w: &mut CodeWriter, name: str, pat: str, tag_ctx: bo
 // Emit the TEXT-mode raw-text run (consume to the next tag OPEN). The cursor is
 // known NOT to be at an open (the open matchers ran first) → consumes ≥1 byte.
 fn emit_template_raw_text(cg: &mut Codegen, w: &mut CodeWriter) {
-    let name: str = template_raw_text_name(cg);
+    let name: &str = template_raw_text_name(cg);
     let x: u8 = template_neg_char(cg);
     // Stop condition: at a byte X that begins one of the open delimiters — keyed
     // on the DISTINCT second bytes (`{{`/`{{-` share `{`; `{%`/`{%-` share `%`).
@@ -2151,7 +2151,7 @@ fn emit_template_raw_text(cg: &mut Codegen, w: &mut CodeWriter) {
     while k < m {
         let ti: i64 = order.get(k);
         let t: &TokenDecl = cg.tokens.borrow(ti);
-        let pat: str = unquote(t.pattern.as_str());
+        let pat: &str = unquote(t.pattern.as_str());
         if lit_is_open(pat, x) && pat.len() >= 2i64 {
             let b1: i64 = str_byte_at(pat, 1i64) as i64;
             let mut dup: bool = false;
@@ -2313,7 +2313,7 @@ fn emit_lex_literals(cg: &mut Codegen, w: &mut CodeWriter) {
     while k < m {
         let ti: i64 = order.get(k);
         let t: &TokenDecl = cg.tokens.borrow(ti);
-        let pat: str = unquote(t.pattern.as_str());
+        let pat: &str = unquote(t.pattern.as_str());
         let plen: i64 = pat.len();
         // Word-like (all alnum/underscore) keywords need a trailing word-boundary
         // check so `true` doesn't match a prefix of `trueish`.
@@ -2324,7 +2324,7 @@ fn emit_lex_literals(cg: &mut Codegen, w: &mut CodeWriter) {
     w.blank();
 }
 
-fn pat_is_word(p: str) -> bool {
+fn pat_is_word(p: &str) -> bool {
     let n: i64 = p.len();
     if n == 0i64 { return false; }
     let mut i: i64 = 0i64;
@@ -2339,7 +2339,7 @@ fn pat_is_word(p: str) -> bool {
 }
 
 // Emit a matcher for one fixed literal `pat` (length plen) producing TK_<name>.
-fn emit_one_literal(w: &mut CodeWriter, name: str, pat: str, plen: i64, is_word: bool) {
+fn emit_one_literal(w: &mut CodeWriter, name: &str, pat: &str, plen: i64, is_word: bool) {
     // Build the byte-compare condition: self.cur(0)==b0 && self.cur(1)==b1 && ...
     let mut cond: String = String::new();
     let mut i: i64 = 0i64;
@@ -2376,7 +2376,7 @@ fn emit_one_literal(w: &mut CodeWriter, name: str, pat: str, plen: i64, is_word:
 
 // True if `name` is one of the doc-comment / char-literal tokens handled by the
 // hand-coded matchers in emit_lex_doc_char (so emit_lex_regex skips them).
-fn is_doc_char_token(name: str) -> bool {
+fn is_doc_char_token(name: &str) -> bool {
     return str_eq(name, "DOC_LINE") || str_eq(name, "DOC_INNER")
         || str_eq(name, "DOC_BLOCK") || str_eq(name, "DOC_BLOCK_INNER")
         || str_eq(name, "CHAR_LIT") || str_eq(name, "LIFETIME");
@@ -2384,7 +2384,7 @@ fn is_doc_char_token(name: str) -> bool {
 
 // Emit a `let kw: i32 = TK_<name>;` + a scan-to-`*/` block-comment body, returning
 // the token. `open_len` bytes are consumed before scanning (3 for /** or /*!).
-fn emit_block_doc_body(w: &mut CodeWriter, name: str, open_len: i64) {
+fn emit_block_doc_body(w: &mut CodeWriter, name: &str, open_len: i64) {
     let mut adv: String = String::new();
     adv.push_str("            self.pos = self.pos + "); adv.push_i64(open_len); adv.push_str("i64;");
     w.line(adv.as_str());
@@ -2499,7 +2499,7 @@ fn emit_lex_regex(cg: &mut Codegen, w: &mut CodeWriter) {
     while i < n {
         let t: &TokenDecl = cg.tokens.borrow(i);
         if t.kind == TOKEN_REGEX && !is_doc_char_token(t.name.as_str()) {
-            let pat: str = t.pattern.as_str();
+            let pat: &str = t.pattern.as_str();
             let shape: i64 = regex_shape(pat);
             if shape == 1i64 { emit_lex_string(w, t.name.as_str(), pat); }
             else if shape == 2i64 {
@@ -2529,9 +2529,9 @@ fn emit_lex_regex(cg: &mut Codegen, w: &mut CodeWriter) {
 //   2 = NUMBER (digit class present; FLOAT and INTEGER both handled here),
 //   3 = IDENT  ([a-zA-Z_]… letter class, no digit-only / quote anchor),
 //   0 = other (unrecognised).
-fn regex_shape(p: str) -> i64 {
+fn regex_shape(p: &str) -> i64 {
     // Strip the outer slashes.
-    let inner: str = unquote_slash(p);
+    let inner: &str = unquote_slash(p);
     // RAW-TEXT (T1): a negated single-char class `[^X]+` — a template text run
     // "any bytes up to the next tag". Shape 4; the matcher (emit_lex_raw_text) is
     // mode-switching (stops before a delimiter literal starting with X), NOT a
@@ -2551,7 +2551,7 @@ fn regex_shape(p: str) -> i64 {
 
 // A negated single-char class `[^X]+`: the raw-text-run shape (T1). Exactly
 // `[`, `^`, one char, `]`, `+` — the jinja text run `/[^{]+/`.
-fn is_neg_class_plus(inner: str) -> bool {
+fn is_neg_class_plus(inner: &str) -> bool {
     return inner.len() == 5i64
         && str_byte_at(inner, 0i64) == 91u8    // '['
         && str_byte_at(inner, 1i64) == 94u8    // '^'
@@ -2560,10 +2560,10 @@ fn is_neg_class_plus(inner: str) -> bool {
 }
 
 // The negated char X of a `[^X]+` pattern (the byte at index 2 of the inner).
-fn neg_class_char(inner: str) -> u8 { return str_byte_at(inner, 2i64); }
+fn neg_class_char(inner: &str) -> u8 { return str_byte_at(inner, 2i64); }
 
 // Strip a leading and trailing '/'.
-fn unquote_slash(s: str) -> str {
+fn unquote_slash(s: &str) -> &str {
     let n: i64 = s.len();
     if n >= 2i64 && str_byte_at(s, 0i64) == 47u8 && str_byte_at(s, n - 1i64) == 47u8 {
         return unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };
@@ -2576,8 +2576,8 @@ fn unquote_slash(s: str) -> str {
 // prefix distinguishes them so the prefixed variants (declared first) don't
 // shadow plain STRING with a bare `"…"` matcher — that bug made `"C"` lex as
 // RAW_STRING and broke every rule wanting exactly TK_STRING (e.g. extern "C").
-fn emit_lex_string(w: &mut CodeWriter, name: str, pat: str) {
-    let inner: str = unquote_slash(pat);
+fn emit_lex_string(w: &mut CodeWriter, name: &str, pat: &str) {
+    let inner: &str = unquote_slash(pat);
     let b0: u8 = if inner.len() > 0i64 { str_byte_at(inner, 0i64) } else { 34u8 };
     let b1: u8 = if inner.len() > 1i64 { str_byte_at(inner, 1i64) } else { 0u8 };
     if b0 == 114u8 && b1 == 34u8 {
@@ -2648,7 +2648,7 @@ fn emit_lex_string(w: &mut CodeWriter, name: str, pat: str) {
 // emitted per number-shaped token and consumes the maximal run, tagging it with
 // THIS token's kind. For writ.peg FLOAT precedes nothing problematic because the
 // INTEGER matcher declines a fractional run — see note in emit_lex_regex).
-fn emit_lex_number(w: &mut CodeWriter, int_name: str, flt_name: str) {
+fn emit_lex_number(w: &mut CodeWriter, int_name: &str, flt_name: &str) {
     // Effective kinds: if one is missing, both branches use the present one.
     let mut ik: String = String::new();
     let mut fk: String = String::new();
@@ -2690,7 +2690,7 @@ fn emit_lex_number(w: &mut CodeWriter, int_name: str, flt_name: str) {
     w.line("        }");
 }
 
-fn emit_lex_ident(w: &mut CodeWriter, name: str) {
+fn emit_lex_ident(w: &mut CodeWriter, name: &str) {
     w.l3("        // IDENT token ", name, ".");
     w.line("        if lx_is_alpha(c) {");
     w.line("            self.pos = self.pos + 1i64;");
@@ -2714,7 +2714,7 @@ fn emit_lexer(cg: &mut Codegen, w: &mut CodeWriter) {
 fn fresh(cg: &mut Codegen) -> i64 { let v: i64 = cg.lc; cg.lc = cg.lc + 1i64; return v; }
 
 // Is `name` an UPPERCASE-initial token reference?
-fn name_is_token(name: str) -> bool {
+fn name_is_token(name: &str) -> bool {
     let c: u8 = first_byte(name);
     return c >= 65u8 && c <= 90u8;
 }
@@ -2795,7 +2795,7 @@ fn emit_rule(cg: &mut Codegen, w: &mut CodeWriter, ridx: i64) {
 
 // Emit one alternative fn returning `*const u8` (0 = no match). Saves the lexer
 // position on entry; on an item failure resets the lexer and returns NULLP.
-fn emit_alt_fn(cg: &mut Codegen, w: &mut CodeWriter, rname: str, group: str, ai: i64, alt_idx: i64) {
+fn emit_alt_fn(cg: &mut Codegen, w: &mut CodeWriter, rname: &str, group: &str, ai: i64, alt_idx: i64) {
     let mut hdr: String = String::new();
     hdr.push_str("fn alt_"); hdr.push_str(rname); hdr.push_str("_"); hdr.push_i64(ai);
     hdr.push_str("(lex: &mut Lexer, doc: &Writ) -> *const u8 {");
@@ -2886,7 +2886,7 @@ fn alt_uses_arraycapture(cg: &Codegen, alt_idx: i64) -> bool {
 // `cap` (= NULLP for GT/LT, = interned raw text for raw groups) and runs
 // `fail_body` (e.g. "lex.reset(sp, sln); return NULLP;") on no-match. Returns
 // false if `iname` is not a pseudo-token (caller emits the normal token match).
-fn emit_pseudo_match(w: &mut CodeWriter, iname: str, cap: str, fail_body: str) -> bool {
+fn emit_pseudo_match(w: &mut CodeWriter, iname: &str, cap: &str, fail_body: &str) -> bool {
     if str_eq(iname, "GT_TYPE") || str_eq(iname, "LT_TYPE") {
         let mut c: String = String::new();
         c.push_str("if !lex.try_token_");
@@ -3022,7 +3022,7 @@ fn emit_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, capn: i64, use
 }
 
 // LITERAL: match a fixed byte string at the lexer's current pos (bypass tokens).
-fn emit_item_literal(w: &mut CodeWriter, lit: str, cap: str) {
+fn emit_item_literal(w: &mut CodeWriter, lit: &str, cap: &str) {
     let n: i64 = lit.len();
     let mut cond: String = String::new();
     cond.push_str("if !(");
@@ -3048,7 +3048,7 @@ fn emit_item_literal(w: &mut CodeWriter, lit: str, cap: str) {
 // lexer afterwards unconditionally; cap is always NULLP. `negate=false` (&) fails
 // the alt when the sub does NOT match; `negate=true` (!) fails when it DOES.
 // `fail_action` is the enclosing alt's miss action (return NULLP / reset-break).
-fn emit_lookahead(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, negate: bool, fail_action: str) {
+fn emit_lookahead(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: &str, negate: bool, fail_action: &str) {
     let id: i64 = fresh(cg);
     let mut sp: String = String::new();   sp.push_str("lasp"); sp.push_i64(id);
     let mut sl: String = String::new();   sl.push_str("lasln"); sl.push_i64(id);
@@ -3088,7 +3088,7 @@ fn emit_lookahead(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, nega
 }
 
 // OPT: try the sub-item; cap = NULLP if it does not match (never fails the alt).
-fn emit_item_opt(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, parent_arrcap: bool) {
+fn emit_item_opt(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: &str, parent_arrcap: bool) {
     let mut decl: String = String::new();
     decl.push_str("let mut "); decl.push_str(cap); decl.push_str(": *const u8 = NULLP;");
     w.line(decl.as_str());
@@ -3102,7 +3102,7 @@ fn emit_item_opt(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, paren
 
 // REP: loop the sub-item, accumulate non-null results in a fresh WArray; cap = the
 // array (raw ptr). Enforces min if > 0 (fails the alt on too few iterations).
-fn emit_item_rep(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, imin: i64, parent_arrcap: bool) {
+fn emit_item_rep(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: &str, imin: i64, parent_arrcap: bool) {
     let id: i64 = fresh(cg);
     let mut arrn: String = String::new();
     arrn.push_str("arr"); arrn.push_i64(id);
@@ -3154,7 +3154,7 @@ fn emit_item_rep(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, imin:
 // whose action builds a node with $0 bound (via cg.cur_fold) to the accumulator —
 // then the accumulator becomes that node. cap = the final accumulator (== fold_init
 // when zero iterations). Mirrors the C++ fold path (cur_fold_var_ / fold_init_cap_).
-fn emit_item_rep_fold(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, fold_init: str, imin: i64) {
+fn emit_item_rep_fold(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: &str, fold_init: &str, imin: i64) {
     let id: i64 = fresh(cg);
     let mut acc: String = String::new();  acc.push_str("foldacc"); acc.push_i64(id);
     let mut mt: String = String::new();   mt.push_str("foldm"); mt.push_i64(id);
@@ -3205,7 +3205,7 @@ fn emit_item_rep_fold(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, 
 // Single-step fold (OPT body, `lhs ( … => { LHS: $0, … } )?`). acc starts at
 // fold_init; one optional GROUP match (its action sees $0 = acc) updates acc.
 // cap = acc — i.e. the built node if matched, else the bare fold_init.
-fn emit_item_opt_fold(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, fold_init: str) {
+fn emit_item_opt_fold(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: &str, fold_init: &str) {
     let id: i64 = fresh(cg);
     let mut acc: String = String::new();  acc.push_str("foldacc"); acc.push_i64(id);
     let mut tmp: String = String::new();  tmp.push_str("foldtmp"); tmp.push_i64(id);
@@ -3244,7 +3244,7 @@ fn emit_item_opt_fold(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, 
 // done; if none match, the group fails the enclosing alt via `fail_action`
 // (top-level sequence: "lex.reset(sp, sln); return NULLP;"; inside a group alt:
 // "lex.reset(gsp, gsln); break;").
-fn emit_group_choice(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str, uses_arrcap: bool, fail_action: str) {
+fn emit_group_choice(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: &str, uses_arrcap: bool, fail_action: &str) {
     let id: i64 = fresh(cg);
     let mut donen: String = String::new();
     donen.push_str("gdone"); donen.push_i64(id);
@@ -3275,7 +3275,7 @@ fn emit_group_choice(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: s
     w.line(chk.as_str());
 }
 
-fn emit_item_group(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str, uses_arrcap: bool) {
+fn emit_item_group(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: &str, uses_arrcap: bool) {
     emit_group_choice(cg, w, item_idx, cap, uses_arrcap, "lex.reset(sp, sln); return NULLP;");
 }
 
@@ -3283,7 +3283,7 @@ fn emit_item_group(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str
 // failing item resets to (gsp,gsln) and `break`s, leaving done=false; a full match
 // sets cap (single-item passthrough, else built node) and done=true. The once-loop
 // gives a single early-exit target in lieu of goto.
-fn emit_group_alt(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, done: str, parent_arrcap: bool) {
+fn emit_group_alt(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: &str, done: &str, parent_arrcap: bool) {
     let seq_len: i64 = cg.alts.borrow(galt).seq.len();
     let has_action: bool = cg.alts.borrow(galt).has_action;
     let uses_arrcap: bool = alt_uses_arraycapture(cg, galt);
@@ -3337,7 +3337,7 @@ fn emit_group_alt(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, don
 
 // Match one item inside a group alt; bind `g<cap>_<n>_<id>: *const u8`. On failure
 // reset to (gsp,gsln) and `break`.
-fn emit_group_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str, n: i64, id: i64, uses_arrcap: bool) {
+fn emit_group_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: &str, n: i64, id: i64, uses_arrcap: bool) {
     let kind: i64 = cg.items.borrow(item_idx).kind;
     let iname: String = String::from(cg.items.borrow(item_idx).name.as_str());
     let sub: i64 = cg.items.borrow(item_idx).sub;
@@ -3347,7 +3347,7 @@ fn emit_group_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str
     gcap.push_str("g"); gcap.push_str(cap); gcap.push_str("_"); gcap.push_i64(n);
     gcap.push_str("_"); gcap.push_i64(id);
 
-    let resetbreak: str = "{ lex.reset(gsp, gsln); break; }";
+    let resetbreak: &str = "{ lex.reset(gsp, gsln); break; }";
 
     if kind == TOKEN_REF {
         if !emit_pseudo_match(w, iname.as_str(), gcap.as_str(), "lex.reset(gsp, gsln); break;") {
@@ -3433,7 +3433,7 @@ fn emit_group_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str
 // REP within a group alt (e.g. `(COMMA map_entry)*` is itself the group body, but
 // `(value (COMMA value)*)` nests a REP inside a group alt). Like emit_item_rep but
 // a min-failure does reset-break instead of returning.
-fn emit_group_rep(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, imin: i64, parent_arrcap: bool) {
+fn emit_group_rep(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: &str, imin: i64, parent_arrcap: bool) {
     let id: i64 = fresh(cg);
     let mut arrn: String = String::new();
     arrn.push_str("garr"); arrn.push_i64(id);
@@ -3479,7 +3479,7 @@ fn emit_group_rep(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, imin
 // Inline a sub-item matcher (used by OPT) writing to `dst` (a `mut *const u8`). On
 // match sets dst; on no-match resets to (sp_var,sln_var), leaves dst NULLP (OPT
 // never fails). Supports TOKEN_REF / RULE_REF / GROUP / LITERAL.
-fn emit_inline_subitem(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, dst: str, sp_var: str, sln_var: str, parent_arrcap: bool) {
+fn emit_inline_subitem(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, dst: &str, sp_var: &str, sln_var: &str, parent_arrcap: bool) {
     let kind: i64 = cg.items.borrow(sub).kind;
     let iname: String = String::from(cg.items.borrow(sub).name.as_str());
 
@@ -3528,7 +3528,7 @@ fn emit_inline_subitem(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, dst: str,
 
 // Inline an OPT(GROUP): try each group sub-alt; the first full match sets `dst`
 // (passthrough or built node) and stops. No match → dst stays NULLP.
-fn emit_inline_opt_group(cg: &mut Codegen, w: &mut CodeWriter, gitem: i64, dst: str, parent_arrcap: bool) {
+fn emit_inline_opt_group(cg: &mut Codegen, w: &mut CodeWriter, gitem: i64, dst: &str, parent_arrcap: bool) {
     let nalts: i64 = cg.items.borrow(gitem).alts.len();
     let id: i64 = fresh(cg);
     let mut donen: String = String::new();
@@ -3552,7 +3552,7 @@ fn emit_inline_opt_group(cg: &mut Codegen, w: &mut CodeWriter, gitem: i64, dst: 
 
 // Inline a sub-item matcher for a REP loop body, binding `dst: *const u8`. On
 // failure resets to (sp_var,sln_var) and `break`s the REP loop.
-fn emit_inline_subitem_break(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, dst: str, sp_var: str, sln_var: str, parent_arrcap: bool) {
+fn emit_inline_subitem_break(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, dst: &str, sp_var: &str, sln_var: &str, parent_arrcap: bool) {
     let kind: i64 = cg.items.borrow(sub).kind;
     let iname: String = String::from(cg.items.borrow(sub).name.as_str());
 
@@ -3648,7 +3648,7 @@ fn emit_inline_subitem_break(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, dst
 // ── Action emission ─────────────────────────────────────────────────────────
 
 // Resolve a STR_LIT symbolic name (e.g. MAP) to N_<name>.
-fn node_const(name: str) -> String {
+fn node_const(name: &str) -> String {
     let mut s: String = String::new();
     s.push_str("N_"); s.push_str(name);
     return s;
@@ -3727,7 +3727,7 @@ fn alt_needs_mut_node(cg: &Codegen, alt_idx: i64, sidx: i64) -> bool {
 
 // A list field type `"list <method>"`: the $... ARRAY_CAPTURE held whole (a
 // Writ array behind the schema's own setter) — no slot cap.
-fn ftype_is_list(ftype: str) -> bool {
+fn ftype_is_list(ftype: &str) -> bool {
     return ftype.len() >= 5i64
         && str_byte_at(ftype, 0i64) == 108u8   // 'l'
         && str_byte_at(ftype, 1i64) == 105u8   // 'i'
@@ -3737,7 +3737,7 @@ fn ftype_is_list(ftype: str) -> bool {
 }
 
 // The setter method name from a list field type: `"list set_rel"` → `set_rel`.
-fn list_method(ftype: str) -> String {
+fn list_method(ftype: &str) -> String {
     let n: i64 = ftype.len();
     let mut i: i64 = 5i64;   // past "list "
     let mut out: String = String::new();
@@ -3745,7 +3745,7 @@ fn list_method(ftype: str) -> String {
     return out;
 }
 
-fn emit_schema_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, node_var: str, cap_stem: str, ret_via_cap: str) {
+fn emit_schema_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, node_var: &str, cap_stem: &str, ret_via_cap: &str) {
     let sname: String = action_code_name(cg, alt_idx);
     if sname.len() == 0i64 {
         // No CODE ⇒ no schema type to build. A schema grammar should always name
@@ -3813,7 +3813,7 @@ fn emit_schema_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, node_v
 // Group sub-alt in schema mode: build `gnode: S = doc.make::<S>()`, write typed
 // fields (group cap stem `g<cap>_<n>_<id>`, $0 → the fold accumulator var), then
 // assign the parent capture `cap = gnode.as_ref().raw() as *const u8`.
-fn emit_schema_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, id: i64) {
+fn emit_schema_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: &str, id: i64) {
     let sname: String = action_code_name(cg, galt);
     if sname.len() == 0i64 {
         w.line("// ERROR: schema-emission group alt has no CODE naming a schema type");
@@ -3878,7 +3878,7 @@ fn emit_schema_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap
 // Is `ftype` one of the forms emit_schema_field actually models? Anything else
 // used to fall through to a bare `as <ftype>` cast, so a typo in the %schema
 // block produced code that only failed when the GENERATED source was compiled.
-fn ftype_is_known(ftype: str) -> bool {
+fn ftype_is_known(ftype: &str) -> bool {
     if ftype_is_list(ftype) || ftype_is_ref(ftype) { return true; }
     if str_eq(ftype, "WAny") || str_eq(ftype, "str") || str_eq(ftype, "bool") { return true; }
     if str_eq(ftype, "i8")  || str_eq(ftype, "i16") || str_eq(ftype, "i32") { return true; }
@@ -3888,8 +3888,8 @@ fn ftype_is_known(ftype: str) -> bool {
     return false;
 }
 
-fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
-                     ftype: str, ekind: i64, sval: str, ival: i64, foldv: str, ref_wrap: str,
+fn emit_schema_field(w: &mut CodeWriter, node_var: &str, capvar: &str, fname: &str,
+                     ftype: &str, ekind: i64, sval: &str, ival: i64, foldv: &str, ref_wrap: &str,
                      cap_is_int_tok: bool, cap_is_str_tok: bool, cap_is_flt_tok: bool) {
     // A field the %schema block never declared: schema_field_type returned "".
     // This used to fall silently into the scalar-cast branch.
@@ -4039,7 +4039,7 @@ fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
 }
 
 // True if a %schema field type is a WRef edge ("ref TARGET").
-fn ftype_is_ref(ftype: str) -> bool {
+fn ftype_is_ref(ftype: &str) -> bool {
     return ftype.len() >= 4i64
         && str_byte_at(ftype, 0i64) == 114u8   // 'r'
         && str_byte_at(ftype, 1i64) == 101u8   // 'e'
@@ -4048,7 +4048,7 @@ fn ftype_is_ref(ftype: str) -> bool {
 }
 
 // The TARGET name from a "ref TARGET" field type (the text after "ref ").
-fn ftype_ref_target(ftype: str) -> String {
+fn ftype_ref_target(ftype: &str) -> String {
     let mut out: String = String::new();
     let n: i64 = ftype.len();
     let mut i: i64 = 4i64;
@@ -4058,7 +4058,7 @@ fn ftype_ref_target(ftype: str) -> String {
 
 // Rule-level alt action: build a node, set each field (skip the CODE field — mk_node
 // already stamped it), set SRC_LINE, return the node as *const u8.
-fn emit_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, group: str, seq_len: i64, uses_arrcap: bool) {
+fn emit_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, group: &str, seq_len: i64, uses_arrcap: bool) {
     if cg.schema_mode {
         let _ = seq_len; let _ = group; let _ = uses_arrcap;
         emit_schema_action(cg, w, alt_idx, "node", "cap", "");
@@ -4102,8 +4102,8 @@ fn emit_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, group: str, s
 
 // One action field. `cap_stem` is the capture-variable stem ("cap" for rule-level
 // $n → cap<n>); the node variable is `node_var`.
-fn emit_action_field(w: &mut CodeWriter, node_var: str, cap_stem: str, fname: str,
-                     ekind: i64, index: i64, sval: str, ival: i64) {
+fn emit_action_field(w: &mut CodeWriter, node_var: &str, cap_stem: &str, fname: &str,
+                     ekind: i64, index: i64, sval: &str, ival: i64) {
     let mut fc: String = String::new();
     fc.push_str("F_"); fc.push_str(fname);
     if ekind == CAPTURE {
@@ -4140,7 +4140,7 @@ fn emit_action_field(w: &mut CodeWriter, node_var: str, cap_stem: str, fname: st
 
 // Group sub-alt action: build `gnode`, fields use the group-cap stem
 // `g<cap>_<n>_<id>` for $n; assign cap = the node ptr.
-fn emit_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, id: i64, seq_len: i64, uses_arrcap: bool) {
+fn emit_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: &str, id: i64, seq_len: i64, uses_arrcap: bool) {
     if cg.schema_mode {
         emit_schema_group_action(cg, w, galt, cap, id);
         let _ = seq_len; let _ = uses_arrcap;
@@ -4180,7 +4180,7 @@ fn emit_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, 
     w.line(rl.as_str());
 }
 
-fn emit_group_action_field(w: &mut CodeWriter, fname: str, ekind: i64, index: i64, sval: str, ival: i64, cap: str, id: i64, fold_var: str) {
+fn emit_group_action_field(w: &mut CodeWriter, fname: &str, ekind: i64, index: i64, sval: &str, ival: i64, cap: &str, id: i64, fold_var: &str) {
     let mut fc: String = String::new();
     fc.push_str("F_"); fc.push_str(fname);
     if ekind == FOLD_CAPTURE {

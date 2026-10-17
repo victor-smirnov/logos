@@ -28,7 +28,7 @@ use logos.mem.collections.vec;
 use logos.std.fmt;                // println! — the format macros
 use logos.std.wql.wql;            // deem! — the static macro
 
-fn hdr(label: str) {
+fn hdr(label: &str) {
     println!("\n=== {} ===", label);
 }
 
@@ -70,7 +70,7 @@ fn main() -> i32 {
     if doc.root().is_null() { return 90i32; }
 
     hdr("every `engine` setting, wherever it sits");
-    let eng: Vec<str> = engines(&doc).unwrap();
+    let eng: Vec<&str> = engines(&doc).unwrap();
     let mut i: i64 = 0i64;
     while i < eng.len() {
         println!("  {}", eng.get(i));
@@ -87,7 +87,7 @@ fn main() -> i32 {
     }
 
     hdr("top-level sections");
-    let secs: Vec<str> = sections(&doc).unwrap();
+    let secs: Vec<&str> = sections(&doc).unwrap();
     let mut k: i64 = 0i64;
     while k < secs.len() {
         println!("  {}", secs.get(k));
@@ -95,19 +95,19 @@ fn main() -> i32 {
     }
 
     hdr("i64 leaves under `db` (recursive rel)");
-    let dbv: Vec<(str, i64)> = db_ints(&doc).unwrap();
+    let dbv: Vec<(&str, i64)> = db_ints(&doc).unwrap();
     let mut k2: i64 = 0i64;
     while k2 < dbv.len() {
-        let row2: (str, i64) = dbv.get(k2);
+        let row2: (&str, i64) = dbv.get(k2);
         println!("  {} = {}", row2.0, row2.1);
         k2 = k2 + 1i64;
     }
 
     hdr("how many edges under each top-level map section");
-    let sz: Vec<(str, i64)> = section_sizes(&doc).unwrap();
+    let sz: Vec<(&str, i64)> = section_sizes(&doc).unwrap();
     let mut k3: i64 = 0i64;
     while k3 < sz.len() {
-        let row3: (str, i64) = sz.get(k3);
+        let row3: (&str, i64) = sz.get(k3);
         println!("  {:<10} {}", row3.0, row3.1);
         k3 = k3 + 1i64;
     }

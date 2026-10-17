@@ -26,10 +26,10 @@ use peg_gen_logos.codegen;
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 
 // Write a str to fd (1=stdout, 2=stderr) followed by a newline.
-fn eprintln(fd: i32, s: str) {
+fn eprintln(fd: i32, s: &str) {
     unsafe {
         write(fd, s.as_ptr(), s.len());
-        let nl: str = "\n";
+        let nl: &str = "\n";
         write(fd, nl.as_ptr(), nl.len());
     }
 }
@@ -39,7 +39,7 @@ fn usage() {
     eprintln(2 as i32, "       peg_gen_logos --help");
 }
 
-fn str_eq(a: str, b: str) -> bool {
+fn str_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() { return false; }
     let n: i64 = a.len();
     let mut i: i64 = 0;
@@ -55,12 +55,12 @@ fn str_eq(a: str, b: str) -> bool {
 fn main() -> i32 {
     let argc: i32 = args_count();
 
-    let mut grammar_file: str = "";
-    let mut out_dir: str = ".";
+    let mut grammar_file: &str = "";
+    let mut out_dir: &str = ".";
 
     let mut i: i32 = 1 as i32;
     while i < argc {
-        let a: str = arg(i);
+        let a: &str = arg(i);
         if str_eq(a, "--help") {
             usage();
             return 0;
