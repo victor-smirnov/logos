@@ -1542,8 +1542,38 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
         unsafe { logos_emit_item_blob_subst(&g); }
     }
 
+    // A `str` key's removal: the same CoW walk, the key as bytes.
+    if kstr {
+        let rq: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.pack;
+            use logos.mem.bt.node;
+            use logos.mem.bt.memstore;
+            use logos.mem.bt.meta;
+            use logos.lang.writ.wstatic;
+            use logos.lang.slice;
+            impl #nm {
+                /// Remove `key`. False = absent (nothing mutated).
+                pub fn remove(self: &mut #nm, key: &str) -> bool {
+                    unsafe {
+                        let e: DirEntry = self.ms().root_of_mut(self.ctr_id);
+                        let r: BtssRemRet = btss_remove_bytes::<#nd>(self.ms(), e.root, e.level,
+                                                                     slice_from_raw::<u8>(key.as_ptr(), key.len()));
+                        if r.found {
+                            {
+                                let __mroot: *mut u8 = ctr_publish_meta_static(r.root, #(mexpr));
+                                self.ms().set_root(self.ctr_id, __mroot, r.level);
+                            }
+                        }
+                        return r.found;
+                    }
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&rq); }
+    }
+
     // ── the BATCH surface (slice 2): make_buffer / insert_batch ────────────
-    // (and `remove`): the u64-cell splice. A `str` key has neither yet — M4b S3.
+    // (and the u64-cell `remove`). A `str` key's batch is M4b S3's rest.
     if !kstr {
     // The container hands out the staging buffer (typed push casts at THIS
     // boundary — the same K/V discipline as try_insert); insert_batch runs
