@@ -171,6 +171,13 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         return &mut e.val as *mut V;
     }
 
+    /// Transitional names of the raw-pointer accessors (squeue
+    /// hashmap_get_unsafe_raw_api_refused): callers move here, then `get` /
+    /// `get_mut` become Rust's safe `Option<&V>` / `Option<&mut V>`, then these go.
+    pub unsafe fn get_ptr(&mut self, key: &K) -> *const V { return self.get(key); }
+    pub unsafe fn get_mut_ptr(&mut self, key: &K) -> *mut V { return self.get_mut(key); }
+    pub unsafe fn get_or_insert_ptr(&mut self, key: K, default: V) -> *mut V { return self.get_or_insert(key, default); }
+
     /// Removes `key` from the map, returning its value if it was present; the stored key is dropped.
     pub fn remove(&mut self, key: &K) -> Option<V> { unsafe {
         // Rust's `remove`: the value is returned, the stored key dropped (both leaked before).
