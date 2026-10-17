@@ -1,0 +1,12 @@
+// `impl Trait` nested in the return type (`-> Option<impl Src>`, `-> (impl Src, i64)`): one
+// hidden type, read off the returns at the hole's position. Matrix 2_43; stdout equals rustc 1.98.1.
+package rpit_nested_in_return_type;
+use logos.std.fmt;
+trait Src { fn get(&self) -> i64; }
+struct A { v: i64 }
+struct B { v: i64 }
+impl Src for A { fn get(&self) -> i64 { self.v } }
+impl Src for B { fn get(&self) -> i64 { self.v * 10 } }
+fn pick(n: i64) -> Option<impl Src> { if n > 0 { return Some(A { v: n }); } return None; }
+fn pair(n: i64) -> (impl Src, i64) { return (B { v: n }, n + 1); }
+fn main() { let (p, k) = pair(2); println!("{} {} {}", pick(3).unwrap().get(), p.get(), k); }

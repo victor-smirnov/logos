@@ -3079,11 +3079,18 @@ lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
     // The return type is the returned value's expected type (C-EXP).
     const bool ret_expects = ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Void &&
                              TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
-                             TypeRef(ret_type_).kind() != LogosType::Kind::ImplTrait;
-    TypeRef ret_shape = ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Void ? ret_type_ : TypeRef(nullptr);
+                             TypeRef(ret_type_).kind() != LogosType::Kind::ImplTrait &&
+                             !contains_impl_trait_(ret_type_);   // a nested hole is not an expectation
+    TypeRef ret_shape = ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Void &&
+                        (TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait ||   // `-> impl Fn(..)`: the closure's shape
+                         !contains_impl_trait_(ret_type_)) ? ret_type_ : TypeRef(nullptr);
     if (ret_shape && ret_shape == ret_shape_of_ && ret_shape_) ret_shape = ret_shape_;
+    // A nested hole's expectation is the hidden type once a return fixed it, else `_`.
+    TypeRef nested_hint = nullptr;
+    if (ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::ImplTrait && contains_impl_trait_(ret_type_))
+        nested_hint = subst_nested_impl_(ret_type_, impl_ret_type_inferred_ ? impl_ret_type_inferred_ : inferred_t());
     if (!val)
-        val = lower_expr_expecting(vnode, ret_expects ? ret_type_ : TypeRef(nullptr), ret_shape);
+        val = lower_expr_expecting(vnode, ret_expects ? ret_type_ : nested_hint, nested_hint ? nested_hint : ret_shape);
     if (val) refuse_unsized_rvalue_(vnode, val);
     return val;
 }
@@ -3103,7 +3110,15 @@ lir_view::StmtRef SemaChecker::finish_return_(lir::LExprPtr val, TinyMapView vno
     // type is expected coerces to that fn-ptr — the same coercion the
     // let-annotation and call-arg paths apply. Without this, `fn f() ->
     // fn()->T { return || ... }` errored "expected fn()->T, got ||->T".
-    if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait) {
+    if (ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::ImplTrait &&
+        contains_impl_trait_(ret_type_) && val && expr_type(val)) {
+        // A nested `impl Trait` (`-> Option<impl Src>`): the hole takes the returned
+        // value's type at its position; every return agrees on one hidden type.
+        if (!bind_nested_impl_hidden_(ret_type_, expr_type(val), impl_ret_type_inferred_))
+            error(std::format("`impl Trait` return: every return must have the same hidden concrete "
+                              "type — this returns `{}`, but an earlier return produced `{}`",
+                              type_str(expr_type(val)), type_str(impl_ret_type_inferred_)));
+    } else if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait) {
         // Infer the single concrete hidden type from the FIRST return.
         // Every LATER return must produce the SAME concrete type — an
         // `impl Trait` return has exactly one hidden type (Rust E0308).
