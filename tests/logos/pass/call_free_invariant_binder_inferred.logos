@@ -1,0 +1,14 @@
+// A callee binder no argument mentions (`fn mk<'a>() -> S<'a>`) is free: the
+// caller's use instantiates it. S is invariant in 'd (Vec<&'d str>), so its upper
+// bound 'static would pin it past `s.v.push(x)` / `return s`; it stays inferred,
+// or takes the region the expected result names. rustc 1.98.1 prints "1 0".
+package call_free_invariant_binder_inferred;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct S<'d> { pub v: Vec<&'d str> }
+fn mk<'a>() -> S<'a> { return S { v: Vec::<&str>::new() }; }
+fn f<'d>(x: &'d str) -> S<'d> { let mut s: S = mk(); s.v.push(x); return s; }
+fn h<'d>(x: &'d str) -> S<'d> { return mk(); }
+struct P<'d> { pub r: Vec<S<'d>>, pub e: S<'d> }
+fn pe<'a>() -> P<'a> { return P { r: Vec::<S>::new(), e: S { v: Vec::<&str>::new() } }; }
+fn main() -> i32 { let t: &str = "hi"; let s: S = f(t); let _u: S = h(t); let p: P = pe(); println!("{} {}", s.v.len(), p.r.len()); return 0; }

@@ -1124,9 +1124,24 @@ private:
             // be instantiated at any region, `'static` included), and that is
             // the policy `ltsubstfree` / `ltmintfree` take.
             if (logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
-                logos::probe::on("ltmintimpl") || three_way_)
-                ls[lp] = "'static";
-            else
+                logos::probe::on("ltmintimpl") || three_way_) {
+                // The expected result names the free region (`let s: S<'d> = mk()`,
+                // `return mk()` in `-> S<'d>`): that is the instantiation. An
+                // INVARIANT free binder with no such name stays inferred — 'static,
+                // its upper bound, would pin it past any later use (rustc infers it).
+                std::string hinted;
+                bool named = false;
+                if (TypeRef h = ret_hint_(); h && ret && TypeRef(h).kind() == TypeRef(ret).kind() &&
+                    (TypeRef(h).kind() == LogosType::Kind::Struct || TypeRef(h).kind() == LogosType::Kind::Enum)) {
+                    auto rl = TypeRef(ret).lifetime_args(); auto hl = TypeRef(h).lifetime_args();
+                    for (size_t i = 0; i < rl.size() && i < hl.size(); ++i)
+                        if (rl[i] == lp && !hl[i].empty() && hl[i] != "'_") { hinted = hl[i]; named = true; }
+                }
+                if (named) ls[lp] = hinted;
+                else if (auto v = fn_binder_variance_(param_types, ret, lp);
+                         v && *v != Variance::Co && *v != Variance::BiVar) ls[lp] = "";
+                else ls[lp] = "'static";
+            } else
                 ls[lp] = mint_lt_();
         }
         return ls;
