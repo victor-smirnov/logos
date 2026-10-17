@@ -238,6 +238,17 @@ fn host_field_type(view: &OView, struct_name: &str, field: &str) -> &'static str
 pub fn field_type_spelling<'a>(view: &'a OView, struct_name: &str, fld: WAny) -> &'a str {
     let nm: &str = sview_str(view.ast_field_type_name(fld));
     let tn: WAny = view.ast_type_child(fld);
+    // A borrowed `str` field (`&str`, `&'a str`) is the lattice's `str` — the
+    // spelling the emitter writes back as `&str`. The REF_TYPE node has no
+    // name of its own, so without this the field went unstamped and dropped
+    // out of every field enumeration (a row identity lost the column).
+    if nm.len() == 0i64 && !tn.is_null() && (view.ast_node_code(tn) & (0xFFFF as u64)) == LA_REF_TYPE() {
+        let mut inner: WAny = view.tiny_map_get(tn, 18 as u8);              // POINTEE
+        if inner.is_null() { inner = view.ast_type_child(tn); }
+        if !inner.is_null() && str_eq(sview_str(view.ast_node_name(inner)), "str") {
+            return "str";
+        }
+    }
     if !tn.is_null() && (view.ast_node_code(tn) & (0xFFFF as u64)) == LA_GENERIC_INST() && !str_eq(nm, "Vec")
        && !is_module_type_alias(view, nm) {
         let fnm: &str = sview_str(view.ast_field_name(fld));
@@ -378,6 +389,7 @@ pub fn has_field(view: &OView, decl: WAny, field_name: &str) -> bool {
 // AST type-node code for a generic instantiation in type position (`Vec<T>` —
 // NAME(1) = the head name, ITEMS(2) = the type-arg array).
 fn LA_GENERIC_INST() -> u64 { return 92 as u64; }
+fn LA_REF_TYPE() -> u64 { return 129 as u64; }
 
 // The declared ELEMENT type NAME of field `field_name` within struct node `decl`,
 // IF that field's type is a TRAVERSABLE collection — the wql! edge-step (slice D)

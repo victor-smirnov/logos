@@ -1651,6 +1651,11 @@ pub fn incr_rowid_text(t: &ElTypes, row_ty: &str, v: &str, ty_out: &mut String,
     }
     // tuple `Clone`/`Copy` exist up to arity 12 (logos.lang.clone, as Rust's)
     if i == 0i64 || i > 12i64 { return false; }
+    // EVERY field, or no row identity: a field the type table could not spell
+    // is absent from the enumeration above, and an identity without it would
+    // call two rows that differ only there one row — the defect the row
+    // identity exists to close, accepted silently.
+    if i != struct_field_count(row_ty) { return false; }
     ty_out.push_str(")");
     ex_out.push_str(")");
     return true;

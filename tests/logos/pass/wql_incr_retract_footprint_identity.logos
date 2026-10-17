@@ -47,9 +47,10 @@ use logos.lang.cmp;
 use logos.lang.hash;
 use logos.std.compiler.metaprog;
 
-// A row with a field the fold NEVER READS (`nm`, a `str`): the field that made
+// A row with a field the fold NEVER READS (`nm`, a `&'static str` — it once went
+// unstamped as a reference and silently left the row identity): the field that made
 // whole-row storage impossible before, and the one §1 retracts on.
-struct S { pub g: i64, pub v: i64, pub nm: str }
+struct S { pub g: i64, pub v: i64, pub nm: &'static str }
 
 pub deem sumq(rs: &[S]) { from rs r group by r.g aggregate s = sum(r.v) select (key, s) }
 pub deem cntq(rs: &[S]) { from rs r group by r.g aggregate n = count() select (key, n) }
