@@ -3381,7 +3381,11 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             for (auto e : TypeRef(lt).tuple_elems())
                 if (!e || !(is_primitive_scalar_kind(TypeRef(e).kind()) || TypeRef(e).kind() == LogosType::Kind::Ptr))
                     tuple_rel = true;
-        if (generic_adt || k == LogosType::Kind::Enum || ref_struct || tuple_rel)
+        // An array orders through its PartialOrd impl (lexicographic, Rust's
+        // `[T; N]`); its `==` keeps the element-wise lowering.
+        const bool array_rel = k == LogosType::Kind::Array &&
+                               (op == "<" || op == "<=" || op == ">" || op == ">=");
+        if (generic_adt || k == LogosType::Kind::Enum || ref_struct || tuple_rel || array_rel)
             if (auto c = lower_op_by_trait_(*oi, lhs, &rhs)) return c;
         // `==` / `!=` on an enum with no PartialEq (or Eq) impl: rustc E0369 —
         // there is no builtin equality on an enum.
@@ -3843,6 +3847,34 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             isargs.push_back(std::move(cmp_call));
             return builder().call(isfit->symbol_name.empty() ? is_mangled : isfit->symbol_name,
                                   {}, std::move(isargs), bool_t());
+        }
+        // `T: PartialOrd` without `Ord` orders a reference pair through its own
+        // method (`a <= b` is `a.le(b)` with `&self` = the `&T` in hand), as the
+        // `==` arm does with `eq` — mono dispatches it to the concrete impl.
+        if (tv_ord_ref_pair) {
+            std::string po_provider;
+            if (auto bit = current_type_bounds_.find(tv_name); bit != current_type_bounds_.end()) {
+                StrSet seen2;
+                std::function<void(const std::string&)> walk2 = [&](const std::string& tn) {
+                    if (!po_provider.empty() || !seen2.insert(tn).second) return;
+                    auto* it = find_trait_iter_scoped(tn);
+                    if (!it) return;
+                    for (auto& m : it->methods)
+                        if (m.name == "partial_cmp") { po_provider = tn; return; }
+                    for (auto& st : it->supertraits) walk2(st.trait_name);
+                };
+                for (auto& b : bit->second) walk2(b.trait_name);
+            }
+            if (!po_provider.empty()) {
+                lir::EMethodCall mc;
+                mc.receiver = std::move(lhs);
+                mc.method   = op == "<" ? "lt" : op == "<=" ? "le" : op == ">" ? "gt" : "ge";
+                mc.args.push_back(std::move(rhs));
+                mc.vtable_index = -1;
+                mc.tag_trait = po_provider;
+                mc.trait_identity = impl_key_trait(canonical_trait_name(po_provider));
+                return method_call_resolved_(std::move(mc), bool_t());
+            }
         }
         // A reference pair with no ordering bound would compare ADDRESSES after
         // substitution. Rust: E0369, `&T` is ordered only through `T: PartialOrd`.

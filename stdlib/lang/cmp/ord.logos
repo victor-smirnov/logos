@@ -171,8 +171,37 @@ impl<T: Ord> Ord for &T {
         return self;
     }
 }
-impl<T: Ord> PartialOrd for &T {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+// Rust's `impl<A: PartialOrd> PartialOrd for &A`: a reference orders as its referent.
+impl<T: PartialOrd> PartialOrd for &T {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return (**self).partial_cmp(*other); }
+}
+// Arrays order lexicographically (Rust's `impl<T: PartialOrd, const N: usize>
+// PartialOrd for [T; N]` / `Ord`): the first unequal element decides.
+impl<T: PartialOrd, const N: usize> PartialOrd for [T; N] {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let mut i: usize = 0usize;
+        while i < N {
+            match self[i].partial_cmp(&other[i]) {
+                Option::Some(Ordering::Equal) => {}
+                r => { return r; }
+            }
+            i = i + 1usize;
+        }
+        return Option::Some(Ordering::Equal);
+    }
+}
+impl<T: Ord, const N: usize> Ord for [T; N] {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let mut i: usize = 0usize;
+        while i < N {
+            match self[i].cmp(&other[i]) {
+                Ordering::Equal => {}
+                r => { return r; }
+            }
+            i = i + 1usize;
+        }
+        return Ordering::Equal;
+    }
 }
 impl Ord for char { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
 impl PartialOrd for char {
