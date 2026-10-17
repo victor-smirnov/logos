@@ -1273,7 +1273,10 @@ pub fn incr_admit(ch: &DNest, ty: &ElTypes, aggs: &Vec<CAgg>,
 /// Everything else the EL lattice admits — the integer family, `bool`, `f64` —
 /// is a self-contained value.
 pub fn incr_ty_ok(t: &str) -> bool {
-    if str_eq(t, "String") { return false; }
+    // `&str` is the LOGOS spelling of the lattice's `str` (a result type is
+    // emitted text); the lattice does not admit it, so it is refused here by
+    // name rather than slipping past the class test below as "not STR".
+    if str_eq(t, "String") || str_eq(t, "&str") { return false; }
     return el_ty(t).cls != EL_TY_STR();
 }
 

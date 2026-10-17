@@ -152,7 +152,10 @@ fn check_limit_param(mods: &QMods, prm: &MacroParams) -> bool {
 // Textual by necessity: `params_text` is the user's own `deem!(…)` paren text,
 // re-emitted verbatim on purpose. `&` gains `'a` unless it already carries a
 // region (`&'`) or is a double borrow (`&&`, which the inner one handles).
-fn region_annotate(src: &str, out: &mut String) {
+// `muts` = whether a `&mut` gains it too: a private helper's `&mut` out-param
+// keeps its own elided region (`&'a mut` would hold the caller's buffer
+// borrowed for as long as the rows it receives live).
+fn region_annotate(src: &str, muts: bool, out: &mut String) {
     let n: i64 = src.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -160,10 +163,53 @@ fn region_annotate(src: &str, out: &mut String) {
         out.push_u8(c);
         if c == 38u8 {
             let nx: u8 = if i + 1i64 < n { str_byte_at(src, i + 1i64) } else { 0u8 };
-            if nx != 39u8 && nx != 38u8 { out.push_str("'a "); }
+            if nx != 39u8 && nx != 38u8 && (muts || !at_mut_kw(src, i + 1i64)) { out.push_str("'a "); }
         }
         i = i + 1i64;
     }
+}
+
+// `mut` followed by a non-identifier byte starts at `i`.
+fn at_mut_kw(src: &str, i: i64) -> bool {
+    let n: i64 = src.len();
+    if i + 3i64 > n { return false; }
+    if str_byte_at(src, i) != 109u8 || str_byte_at(src, i + 1i64) != 117u8 || str_byte_at(src, i + 2i64) != 116u8 { return false; }
+    if i + 3i64 == n { return true; }
+    let c: u8 = str_byte_at(src, i + 3i64);
+    return !((c >= 97u8 && c <= 122u8) || (c >= 65u8 && c <= 90u8) || (c >= 48u8 && c <= 57u8) || c == 95u8);
+}
+
+// A borrow without a region occurs INSIDE a param's type (`&mut Vec<(&str,
+// i64)>`, `&'_ [&str]`), not as the param's own outer borrow.
+fn has_nested_elided_ref(params: &str) -> bool {
+    let n: i64 = params.len();
+    let mut depth: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(params, i);
+        if c == 40u8 || c == 91u8 || c == 60u8 { depth = depth + 1i64; }
+        if c == 41u8 || c == 93u8 || c == 62u8 { depth = depth - 1i64; }
+        if c == 38u8 && depth > 0i64 {
+            let nx: u8 = if i + 1i64 < n { str_byte_at(params, i + 1i64) } else { 0u8 };
+            if nx != 39u8 && nx != 38u8 { return true; }
+        }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+// A borrow without a region (`&T`, not `&'r T` / `&&`) occurs in `t`.
+fn has_elided_ref(t: &str) -> bool {
+    let n: i64 = t.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if str_byte_at(t, i) == 38u8 {
+            let nx: u8 = if i + 1i64 < n { str_byte_at(t, i + 1i64) } else { 0u8 };
+            if nx != 39u8 && nx != 38u8 { return true; }
+        }
+        i = i + 1i64;
+    }
+    return false;
 }
 
 // ── THE SOUFFLÉ ORACLE'S INCREMENTAL LOG (oracle builds only) ────────────────
@@ -275,6 +321,26 @@ fn emit_inc_fn(name: &str, params: &str, ret: &str, body: ExprBlob, kind: i32, t
 
 fn emit_fn_quote_blob(fn_name: &str, params_text: &str, tps: &str, ret_ty: &str,
                       body: ExprBlob, prm: &MacroParams) {
+    // A PRIVATE helper whose rows borrow (a rel's `&str` column, in its result
+    // or in a `&mut Vec<Row>` out-param) names the region its sources share,
+    // for the reason `region_annotate` gives: it takes the query's params AND
+    // its dep slices, so an elided result is E0106, and an elided out-param
+    // row could not hold what the sources lend.
+    if vis_is_priv(fn_name) && (has_elided_ref(ret_ty) || has_nested_elided_ref(params_text)) {
+        let mut ps_a: String = String::new();
+        region_annotate(params_text, false, &mut ps_a);
+        let mut ret_a: String = String::new();
+        region_annotate(ret_ty, false, &mut ret_a);
+        let mut tps_a: String = String::new();
+        if tps.len() == 0i64 {
+            tps_a.push_str("<'a>");
+        } else {
+            tps_a.push_str("<'a, ");
+            tps_a.push_str(unsafe { str_from_raw(((tps.as_ptr() as i64) + 1i64) as *const u8, tps.len() - 1i64) });
+        }
+        emit_fn_quote_blob(fn_name, string_as_str(&ps_a), string_as_str(&tps_a), string_as_str(&ret_a), body, prm);
+        return;
+    }
     // The imports a native source's materializer needs are a RUNTIME list —
     // one module per source the query binds — carried by a repeat rather than
     // by a row of slots sized for the worst case.
@@ -289,7 +355,7 @@ fn emit_fn_quote_blob(fn_name: &str, params_text: &str, tps: &str, ret_ty: &str,
     let nm: Ident      = Ident::new(vis_strip(fn_name));
     let ps: ExprBlob   = parse_params(params_text);
     let tp: ExprBlob   = parse_type_params(tps);
-    let rt: ExprBlob   = parse_type(ret_ty);
+    let rt: ExprBlob   = parse_col_ty(ret_ty);
     if vis_is_priv(fn_name) {
         let q: QuoteItemBlob = quote_item! {
             use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option;
@@ -1035,10 +1101,10 @@ fn emit_prepared_fns(fn_name: &str, params_text: &str, tps: &str, ret_ty: &str,
     rps_a.push_str(tyn);
     if params_text.len() > 0i64 {
         rps_a.push_str(", ");
-        region_annotate(params_text, &mut rps_a);
+        region_annotate(params_text, true, &mut rps_a);
     }
     let mut ret_a: String = String::new();
-    region_annotate(ret_ty, &mut ret_a);
+    region_annotate(ret_ty, true, &mut ret_a);
     let mut tps_a: String = String::new();
     if tps.len() == 0i64 {
         tps_a.push_str("<'a>");
@@ -1347,13 +1413,13 @@ fn emit_stream_direct(fn_name: &str, params_text: &str, tps: &str, elem_ty: &str
 
     // Every antiquoted TYPE/EXPR is parsed once per occurrence: a fragment is
     // consumed where it is spliced, and two occurrences of `E` are two nodes.
-    let e1: ExprBlob = parse_type(elem_ty);
-    let e2: ExprBlob = parse_type(elem_ty);
-    let e3: ExprBlob = parse_type(elem_ty);
-    let e4: ExprBlob = parse_type(elem_ty);
-    let e5: ExprBlob = parse_type(elem_ty);
-    let e6: ExprBlob = parse_type(elem_ty);
-    let wt: ExprBlob = parse_type(walk_ty);
+    let e1: ExprBlob = parse_col_ty(elem_ty);
+    let e2: ExprBlob = parse_col_ty(elem_ty);
+    let e3: ExprBlob = parse_col_ty(elem_ty);
+    let e4: ExprBlob = parse_col_ty(elem_ty);
+    let e5: ExprBlob = parse_col_ty(elem_ty);
+    let e6: ExprBlob = parse_col_ty(elem_ty);
+    let wt: ExprBlob = parse_col_ty(walk_ty);
     let ct: ExprBlob = parse_expr(ctor_txt);
     let ps: ExprBlob = parse_params(params_text);
 
@@ -1380,7 +1446,7 @@ fn emit_stream_direct(fn_name: &str, params_text: &str, tps: &str, elem_ty: &str
     let lene_f: ExprBlob = parse_expr(string_as_str(&lenx));
     let hoist_f: ExprBlob = batch_hoist_frag_at(prm, rel_ix, rowmaj, string_as_str(&s_bb));
     let vnm:   Ident    = Ident::new(var_name);
-    let row_f: ExprBlob = parse_type(row_ty);
+    let row_f: ExprBlob = parse_col_ty(row_ty);
     let bind_f: ExprBlob = batch_row_bind_frag(rowmaj, vnm, row_f, rowe_f, n_br);
 
     let proj_f: ExprBlob = parse_expr(proj_txt);
@@ -1682,7 +1748,7 @@ fn push_guarded_frag(val_ty: &str, body: ExprBlob, distinct: bool) -> ExprBlob {
     if !distinct {
         return quote_block! { __out.push(#(body)); };
     }
-    let vt: ExprBlob = parse_type(val_ty);
+    let vt: ExprBlob = parse_col_ty(val_ty);
     return quote_block! {
         let __pv: #(vt) = (#(body));
         let mut __dup: bool = false;
@@ -1830,7 +1896,7 @@ fn sort_perm_frag(key_ty: &str, desc: bool, nidx: i64) -> ExprBlob {
         lands.push(quote_block!  { #ix.set(__b, #iv); });
         k = k + 1i64;
     }
-    let kt: ExprBlob = parse_type(key_ty);
+    let kt: ExprBlob = parse_col_ty(key_ty);
     let tie: ExprBlob = ix_lex_gt_frag(0i64, nidx);
     // Ascending moves the earlier key past the current one while it is greater;
     // descending while it is less. The four keys are four fragments, not two
@@ -1913,7 +1979,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>, axis: i32,
         rty.push_str(result_elem);
         rty.push_str(">, ElError>");
         // The const-false filter proved emptiness: return the empty Vec directly.
-        let et: ExprBlob = parse_type(result_elem);
+        let et: ExprBlob = parse_col_ty(result_elem);
         quote_block! { return Result::Ok(Vec::<#(et)>::new()); }
     };
     // `first` narrows to `Option<E>` — a SINGLE-ROW shape, not a multi-row
@@ -2118,8 +2184,8 @@ fn ss_name(k: i64) -> String { return nk_str("__ss", k); }
 fn slice_stream_wrap_frag(row_ty: &str, src_name: &str, k: i64) -> ExprBlob {
     let s_ss: String   = ss_name(k);
     let n_ss: Ident    = Ident::new(string_as_str(&s_ss));
-    let rt_f:  ExprBlob = parse_type(row_ty);
-    let rt2_f: ExprBlob = parse_type(row_ty);
+    let rt_f:  ExprBlob = parse_col_ty(row_ty);
+    let rt2_f: ExprBlob = parse_col_ty(row_ty);
     let sf:    ExprBlob = parse_expr(src_name);
     return quote_block! {
         let mut #n_ss: SliceStream<#(rt_f)> = SliceStream::<#(rt2_f)>::new(#(sf));
@@ -2891,8 +2957,8 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     // round it is checked and no round has to move.
     let pre_f:  ExprBlob = prelude_frag(prelude);
     let src_f:  ExprBlob = parse_expr(src_name);
-    let row_f:  ExprBlob = parse_type(row_ty);
-    let elem_f: ExprBlob = parse_type(result_elem);
+    let row_f:  ExprBlob = parse_col_ty(row_ty);
+    let elem_f: ExprBlob = parse_col_ty(result_elem);
     let proj_f: ExprBlob = parse_expr(string_as_str(&body));
     let vnm:    Ident    = Ident::new(var_name);
 
@@ -2958,7 +3024,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     if dscan_sorts(&ds) {
         // Phase 1: collect matching row indices + sort keys.
         let key_f:  ExprBlob = parse_expr(string_as_str(&key_body));
-        let keyt_f: ExprBlob = parse_type(key_ty);
+        let keyt_f: ExprBlob = parse_col_ty(key_ty);
         let mut coll_f: ExprBlob = quote_block! {
             __ix0.push(__i);
             __ks.push(#(key_f));
@@ -3271,7 +3337,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     // could use.
     let pre_f: ExprBlob = prelude_frag(prelude);
     let src_f: ExprBlob = parse_expr(src_name);
-    let row_f: ExprBlob = parse_type(row_ty);
+    let row_f: ExprBlob = parse_col_ty(row_ty);
     let vnm:   Ident    = Ident::new(var_name);
 
     let mut hit_f: ExprBlob = quote_block! { return Result::Ok(Option::Some(#vnm)); };
@@ -3586,14 +3652,14 @@ fn outer_rebind_frag(t: &ElTypes, var: &str, src: &str, rowty: &str, ix: &str) -
     while k < t.ov_var.len() {
         if str_eq(t.ov_var[k].as_str(), var) {
             let lc: Ident = Ident::new(t.ov_local[k].as_str());
-            let ty1: ExprBlob = parse_type(t.ov_ty[k].as_str());
+            let ty1: ExprBlob = parse_col_ty(t.ov_ty[k].as_str());
             let mut ft: String = String::new();
             outer_field_text(&tp, var, t.ov_col[k].as_str(), t.ov_inner[k].as_str(), &mut ft);
             let fe: ExprBlob = parse_expr(string_as_str(&ft));
             let ixe: ExprBlob = parse_expr(ix);
             let ixe2: ExprBlob = parse_expr(ix);
             let sf: ExprBlob = parse_expr(src);
-            let rt: ExprBlob = parse_type(rowty);
+            let rt: ExprBlob = parse_col_ty(rowty);
             let vn: Ident = Ident::new(var);
             bs.push(quote_block! {
                 let #lc: #(ty1) = if (#(ixe)) >= 0i64 {
@@ -3617,8 +3683,8 @@ fn outer_bindings(t: &ElTypes, tp: &ElTypes, var: &str, some: &mut ExprBlob, non
     while k < t.ov_var.len() {
         if str_eq(t.ov_var[k].as_str(), var) {
             let lc: Ident = Ident::new(t.ov_local[k].as_str());
-            let ty1: ExprBlob = parse_type(t.ov_ty[k].as_str());
-            let ty2: ExprBlob = parse_type(t.ov_ty[k].as_str());
+            let ty1: ExprBlob = parse_col_ty(t.ov_ty[k].as_str());
+            let ty2: ExprBlob = parse_col_ty(t.ov_ty[k].as_str());
             let mut ft: String = String::new();
             outer_field_text(tp, var, t.ov_col[k].as_str(), t.ov_inner[k].as_str(), &mut ft);
             let fe: ExprBlob = parse_expr(string_as_str(&ft));
@@ -3757,8 +3823,8 @@ fn analyze_step(ch: &DNest, i: i64, t: &ElTypes, var0: &str, h: &Writ, prm: &Mac
 // Both keep arrival order within a bucket, so probe hits replay in source order
 // exactly as the nested-loop baseline does.
 fn payload_ty_frag(streams: bool, ty: &str) -> ExprBlob {
-    if streams { return parse_type(ty); }
-    return parse_type("i64");
+    if streams { return parse_col_ty(ty); }
+    return parse_col_ty("i64");
 }
 
 /// The build key `var.col` over a column the step's source declares unique
@@ -3779,6 +3845,16 @@ fn unique_key_col(prm: &MacroParams, bk: SExpr, var: &str, src: &str) -> bool {
         }
         _ => { return false; }
     }
+}
+
+// A type parsed as the Logos type it is emitted as. Every type this emitter
+// splices goes through here: a name read off the lattice (a join or group
+// key, an accumulator, an inferred column) says `str`, and Logos spells it
+// `&str` (`push_logos_col_ty`; text already in Logos spelling is unchanged).
+fn parse_col_ty(t: &str) -> ExprBlob {
+    let mut lt: String = String::new();
+    push_logos_col_ty(&mut lt, t);
+    return parse_type(lt.as_str());
 }
 
 fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid: bool,
@@ -3812,8 +3888,8 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
     let s_bn: String = nk_str("__bn", s);   let n_bn: Ident = Ident::new(string_as_str(&s_bn));
     let s_bj: String = nk_str("__bj", s);   let n_bj: Ident = Ident::new(string_as_str(&s_bj));
 
-    let kt:    ExprBlob = parse_type(ktn);
-    let rowt:  ExprBlob = parse_type(ty);
+    let kt:    ExprBlob = parse_col_ty(ktn);
+    let rowt:  ExprBlob = parse_col_ty(ty);
     let src_f: ExprBlob = parse_expr(src);
     let key_f: ExprBlob = parse_expr(build_key);
     let vnm:   Ident    = Ident::new(var);
@@ -4105,7 +4181,7 @@ fn merge_pull_frag(prm: &MacroParams, s: i64, src: &str, ty: &str, br: i64) -> E
     let s_bn: String = nk_str("__bn", 100i64 + s);  let n_bn: Ident = Ident::new(string_as_str(&s_bn));
     let s_bj: String = nk_str("__bj", 100i64 + s);  let n_bj: Ident = Ident::new(string_as_str(&s_bj));
     let s_br: String = nk_str("__mbr", s);  let n_br: Ident = Ident::new(string_as_str(&s_br));
-    let rowt: ExprBlob = parse_type(ty);
+    let rowt: ExprBlob = parse_col_ty(ty);
     let mut rowx: String = String::new();
     batch_row_text(&mut rowx, prm, br, string_as_str(&s_bb), string_as_str(&s_bj));
     let rowe_f: ExprBlob = parse_expr(string_as_str(&rowx));
@@ -4140,20 +4216,20 @@ fn merge_cursor_frag(prm: &MacroParams, s: i64, ktn: &str, src: &str, ty: &str, 
     let s_mj: String = nk_str("__mj", s);   let n_mj: Ident = Ident::new(string_as_str(&s_mj));
     let s_mr: String = nk_str("__mr", s);   let n_mr: Ident = Ident::new(string_as_str(&s_mr));
     let s_mk: String = nk_str("__mk", s);   let n_mk: Ident = Ident::new(string_as_str(&s_mk));
-    let kt: ExprBlob = parse_type(ktn);
+    let kt: ExprBlob = parse_col_ty(ktn);
     let p1: ExprBlob = payload_ty_frag(streams, ty);
     let p2: ExprBlob = payload_ty_frag(streams, ty);
     let mut head: ExprBlob = quote_block! { let mut #n_mj: i64 = 0i64; };
     if streams {
-        let rowt: ExprBlob = parse_type(ty);
+        let rowt: ExprBlob = parse_col_ty(ty);
         let br: i64 = merge_batch_step(prm, src, streams);
         let pull: ExprBlob = merge_pull_frag(prm, s, src, ty, br);
         if br >= 0i64 {
             plan_trace(src, "merge batch buffer", ty, "the merge step's producer hands out a leaf at a time and the leaf cannot outlive the next pull, so the cursor copies its rows into `__mb` — at most one leaf");
             let s_mb: String = nk_str("__mb", s);   let n_mb: Ident = Ident::new(string_as_str(&s_mb));
             let s_md: String = nk_str("__md", s);   let n_md: Ident = Ident::new(string_as_str(&s_md));
-            let rowt2: ExprBlob = parse_type(ty);
-            let rowt3: ExprBlob = parse_type(ty);
+            let rowt2: ExprBlob = parse_col_ty(ty);
+            let rowt3: ExprBlob = parse_col_ty(ty);
             head = quote_block! {
                 let mut #n_mb: Vec<#(rowt2)> = Vec::<#(rowt3)>::new();
                 let mut #n_md: bool = false;
@@ -4185,8 +4261,8 @@ fn merge_step_frag(prm: &MacroParams, s: i64, ktn: &str, src: &str, ty: &str, va
     let s_pk: String = nk_str("__pk", s);   let n_pk: Ident = Ident::new(string_as_str(&s_pk));
     let s_p:  String = nk_str("__p",  s);   let n_p:  Ident = Ident::new(string_as_str(&s_p));
     let s_ri: String = nk_str("__ri", s);   let n_ri: Ident = Ident::new(string_as_str(&s_ri));
-    let kt:    ExprBlob = parse_type(ktn);
-    let rowt:  ExprBlob = parse_type(ty);
+    let kt:    ExprBlob = parse_col_ty(ktn);
+    let rowt:  ExprBlob = parse_col_ty(ty);
     let src_f: ExprBlob = parse_expr(src);
     let key_f: ExprBlob = parse_expr(build_key);
     let vnm:   Ident    = Ident::new(var);
@@ -4311,8 +4387,8 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
     let s_sp: String = nk_str("__sp", s);   let n_sp: Ident = Ident::new(string_as_str(&s_sp));
     let s_tp: String = nk_str("__tp", s);   let n_tp: Ident = Ident::new(string_as_str(&s_tp));
 
-    let kt:    ExprBlob = parse_type(ktn);
-    let rowt:  ExprBlob = parse_type(ty);
+    let kt:    ExprBlob = parse_col_ty(ktn);
+    let rowt:  ExprBlob = parse_col_ty(ty);
     let src_f: ExprBlob = parse_expr(src);
     let vnm:   Ident    = Ident::new(var);
 
@@ -5097,7 +5173,7 @@ fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     // `analyze_chain` above and `MacroParams::rel_src_unmaterialized`).
     let base_streams: bool = prm.rel_src_unmaterialized(ch.base_src);
     let base_src_f: ExprBlob = parse_expr(ch.base_src);
-    let base_ty_f: ExprBlob = parse_type(ch.base_ty);
+    let base_ty_f: ExprBlob = parse_col_ty(ch.base_ty);
     let base_vnm: Ident = Ident::new(ch.base_var);
     let mut nest: ExprBlob = quote_block! { };
     if base_streams {
@@ -5199,7 +5275,7 @@ fn full_join_pass(ch: &DNest, nest: ExprBlob, body_inner: ExprBlob, fp: &FullPar
     let ysrc: ExprBlob = parse_expr(ch.src[0i64]);
     let ysrc2: ExprBlob = parse_expr(ch.src[0i64]);
     let ysrc3: ExprBlob = parse_expr(ch.src[0i64]);
-    let yty: ExprBlob = parse_type(ch.ty[0i64]);
+    let yty: ExprBlob = parse_col_ty(ch.ty[0i64]);
     let yv: Ident = Ident::new(ch.var[0i64]);
     let xnone: ExprBlob = fp.xnone;
     let ysome: ExprBlob = fp.ysome;
@@ -5579,7 +5655,7 @@ fn emit_join_chain<'d>(ch: DNest<'d>, jp: JoinPlan<'d>, where_ref: WRef<SExpr>, 
             ixd.push(quote_block! { let mut #nx: Vec<i64> = Vec::<i64>::new(); });
             dk = dk + 1i64;
         }
-        let keyt_f: ExprBlob = parse_type(key_ty);
+        let keyt_f: ExprBlob = parse_col_ty(key_ty);
         sort_key_vector(prm, ch.base_src, ch.base_var, key_ty, nb);
         sortdecl = quote_block! {
             #( #ixd; )*
@@ -5594,7 +5670,7 @@ fn emit_join_chain<'d>(ch: DNest<'d>, jp: JoinPlan<'d>, where_ref: WRef<SExpr>, 
                 let sx: String = nk_str("__ix", rk);
                 let nx: Ident = Ident::new(string_as_str(&sx));
                 let bs: ExprBlob = parse_expr(bnd_src[rk]);
-                let bt: ExprBlob = parse_type(bnd_ty[rk]);
+                let bt: ExprBlob = parse_col_ty(bnd_ty[rk]);
                 let bv: Ident = Ident::new(bnd_var[rk]);
                 if ty.opt_is_var(bnd_var[rk]) {
                     let mut ixs: String = String::new();
@@ -5621,7 +5697,7 @@ fn emit_join_chain<'d>(ch: DNest<'d>, jp: JoinPlan<'d>, where_ref: WRef<SExpr>, 
                 let sx: String = nk_str("__ix", rk2);
                 let nx: Ident = Ident::new(string_as_str(&sx));
                 let bs: ExprBlob = parse_expr(bnd_src[rk2]);
-                let bt: ExprBlob = parse_type(bnd_ty[rk2]);
+                let bt: ExprBlob = parse_col_ty(bnd_ty[rk2]);
                 let bv: Ident = Ident::new(bnd_var[rk2]);
                 if ty.opt_is_var(bnd_var[rk2]) {
                     let mut ixs: String = String::new();
@@ -5652,7 +5728,7 @@ fn emit_join_chain<'d>(ch: DNest<'d>, jp: JoinPlan<'d>, where_ref: WRef<SExpr>, 
     }
 
     let pre_f: ExprBlob = prelude_frag(prelude);
-    let elem_f: ExprBlob = parse_type(result_ty);
+    let elem_f: ExprBlob = parse_col_ty(result_ty);
     // ADR 0025 R-H (b′) — the landing is a `Buffer`; `into_vec()` at the return
     // keeps the `Vec` entry point (see the note at the first of the four sites).
     let mut head_f: ExprBlob = quote_block! {
@@ -5988,8 +6064,8 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     // the level counter it threaded) and every column list rides a
     // Vec<ExprBlob> cursor that splices flat.
     let pre_f:      ExprBlob = prelude_frag(prelude);
-    let elem_f:     ExprBlob = parse_type(result_ty);
-    let keyt_f:     ExprBlob = parse_type(key_ty);
+    let elem_f:     ExprBlob = parse_col_ty(result_ty);
+    let keyt_f:     ExprBlob = parse_col_ty(key_ty);
     // ── THE GROUP FRAME ENTERS THE PLAN HERE (ADR 0025 §8, S4-naming) ────────
     // `__g_key` is declared unconditionally in `body_f` below, so this fires
     // unconditionally too, once per emitted batch aggregate — the same 1:1 the
@@ -5999,7 +6075,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     // whole family stayed unnamed while the plan spoke about everything else.
     group_table_field(prm, ch.base_src, ch.base_var, key_ty, acount);
     let base_src_f: ExprBlob = parse_expr(ch.base_src);
-    let base_ty_f:  ExprBlob = parse_type(ch.base_ty);
+    let base_ty_f:  ExprBlob = parse_col_ty(ch.base_ty);
     let base_vnm:   Ident    = Ident::new(ch.base_var);
     let proj_f:     ExprBlob = parse_expr(string_as_str(&proj_body));
 
@@ -6087,8 +6163,8 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
         if uda[gd] {
             // UDA accumulator column: the user's A type, threaded verbatim
             // (a struct accumulator must be Copy — Vec.get/set fold cells).
-            let uacc: ExprBlob = parse_type(uda_acc[gd]);
-            let uacc2: ExprBlob = parse_type(uda_acc[gd]);
+            let uacc: ExprBlob = parse_col_ty(uda_acc[gd]);
+            let uacc2: ExprBlob = parse_col_ty(uda_acc[gd]);
             acols.push(quote_block! { let mut #n_ga: Vec<#(uacc)> = Vec::<#(uacc2)>::new(); });
             atn = uda_acc[gd];
         } else if agg_flt[gd] {
@@ -6101,8 +6177,8 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
             // i64 and correctly refused a `u64` argument, because the only route
             // into an i64 cell REINTERPRETS. With the column's own type in the
             // cell there is nothing to refuse.
-            let bacc_f:  ExprBlob = parse_type(acc[gd]);
-            let bacc_f2: ExprBlob = parse_type(acc[gd]);
+            let bacc_f:  ExprBlob = parse_col_ty(acc[gd]);
+            let bacc_f2: ExprBlob = parse_col_ty(acc[gd]);
             acols.push(quote_block! { let mut #n_ga: Vec<#(bacc_f)> = Vec::<#(bacc_f2)>::new(); });
             atn = acc[gd];
         }
@@ -6286,7 +6362,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut ksdecl: ExprBlob = quote_block! { };
     let mut sortp:  ExprBlob = quote_block! { };
     if mods.has_sort {
-        let okeyt_f: ExprBlob = parse_type(okey_ty);
+        let okeyt_f: ExprBlob = parse_col_ty(okey_ty);
         let okey_f:  ExprBlob = parse_expr(string_as_str(&okey_body));
         sort_key_vector(prm, ch.base_src, ch.base_var, okey_ty, 1i64);
         ksdecl = quote_block! { let mut __ks: Vec<#(okeyt_f)> = Vec::<#(okeyt_f)>::new(); };
@@ -7257,7 +7333,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         let n_gm: Ident = Ident::new(string_as_str(&gmnm[gi]));
         if want_map {
             fnames.push(Ident::new(string_as_str(&gmnm[gi])));
-            ftys.push(parse_type(t_map_v));
+            ftys.push(parse_col_ty(t_map_v));
         }
 
         // — the group-creation SEED, SPELLED IN THE ACCUMULATOR'S OWN TYPE —
@@ -7382,13 +7458,13 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // discards the SIGN — feeding it here would turn every retraction
             // into an insert — so its use stays confined to the u64 `sum` arm
             // above, where the cell has no signed product to multiply by.
-            let vt0:  ExprBlob = parse_type(acct);
-            let mkty: ExprBlob = parse_type(mkt);
-            let orty: ExprBlob = parse_type(ordt);
-            let pmap: ExprBlob = parse_type(t_map_p);
-            let cmap: ExprBlob = parse_type(t_map_c);
-            let kits: ExprBlob = parse_type(t_keys);
-            let mvty: ExprBlob = parse_type(t_map_e);
+            let vt0:  ExprBlob = parse_col_ty(acct);
+            let mkty: ExprBlob = parse_col_ty(mkt);
+            let orty: ExprBlob = parse_col_ty(ordt);
+            let pmap: ExprBlob = parse_col_ty(t_map_p);
+            let cmap: ExprBlob = parse_col_ty(t_map_c);
+            let kits: ExprBlob = parse_col_ty(t_keys);
+            let mvty: ExprBlob = parse_col_ty(t_map_e);
             // IDENTITY (the map key) and ORDER (the comparator) — two functions
             // that AGREE on the quotient, each applied only to locals this
             // emitter itself named.
@@ -7520,14 +7596,14 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // carried is the f64 sum and the i64 count, both of which are monoids, so
         // `snapshot()` after N epochs reads the same pair as after one.
         if fnid == AGG_AVG() {
-            let ract: ExprBlob = parse_type(act[gi]);
+            let ract: ExprBlob = parse_col_ty(act[gi]);
             freads.push(quote_block! {
                 let #n_out: #(ract) =
                     (if __h.__gc.get(__r0) > 0i64 { __h.#n_ga.get(__r0) / (__h.__gc.get(__r0) as f64) }
                      else { 0.0f64 });
             });
         } else {
-            let rat2: ExprBlob = parse_type(acct);
+            let rat2: ExprBlob = parse_col_ty(acct);
             freads.push(quote_block! { let #n_out: #(rat2) = __h.#n_ga.get(__r0); });
         }
         gi = gi + 1i64;
@@ -7539,7 +7615,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // constructor draws instead (oracle builds only)
     if prm.oracle_inc_rows.len() > 0i64 {
         fnames.push(Ident::new("__oid"));
-        ftys.push(parse_type("i64"));
+        ftys.push(parse_col_ty("i64"));
     }
     let n_ty: Ident = Ident::new(tyn);
     if is_priv {
@@ -7804,9 +7880,9 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // ── <q>_apply(&mut h, src, w, …) — fold a WEIGHTED delta in ────────────
     let pre_f: ExprBlob = prelude_frag(prelude);
     let key_f: ExprBlob = parse_expr(key_body);
-    let keyt_f: ExprBlob = parse_type(key_ty);
+    let keyt_f: ExprBlob = parse_col_ty(key_ty);
     let base_src_f: ExprBlob = parse_expr(ch.base_src);
-    let base_ty_f: ExprBlob = parse_type(ch.base_ty);
+    let base_ty_f: ExprBlob = parse_col_ty(ch.base_ty);
     let base_vnm: Ident = Ident::new(ch.base_var);
     // ⚠ THE GROUP INDEX IS THE BATCH EMITTER'S LINEAR `==` SCAN, ON PURPOSE. It
     // is O(rows × groups) and a `HashMap<K, i64>` would be the right structure —
@@ -7950,7 +8026,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // for the other direction is how a plan silently stops describing
             // the emitted code.
             let src1_f: ExprBlob = parse_expr(ch.src[0]);
-            let ty1_f:  ExprBlob = parse_type(ch.ty[0]);
+            let ty1_f:  ExprBlob = parse_col_ty(ch.ty[0]);
             let var1:   Ident    = Ident::new(ch.var[0]);
             let mut ptxt: String = String::new();
             if ch.onw[0] != 0i64 {
@@ -8135,7 +8211,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             let mut sen0: ExprBlob = quote_block! { };
             let mut sen1: ExprBlob = quote_block! { };
             if sens {
-                let fpty_f: ExprBlob = parse_type(string_as_str(&fpty));
+                let fpty_f: ExprBlob = parse_col_ty(string_as_str(&fpty));
                 let fpex_f: ExprBlob = parse_expr(string_as_str(&fpex));
                 sen0 = quote_block! {
                     let __fp: #(fpty_f) = #(fpex_f);
@@ -9308,7 +9384,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // QUERY WHERE IT IS INERT. That is deliberate: under inserts every created
     // group has multiplicity ≥ 1, so the P1 fixtures prove the guard changes no
     // answer they already pin, which is what makes them a control on it.
-    let elem_f: ExprBlob = parse_type(result_ty);
+    let elem_f: ExprBlob = parse_col_ty(result_ty);
     let proj_f: ExprBlob = parse_expr(proj_body);
     let mut keep: ExprBlob = quote_block! { __out.push(#(proj_f)); };
     if has_having {
@@ -9433,11 +9509,11 @@ fn parse_type_of_vec(t: &str) -> ExprBlob {
     s.push_str("Vec<");
     s.push_str(t);
     s.push_str(">");
-    return parse_type(string_as_str(&s));
+    return parse_col_ty(string_as_str(&s));
 }
 fn push_vec_new(out: &mut String, t: &str) {
     out.push_str("Vec::<");
-    out.push_str(t);
+    push_logos_col_ty(out, t);
     out.push_str(">::new()");
 }
 
@@ -9639,7 +9715,7 @@ fn agg_fold_frag(fnid: i32, is_flt: bool, is_cast: bool, acc: &str, cell: &str, 
                 { let __v: f64 = (#(ag4)); if f64_data_key(__v) < f64_data_key(#(cg4).get(__gi)) { #(cs4).set(__gi, __v); } }
             };
         }
-        let vt: ExprBlob = parse_type(acc);
+        let vt: ExprBlob = parse_col_ty(acc);
         return quote_block! {
             { let __v: #(vt) = (#(ag4)); if __v < #(cg4).get(__gi) { #(cs4).set(__gi, __v); } }
         };
@@ -9649,7 +9725,7 @@ fn agg_fold_frag(fnid: i32, is_flt: bool, is_cast: bool, acc: &str, cell: &str, 
             { let __v: f64 = (#(ag4)); if f64_data_key(__v) > f64_data_key(#(cg4).get(__gi)) { #(cs4).set(__gi, __v); } }
         };
     }
-    let vt2: ExprBlob = parse_type(acc);
+    let vt2: ExprBlob = parse_col_ty(acc);
     return quote_block! {
         { let __v: #(vt2) = (#(ag4)); if __v > #(cg4).get(__gi) { #(cs4).set(__gi, __v); } }
     };
@@ -9692,7 +9768,7 @@ fn suffixed(name: &str, suffix: &str) -> String {
 // clause over a group row may name the row var as well as `key`.
 fn row_rebind_frag(base_var: &str, base_ty: &str, base_src: &str, idx: ExprBlob) -> ExprBlob {
     let bv: Ident    = Ident::new(base_var);
-    let bt: ExprBlob = parse_type(base_ty);
+    let bt: ExprBlob = parse_col_ty(base_ty);
     let bs: ExprBlob = parse_expr(base_src);
     return quote_block! { let #bv: &#(bt) = &(#(bs))[#(idx)]; };
 }
@@ -9725,7 +9801,7 @@ fn group_binds_frag(idx: ExprBlob, aggs: &RAggArr, acount: i64, act: &Vec<&str>,
                     uda: &Vec<bool>, uda_fin: &Vec<bool>, uda_ret: &Vec<&str>,
                     key_ty: &str, rep: bool, has_cnt: bool, agg_flt: &Vec<bool>,
                     base_var: &str, base_ty: &str, base_src: &str) -> ExprBlob {
-    let keyt_f: ExprBlob = parse_type(key_ty);
+    let keyt_f: ExprBlob = parse_col_ty(key_ty);
     let mut binds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut gi: i64 = 0i64;
     while gi < acount {
@@ -9734,7 +9810,7 @@ fn group_binds_frag(idx: ExprBlob, aggs: &RAggArr, acount: i64, act: &Vec<&str>,
         let s_ga: String = ga_name(a.out);
         let n_ga: Ident = Ident::new(string_as_str(&s_ga));
         let n_out: Ident = Ident::new(a.out);
-        let act_f: ExprBlob = parse_type(act[gi]);
+        let act_f: ExprBlob = parse_col_ty(act[gi]);
         if uda[gi] {
             let acc_read: ExprBlob = quote_expr! { #n_ga.get(#(idx)) };
             let fin: ExprBlob = uda_finalize_frag(a.fn_name, acc_read, uda_fin[gi], "");
@@ -9898,7 +9974,7 @@ fn uda_finalize_frag(name: &str, acc: ExprBlob, has_fin: bool, cast_ty: &str) ->
         e = quote_expr! { #n_fin(#(e)) };
     }
     if cast_ty.len() > 0i64 {
-        let ct: ExprBlob = parse_type(cast_ty);
+        let ct: ExprBlob = parse_col_ty(cast_ty);
         e = quote_expr! { ((#(e)) as #(ct)) };
     }
     return e;
@@ -10034,7 +10110,7 @@ fn rel_comp_value(out: &mut String, e: SExpr, want: &str, t: &ElTypes, var: &str
 }
 
 fn rel_push_frag(row_ty: &str, proj: ExprBlob) -> ExprBlob {
-    let rt: ExprBlob = parse_type(row_ty);
+    let rt: ExprBlob = parse_col_ty(row_ty);
     return quote_block! {
         let __rv: #(rt) = (#(proj));
         unsafe { *__wcp = *__wcp + 1i64; }
@@ -10120,9 +10196,9 @@ fn rel_push_agg_frag(ri: i64, prm: &MacroParams,
     let rn:  &str = prm.rel_names[ri];
     let off: i64 = prm.rel_coff[ri];
     let kts: String = agg_key_ty(prm, ri);
-    let kty: ExprBlob = parse_type(string_as_str(&kts));
-    let vty: ExprBlob = parse_type(agg_val_ty(prm, ri));
-    let vty2: ExprBlob = parse_type(agg_val_ty(prm, ri));
+    let kty: ExprBlob = parse_col_ty(string_as_str(&kts));
+    let vty: ExprBlob = parse_col_ty(agg_val_ty(prm, ri));
+    let vty2: ExprBlob = parse_col_ty(agg_val_ty(prm, ri));
     let rws: String = agg_row_text(prm, ri, "__ak", "__av");
     let row: ExprBlob = parse_expr(string_as_str(&rws));
     let s_bp: String = suffixed("__bp_", rn);   let n_bp: Ident = Ident::new(string_as_str(&s_bp));
@@ -10225,7 +10301,7 @@ fn rel_body_simple_frag(cl: &CClause, ch: &DNest, ri: i64, b: i64,
         push_f = quote_block! { if (#(pred_f)) #(push_f) };
     }
     let src_f: ExprBlob = parse_expr(s.src_name);
-    let row_f: ExprBlob = parse_type(s.row_ty);
+    let row_f: ExprBlob = parse_col_ty(s.row_ty);
     let vnm:   Ident    = Ident::new(s.var_name);
     // ADR 0025 R-F — a rel body's base is a scan like any other. Most rel body
     // sources are `__rel_<r>_sl` (a rel identity ⇒ `slice_stream_src` is false
@@ -10384,7 +10460,7 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
     if full && !full_join_parts(ch, &ty, &mut ns, &mut fp) { return false; }
 
     // The group frame: as `emit_aggregate`'s, column for column.
-    let keyt_f: ExprBlob = parse_type(key_ty);
+    let keyt_f: ExprBlob = parse_col_ty(key_ty);
     group_table_field(prm, ch.base_src, ch.base_var, key_ty, acount);
     let mut needs_cnt: bool = false;
     let mut nc: i64 = 0i64;
@@ -10420,8 +10496,8 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
         let arg_f: ExprBlob = parse_expr(string_as_str(&agg_body[gd]));
         let mut atn: &str = "";
         if gt.uda[gd] {
-            let uacc: ExprBlob = parse_type(gt.uda_acc[gd]);
-            let uacc2: ExprBlob = parse_type(gt.uda_acc[gd]);
+            let uacc: ExprBlob = parse_col_ty(gt.uda_acc[gd]);
+            let uacc2: ExprBlob = parse_col_ty(gt.uda_acc[gd]);
             acols.push(quote_block! { let mut #n_ga: Vec<#(uacc)> = Vec::<#(uacc2)>::new(); });
             atn = gt.uda_acc[gd];
             let s_init: String = suffixed(a.fn_name, "_init");
@@ -10432,8 +10508,8 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
             folds.push(quote_block! { #n_ga.set(__gi, #n_step(#n_ga.get(__gi), (#(arg_f)))); });
         } else {
             let cell: &str = if gt.flt[gd] { "f64" } else { gt.acc[gd] };
-            let bacc_f:  ExprBlob = parse_type(cell);
-            let bacc_f2: ExprBlob = parse_type(cell);
+            let bacc_f:  ExprBlob = parse_col_ty(cell);
+            let bacc_f2: ExprBlob = parse_col_ty(cell);
             acols.push(quote_block! { let mut #n_ga: Vec<#(bacc_f)> = Vec::<#(bacc_f2)>::new(); });
             atn = cell;
             seeds.push(agg_seed_frag(fnid, gt.flt[gd], gt.acc[gd], string_as_str(&s_ga)));
@@ -10469,7 +10545,7 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
         bpi = bpi + 1i64;
     }
     let base_src_f: ExprBlob = parse_expr(ch.base_src);
-    let base_ty_f:  ExprBlob = parse_type(ch.base_ty);
+    let base_ty_f:  ExprBlob = parse_col_ty(ch.base_ty);
     let base_vnm:   Ident    = Ident::new(ch.base_var);
     // The base scan carries `__i0`, the source ordinal the representative row
     // is re-read by (`group_binds_frag`'s `rep`).
@@ -10623,7 +10699,7 @@ fn chain_body_frag(ch: &DNest, ri: i64, b: i64, prm: &MacroParams,
         bpi = bpi + 1i64;
     }
     let base_src_f: ExprBlob = parse_expr(ch.base_src);
-    let base_ty_f:  ExprBlob = parse_type(ch.base_ty);
+    let base_ty_f:  ExprBlob = parse_col_ty(ch.base_ty);
     let base_vnm:   Ident    = Ident::new(ch.base_var);
     // ADR 0025 R-F — same route as the simple rel body, on the JOINED one. The
     // build phases (`#bps`) already took their own slice arm inside
@@ -10670,15 +10746,25 @@ fn chain_body_frag(ch: &DNest, ri: i64, b: i64, prm: &MacroParams,
 // push_call_args), so signature and call site cannot drift.
 // It appends to the PARAM-LIST text, not to an item buffer: the rel fns are
 // quotes now, and their parameter list is one string the shell parses.
+// A rel-row slice PARAM's type. Rows that borrow (`&str` columns) borrow the
+// query's sources, not the slice: the slice is the caller's local Vec, so its
+// own region is `'_` and stays out of the `'a` that `emit_fn_quote_blob`
+// names for the rows. Always `'_`, not only when `rowty` shows a `&`: a native
+// row's borrow can hide behind a lifetime-only alias (`WritEdgeRow`).
+fn push_row_slice_ty(out: &mut String, rowty: &str) {
+    out.push_str("&'_ [");
+    out.push_str(rowty);
+    out.push_str("]");
+}
+
 fn push_dep_params(out: &mut String, prm: &MacroParams, mask: &RelSet) {
     let mut j: i64 = 0i64;
     while j < prm.rel_n {
         if mask.has(j) {
             out.push_str(", ");
             out.push_str(string_as_str(&prm.rel_srcs[j]));
-            out.push_str(": &[");
-            out.push_str(string_as_str(&prm.rel_rowty[j]));
-            out.push_str("]");
+            out.push_str(": ");
+            push_row_slice_ty(out, string_as_str(&prm.rel_rowty[j]));
         }
         j = j + 1i64;
     }
@@ -10805,12 +10891,12 @@ fn emit_rel_fn_oneshot(ri: i64, fn_name: &str,
     rty.push_str(row_ty);
     rty.push_str(">, ElError>");
     // ── the BODY is a QUOTE too (ADR 0024 S5) ─────────────────────────────
-    let rt: ExprBlob  = parse_type(row_ty);
-    let rt2: ExprBlob = parse_type(row_ty);
-    let rt3: ExprBlob = parse_type(row_ty);
-    let rt4: ExprBlob = parse_type(row_ty);
-    let rt5: ExprBlob = parse_type(row_ty);
-    let rt6: ExprBlob = parse_type(row_ty);
+    let rt: ExprBlob  = parse_col_ty(row_ty);
+    let rt2: ExprBlob = parse_col_ty(row_ty);
+    let rt3: ExprBlob = parse_col_ty(row_ty);
+    let rt4: ExprBlob = parse_col_ty(row_ty);
+    let rt5: ExprBlob = parse_col_ty(row_ty);
+    let rt6: ExprBlob = parse_col_ty(row_ty);
     let nbod: i64 = rel_nrules(prm, ri);
     let mut runs: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut b: i64 = 0i64;
@@ -11147,10 +11233,10 @@ fn emit_scc_fn(c: i64, fn_name: &str,
     let mut m1: i64 = 0i64;
     while m1 < nm {
         let rn: &str = prm.rel_names[mem[m1]];
-        let rt: ExprBlob  = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
-        let rt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
-        let rt3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
-        let rt4: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let rt: ExprBlob  = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let rt2: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let rt3: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let rt4: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m1]]));
         let s_dl: String = suffixed("__dl_", rn);  let n_dl: Ident = Ident::new(string_as_str(&s_dl));
         let s_nd: String = suffixed("__nd_", rn);  let n_nd: Ident = Ident::new(string_as_str(&s_nd));
         // THE WORK COUNTER — one per member, fn-level so it outlives the member
@@ -11174,16 +11260,16 @@ fn emit_scc_fn(c: i64, fn_name: &str,
             let kts: String = agg_key_ty(prm, mem[m1]);
             let kts_s: &str = string_as_str(&kts);
             let vts: &str = agg_val_ty(prm, mem[m1]);
-            let kty:  ExprBlob = parse_type(kts_s);
-            let kty2: ExprBlob = parse_type(kts_s);
-            let kty3: ExprBlob = parse_type(kts_s);
-            let kty4: ExprBlob = parse_type(kts_s);
-            let kty5: ExprBlob = parse_type(kts_s);
-            let kty6: ExprBlob = parse_type(kts_s);
-            let vty:  ExprBlob = parse_type(vts);
-            let vty2: ExprBlob = parse_type(vts);
-            let vty3: ExprBlob = parse_type(vts);
-            let vty4: ExprBlob = parse_type(vts);
+            let kty:  ExprBlob = parse_col_ty(kts_s);
+            let kty2: ExprBlob = parse_col_ty(kts_s);
+            let kty3: ExprBlob = parse_col_ty(kts_s);
+            let kty4: ExprBlob = parse_col_ty(kts_s);
+            let kty5: ExprBlob = parse_col_ty(kts_s);
+            let kty6: ExprBlob = parse_col_ty(kts_s);
+            let vty:  ExprBlob = parse_col_ty(vts);
+            let vty2: ExprBlob = parse_col_ty(vts);
+            let vty3: ExprBlob = parse_col_ty(vts);
+            let vty4: ExprBlob = parse_col_ty(vts);
             let s_be: String = suffixed("__best_", rn);   let n_be: Ident = Ident::new(string_as_str(&s_be));
             let s_bp: String = suffixed("__bp_", rn);     let n_bp: Ident = Ident::new(string_as_str(&s_bp));
             let s_ks: String = suffixed("__keys_", rn);   let n_ks: Ident = Ident::new(string_as_str(&s_ks));
@@ -11197,8 +11283,8 @@ fn emit_scc_fn(c: i64, fn_name: &str,
                 let mut #n_nd: Vec<#(rt3)> = Vec::<#(rt4)>::new();
             });
         } else {
-            let rt5: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
-            let rt6: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
+            let rt5: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m1]]));
+            let rt6: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m1]]));
             let s_rs: String = suffixed("__rs_", rn);  let n_rs: Ident = Ident::new(string_as_str(&s_rs));
             if incr {
                 // ⚠ SEEDED FROM THE TOTAL — see (1) in this fn's header. The set
@@ -11206,7 +11292,7 @@ fn emit_scc_fn(c: i64, fn_name: &str,
                 // save this O(|total|) walk, but it would put a `HashSet` of the
                 // whole relation beside the `Vec` of it, and the walk is
                 // dominated by the naïve round-0 pass that follows anyway.
-                let rt7: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
+                let rt7: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m1]]));
                 let s_tt1: String = suffixed("__tot_", rn); let n_tt1: Ident = Ident::new(string_as_str(&s_tt1));
                 state.push(quote_block! {
                     let mut #n_rs: HashSet<#(rt5)> = hashset_new::<#(rt6)>();
@@ -11264,7 +11350,7 @@ fn emit_scc_fn(c: i64, fn_name: &str,
         while mb < nm {
             let rnb: &str = prm.rel_names[mem[mb]];
             if !prm.rel_is_agg[mem[mb]] {
-                let rtb: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[mb]]));
+                let rtb: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[mb]]));
                 let n_ssb: Ident = Ident::new(string_as_str(&prm.rel_srcs[mem[mb]]));
                 let s_ttb: String = suffixed("__tot_", rnb); let n_ttb: Ident = Ident::new(string_as_str(&s_ttb));
                 r0.push(quote_block! { let #n_ssb: &[#(rtb)] = #n_ttb.as_slice(); });
@@ -11283,8 +11369,8 @@ fn emit_scc_fn(c: i64, fn_name: &str,
     let mut m3: i64 = 0i64;
     while m3 < nm {
         let rn3: &str = prm.rel_names[mem[m3]];
-        let rt3:  ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-        let rt3b: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+        let rt3:  ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
+        let rt3b: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
         let s_dl: String = suffixed("__dl_", rn3);  let n_dl: Ident = Ident::new(string_as_str(&s_dl));
         let s_nd: String = suffixed("__nd_", rn3);  let n_nd: Ident = Ident::new(string_as_str(&s_nd));
         let s_tt: String = suffixed("__tot_", rn3); let n_tt: Ident = Ident::new(string_as_str(&s_tt));
@@ -11305,19 +11391,19 @@ fn emit_scc_fn(c: i64, fn_name: &str,
             // a new row b — and every row it derives leaves the total and the
             // round's delta. The novelty set keeps them, so a dominated row is
             // not derived again (dominance is a strict partial order).
-            let rtd:  ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-            let rtd2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-            let rtd3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-            let rtd4: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-            let rtd5: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-            let rtd6: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-            let rtd7: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-            let rtd8: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-            let rtd9: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-            let rtd10: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-            let rtd11: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-            let rtd12: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
-            let rtd13: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd:  ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd2: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd3: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd4: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd5: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd6: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd7: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd8: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd9: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd10: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd11: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd12: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd13: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m3]]));
             let mut ovr: Vec<&str> = Vec::<&str>::new();
             ovr.push("__rel__dom_a_sl"); ovr.push("__rel__dom_b_sl");
             let mut f1: ExprBlob = quote_block! { };
@@ -11438,8 +11524,8 @@ fn emit_scc_fn(c: i64, fn_name: &str,
     let mut m5: i64 = 0i64;
     while m5 < nm {
         let rn5: &str = prm.rel_names[mem[m5]];
-        let rt5:  ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m5]]));
-        let rt5b: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m5]]));
+        let rt5:  ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m5]]));
+        let rt5b: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m5]]));
         let s_dl: String = suffixed("__dl_", rn5);  let n_dl: Ident = Ident::new(string_as_str(&s_dl));
         let s_tt: String = suffixed("__tot_", rn5); let n_tt: Ident = Ident::new(string_as_str(&s_tt));
         let n_ds: Ident = Ident::new(string_as_str(&prm.rel_dsrcs[mem[m5]]));
@@ -11468,8 +11554,8 @@ fn emit_scc_fn(c: i64, fn_name: &str,
         if prm.rel_is_agg[mem[mt]] {
             let rnt: &str = prm.rel_names[mem[mt]];
             let ktst: String = agg_key_ty(prm, mem[mt]);
-            let ktyt: ExprBlob = parse_type(string_as_str(&ktst));
-            let vtyt: ExprBlob = parse_type(agg_val_ty(prm, mem[mt]));
+            let ktyt: ExprBlob = parse_col_ty(string_as_str(&ktst));
+            let vtyt: ExprBlob = parse_col_ty(agg_val_ty(prm, mem[mt]));
             let rwt: String = agg_row_text(prm, mem[mt], "__kk", "*__vp");
             let rowt: ExprBlob = parse_expr(string_as_str(&rwt));
             let s_ks: String = suffixed("__keys_", rnt); let n_ks: Ident = Ident::new(string_as_str(&s_ks));
@@ -11540,8 +11626,8 @@ fn emit_scc_fn(c: i64, fn_name: &str,
 // its contents.
 fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlob {
     let rn: &str = prm.rel_names[ri];
-    let rt:  ExprBlob = parse_type(string_as_str(&prm.rel_rowty[ri]));
-    let rt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[ri]));
+    let rt:  ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[ri]));
+    let rt2: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[ri]));
     let s_nd: String = suffixed("__nd_", rn); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
     // The work counter's per-member accumulator, bound the same way and for the
     // same reason as `__out`/`__rsp` — see `rel_push_frag`'s `__wcp` note. It is
@@ -11943,9 +12029,8 @@ fn emit_scc_od_fns(c: i64, fn_name: &str,
     while m0 < nm {
         ps.push_str(", __rd_");
         ps.push_str(prm.rel_names[mem[m0]]);
-        ps.push_str(": &[");
-        ps.push_str(string_as_str(&prm.rel_rowty[mem[m0]]));
-        ps.push_str("]");
+        ps.push_str(": ");
+        push_row_slice_ty(&mut ps, string_as_str(&prm.rel_rowty[mem[m0]]));
         m0 = m0 + 1i64;
     }
     let mut m0b: i64 = 0i64;
@@ -11963,10 +12048,10 @@ fn emit_scc_od_fns(c: i64, fn_name: &str,
     let mut m1: i64 = 0i64;
     while m1 < nm {
         let rn: &str = prm.rel_names[mem[m1]];
-        let at1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
-        let at2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
-        let at3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
-        let at4: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let at1: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let at2: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let at3: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let at4: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m1]]));
         let s_rs: String = suffixed("__rs_", rn); let n_rs: Ident = Ident::new(string_as_str(&s_rs));
         let s_nd: String = suffixed("__nd_", rn); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
         // The work counter's accumulator — `member_block_frag` binds `__wcp` to
@@ -11990,7 +12075,7 @@ fn emit_scc_od_fns(c: i64, fn_name: &str,
     let mut m2: i64 = 0i64;
     while m2 < nm {
         let rnb: &str = prm.rel_names[mem[m2]];
-        let bt: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m2]]));
+        let bt: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m2]]));
         let n_ss: Ident = Ident::new(string_as_str(&prm.rel_srcs[mem[m2]]));
         let s_rd: String = suffixed("__rd_", rnb); let n_rd: Ident = Ident::new(string_as_str(&s_rd));
         binds.push(quote_block! { let #n_ss: &[#(bt)] = #n_rd; });
@@ -12018,7 +12103,7 @@ fn emit_scc_od_fns(c: i64, fn_name: &str,
     let mut m4: i64 = 0i64;
     while m4 < nm {
         let rnp: &str = prm.rel_names[mem[m4]];
-        let pt: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m4]]));
+        let pt: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m4]]));
         let s_nd: String = suffixed("__nd_", rnp); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
         let s_od: String = suffixed("__od_", rnp); let n_od: Ident = Ident::new(string_as_str(&s_od));
         prom.push(quote_block! {
@@ -12075,13 +12160,13 @@ fn emit_scc_od_fns(c: i64, fn_name: &str,
     let mut m6: i64 = 0i64;
     while m6 < nm {
         let rn6: &str = prm.rel_names[mem[m6]];
-        let ct1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
-        let ct2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
-        let ct3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
-        let ct4: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
-        let ct5: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
-        let ct6: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
-        let ct7: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
+        let ct1: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m6]]));
+        let ct2: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m6]]));
+        let ct3: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m6]]));
+        let ct4: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m6]]));
+        let ct5: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m6]]));
+        let ct6: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m6]]));
+        let ct7: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m6]]));
         let s_rs: String = suffixed("__rs_", rn6); let n_rs: Ident = Ident::new(string_as_str(&s_rs));
         let s_dl: String = suffixed("__dl_", rn6); let n_dl: Ident = Ident::new(string_as_str(&s_dl));
         let s_nd: String = suffixed("__nd_", rn6); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
@@ -12129,8 +12214,8 @@ fn emit_scc_od_fns(c: i64, fn_name: &str,
     let mut m8: i64 = 0i64;
     while m8 < nm {
         let rn8: &str = prm.rel_names[mem[m8]];
-        let dt1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m8]]));
-        let dt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m8]]));
+        let dt1: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m8]]));
+        let dt2: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[m8]]));
         let n_ss: Ident = Ident::new(string_as_str(&prm.rel_srcs[mem[m8]]));
         let n_ds: Ident = Ident::new(string_as_str(&prm.rel_dsrcs[mem[m8]]));
         let s_dl: String = suffixed("__dl_", rn8); let n_dl: Ident = Ident::new(string_as_str(&s_dl));
@@ -12151,8 +12236,8 @@ fn emit_scc_od_fns(c: i64, fn_name: &str,
     let mut ma: i64 = 0i64;
     while ma < nm {
         let rna: &str = prm.rel_names[mem[ma]];
-        let et1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[ma]]));
-        let et2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[ma]]));
+        let et1: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[ma]]));
+        let et2: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[ma]]));
         let s_dl: String = suffixed("__dl_", rna); let n_dl: Ident = Ident::new(string_as_str(&s_dl));
         let s_nd: String = suffixed("__nd_", rna); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
         let s_od: String = suffixed("__od_", rna); let n_od: Ident = Ident::new(string_as_str(&s_od));
@@ -12219,9 +12304,8 @@ fn emit_scc_od_fns(c: i64, fn_name: &str,
         if c0 > 0i64 { cs.push_str(", "); }
         cs.push_str("__od_");
         cs.push_str(prm.rel_names[mem[c0]]);
-        cs.push_str(": &[");
-        cs.push_str(string_as_str(&prm.rel_rowty[mem[c0]]));
-        cs.push_str("]");
+        cs.push_str(": ");
+        push_row_slice_ty(&mut cs, string_as_str(&prm.rel_rowty[mem[c0]]));
         c0 = c0 + 1i64;
     }
     let mut c1: i64 = 0i64;
@@ -12274,11 +12358,11 @@ fn emit_scc_od_fns(c: i64, fn_name: &str,
     let mut c2: i64 = 0i64;
     while c2 < nm {
         let rnc: &str = prm.rel_names[mem[c2]];
-        let kt1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c2]]));
-        let kt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c2]]));
-        let kt3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c2]]));
-        let kt4: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c2]]));
-        let kt5: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c2]]));
+        let kt1: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[c2]]));
+        let kt2: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[c2]]));
+        let kt3: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[c2]]));
+        let kt4: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[c2]]));
+        let kt5: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[c2]]));
         let s_os:  String = suffixed("__os_",   rnc); let n_os:  Ident = Ident::new(string_as_str(&s_os));
         let s_odn: String = suffixed("__odn_",  rnc); let n_odn: Ident = Ident::new(string_as_str(&s_odn));
         let s_kp:  String = suffixed("__keep_", rnc); let n_kp:  Ident = Ident::new(string_as_str(&s_kp));
@@ -12322,8 +12406,8 @@ fn emit_scc_od_fns(c: i64, fn_name: &str,
     let mut c3: i64 = 0i64;
     while c3 < nm {
         let rnd: &str = prm.rel_names[mem[c3]];
-        let lt1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c3]]));
-        let lt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c3]]));
+        let lt1: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[c3]]));
+        let lt2: ExprBlob = parse_col_ty(string_as_str(&prm.rel_rowty[mem[c3]]));
         let s_os:  String = suffixed("__os_",   rnd); let n_os:  Ident = Ident::new(string_as_str(&s_os));
         let s_odn: String = suffixed("__odn_",  rnd); let n_odn: Ident = Ident::new(string_as_str(&s_odn));
         // `__keep_<m>` is deliberately NOT re-read here. It and `__w` are the
