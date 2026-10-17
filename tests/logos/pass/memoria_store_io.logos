@@ -150,7 +150,7 @@ fn run_all() -> i32 {
     }
 
     // ── §B: round-trip through a FILE (the same serializer, other stream) ─
-    let path: str = "/tmp/logos_store_io.bin";
+    let path: &str = "/tmp/logos_store_io.bin";
     {
         let mut store: Arc<MemoryStore> = store_new();
         build(&mut store);
