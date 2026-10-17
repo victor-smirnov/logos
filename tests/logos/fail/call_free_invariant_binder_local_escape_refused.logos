@@ -1,0 +1,9 @@
+// Twin: the inferred region still meets the borrow checker — a local's borrow pushed
+// into it and returned is refused (rustc E0515).
+package call_free_invariant_binder_local_escape_refused;
+use logos.mem.collections.vec;
+use logos.mem.string;
+struct S<'d> { pub v: Vec<&'d str> }
+fn mk<'a>() -> S<'a> { return S { v: Vec::<&str>::new() }; }
+fn bad<'d>() -> S<'d> { let o: String = String::from("x"); let mut s: S = mk(); s.v.push(o.as_str()); return s; }
+fn main() -> i32 { return 0; }
