@@ -395,7 +395,7 @@ fn rule_tpl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut hok: bool = false; let mut hr: *const u8 = TrNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, TrMemoCell> = &mut lex.memo;
-        let hp: *const TrMemoCell = (*mp).get(&mk);
+        let hp: *const TrMemoCell = (*mp).get_ptr(&mk);
         if hp != (0i64 as *const TrMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
     }
     if hok { lex.reset(hep, hel); return hr; }
@@ -726,7 +726,7 @@ fn rule_if_tail(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut hok: bool = false; let mut hr: *const u8 = TrNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, TrMemoCell> = &mut lex.memo;
-        let hp: *const TrMemoCell = (*mp).get(&mk);
+        let hp: *const TrMemoCell = (*mp).get_ptr(&mk);
         if hp != (0i64 as *const TrMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
     }
     if hok { lex.reset(hep, hel); return hr; }
@@ -820,7 +820,7 @@ fn rule_expr(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut hok: bool = false; let mut hr: *const u8 = TrNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, TrMemoCell> = &mut lex.memo;
-        let hp: *const TrMemoCell = (*mp).get(&mk);
+        let hp: *const TrMemoCell = (*mp).get_ptr(&mk);
         if hp != (0i64 as *const TrMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
     }
     if hok { lex.reset(hep, hel); return hr; }
