@@ -15,6 +15,8 @@ use logos.mem.bt.map;
 use logos.mem.bt.memstore;
 use logos.mem.sync;
 use logos.lang.option;
+use logos.mem.string;
+use logos.std.io;
 
 container Ledger {
     kind ordered_map;
@@ -27,7 +29,7 @@ const N: u64 = 600u64;
 
 const MISS: u64 = 18446744073709551615u64;   // never a stored value here
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     {
@@ -133,4 +135,14 @@ fn main() -> i32 {
         if l2.size() != 1u64 || l2.get_or(1u64, MISS) != 7u64 { return 74i32; }
     }
     return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_map_edges: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }
