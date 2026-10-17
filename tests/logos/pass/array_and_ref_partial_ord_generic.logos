@@ -1,0 +1,20 @@
+// [T; N] is PartialEq/Eq/PartialOrd/Ord (lexicographic) as in Rust, so it meets a
+// `K: PartialOrd` / `K: Ord` bound; `&K <= &K` needs only `K: PartialOrd` (Rust's
+// `PartialOrd for &A`); concrete `a1 < a2` orders through the impl. rustc 1.98.1 prints the
+// same two lines.
+package array_and_ref_partial_ord_generic;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.mem.string;
+fn le<K: PartialOrd>(a: &K, b: &K) -> bool { return a <= b; }
+fn eq<K: PartialEq>(a: &K, b: &K) -> bool { return a == b; }
+fn mx<K: Ord + Copy>(a: K, b: K) -> K { return a.max(b); }
+fn main() -> i32 {
+    let a1: [i64; 3] = [5, 1, 9]; let a2: [i64; 3] = [5, 2, 0];
+    let s1: [String; 2] = [String::from("a"), String::from("b")];
+    let s2: [String; 2] = [String::from("a"), String::from("c")];
+    println!("{} {} {} {}", le::<[i64; 3]>(&a1, &a2), eq::<[i64; 3]>(&a1, &a1), le::<[String; 2]>(&s2, &s1), eq::<[String; 2]>(&s1, &s2));
+    let m: [i64; 3] = mx::<[i64; 3]>(a1, a2);
+    println!("{} {} {}", m[1], a1 == a2, a1 < a2);
+    return 0;
+}

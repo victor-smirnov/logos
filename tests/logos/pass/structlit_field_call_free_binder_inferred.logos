@@ -1,0 +1,13 @@
+// A free-binder call as a struct-literal FIELD (`R { e: e_new(), tag: "" }`): the field's
+// declared type spells the struct's own 'd, which is no region of r_new; the binder stays
+// inferred, and the literal takes the expected R<'a>. A covariant-'static-only binder is a
+// lower bound at the field check too. rustc 1.98.1 prints "0 1".
+package structlit_field_call_free_binder_inferred;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct E<'d> { pub v: Vec<&'d str> }
+fn e_new<'a>() -> E<'a> { return E { v: Vec::<&str>::new() }; }
+struct R<'d> { pub e: E<'d>, pub tag: &'d str }
+fn r_new<'a>() -> R<'a> { return R { e: e_new(), tag: "" }; }
+fn collect<'d>(x: &'d str) -> Vec<R<'d>> { let mut rs: Vec<R> = Vec::<R>::new(); let mut e: E = e_new(); e.v.push(x); rs.push(R { e: e, tag: x }); return rs; }
+fn main() -> i32 { let s: &str = "hi"; let r: R = r_new(); let v: Vec<R> = collect(s); println!("{} {}", r.e.v.len(), v.len()); return 0; }

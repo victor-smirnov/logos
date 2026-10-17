@@ -159,6 +159,20 @@ impl<A...: PartialEq> PartialEq for (A...) {
 }
 impl<A...: Eq> Eq for (A...) {}
 
+// Arrays compare element-wise (Rust's `impl<T: PartialEq, const N: usize> PartialEq
+// for [T; N]`), so `[T; N]` meets a `K: PartialEq` bound in generic code.
+impl<T: PartialEq, const N: usize> PartialEq for [T; N] {
+    fn eq(&self, other: &Self) -> bool {
+        let mut i: usize = 0usize;
+        while i < N {
+            if !(self[i] == other[i]) { return false; }
+            i = i + 1usize;
+        }
+        return true;
+    }
+}
+impl<T: Eq, const N: usize> Eq for [T; N] {}
+
 /// Element-wise equality of two slices (Rust's `impl PartialEq for [T]`): equal
 /// lengths and `a[i] == b[i]` for every `i`. The lowering of `==` / `!=` over
 /// slices whose elements are not primitives.

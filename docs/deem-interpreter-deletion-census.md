@@ -6997,9 +6997,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12327 -> 12331 (+4), NOIMPORTED 7768 -> 7772 (+4), TIERCOMMIT 165 -> 165 (+0) — 2026-10-17: +2 pass structlit_static_field_takes_expected_region, fn_item_result_only_region_reifies (+2 fail twins).
 #                ALL 12331 -> 12332 (+1), NOIMPORTED 7772 -> 7773 (+1), TIERCOMMIT 165 -> 165 (+0) — 2026-10-17: +1 pass/generic_cmp_operand_ref_tuple_enum.
 #                ALL 12332 -> 12334 (+2), NOIMPORTED 7773 -> 7775 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-17: +1 pass/call_free_invariant_binder_inferred (+1 fail twin).
-#                ALL 12334 -> 12335 (+1), NOIMPORTED 7775 -> 7776 (+1), TIERCOMMIT 165 -> 165 (+0) — 2026-10-17: pass/memoria_ctr_str_key (ADR 0039 M4b: the str-keyed Canon ordered_map).
-REGISTRY-ALL         12335
-REGISTRY-NOIMPORTED  7776
+#                ALL 12334 -> 12336 (+2), NOIMPORTED 7775 -> 7777 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-17: +2 pass array_and_ref_partial_ord_generic, structlit_field_call_free_binder_inferred.
+#                ALL 12336 -> 12337 (+1), NOIMPORTED 7777 -> 7778 (+1), TIERCOMMIT 165 -> 165 (+0) — 2026-10-17: merge main ab2ecbf70 onto deem: pass/memoria_ctr_str_key (ADR 0039 M4b: the str-keyed Canon ordered_map).
+REGISTRY-ALL         12337
+REGISTRY-NOIMPORTED  7778
 REGISTRY-TIERCOMMIT  165
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
