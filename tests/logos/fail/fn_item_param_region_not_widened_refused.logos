@@ -1,0 +1,9 @@
+// Twin: a lifetime tied to a PARAMETER is late-bound; `fn(&str) -> S<'static>` is
+// not a reification of it — rustc E0308.
+package fn_item_param_region_not_widened_refused;
+struct S<'d> { pub c: &'d str }
+fn keep<'a>(x: &'a str) -> S<'a> { return S { c: x }; }
+fn main() -> i32 {
+    let f: fn(&str) -> S<'static> = keep;
+    return 0;
+}

@@ -1,0 +1,14 @@
+// A fn item's lifetime met only in its RESULT is early-bound (rustc): reifying it to
+// `fn() -> S<'static>` instantiates it there. Prints "n f".
+package fn_item_result_only_region_reifies;
+use logos.std.fmt;
+struct S<'d> { pub c: &'d str }
+fn nop<'a>() -> S<'a> { return S { c: "n" }; }
+fn first<'a>(xs: &'a [i64]) -> S<'a> { return S { c: "f" }; }
+fn main() -> i32 {
+    let f: fn() -> S<'static> = nop;
+    let g: fn(&[i64]) -> S = first;
+    let v: [i64; 1] = [1];
+    println!("{} {}", f().c, g(&v).c);
+    return 0;
+}

@@ -1549,7 +1549,8 @@ private:
             const std::vector<std::string>& lifetime_params,
             const DeclFields& decl_fields,
             const std::vector<std::pair<std::string, lir::LExprPtr>>& fields,
-            const std::string& vkey = {}) {
+            const std::string& vkey = {},
+            std::unordered_set<std::string>* static_only = nullptr) {
         logos::compiler::StrMap<std::string> flt;
         LtCands cands;
         std::unordered_set<std::string> bare;
@@ -1640,6 +1641,9 @@ private:
                 continue;
             }
             if (auto ip = inv_pick.find(lp); ip != inv_pick.end()) { out[lp] = ip->second; continue; }
+            if (static_only && std::all_of(it->second.begin(), it->second.end(),
+                                           [](const std::string& c) { return outlives_is_static(c); }))
+                static_only->insert(lp);
             // A covariant `'static` candidate (a string literal in `&'d str`) only says
             // `'static: 'd`; `Rel { name: "lit", cols }` no longer pins `'d` to 'static.
             // Only where the binder ALSO meets an elided slot (a bare `Vec<Col>` for
@@ -4142,7 +4146,10 @@ private:
         if (k == LogosType::Kind::ConstVar) {
             tv_names.insert(std::string(tr.type_var_name()));
         }
-        if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) &&
+        // A fat reference (`&'a [T]`, `&'a str`, `&'a dyn Tr`) carries its region too.
+        if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
+             k == LogosType::Kind::Slice || k == LogosType::Kind::TraitObject ||
+             k == LogosType::Kind::DstRef) &&
             !tr.lifetime().empty()) {
             lt_names.insert(std::string(tr.lifetime()));
         }
@@ -8821,7 +8828,14 @@ private:
             if (!is_b_(lt)) return std::string(lt);
             if (!fpv_elided_(lt)) {
                 auto it = m_.find(std::string(lt));
-                return it != m_.end() ? it->second : std::string(lt);
+                if (it != m_.end()) return it->second;
+                // A fn item's binder met only in its RESULT (`fn nop<'a>() -> S<'a>`)
+                // is early-bound (rustc): the pointer it reifies to names it.
+                if (fk_ == K::FnItem && Sr_.size() == Pr_.size() && !fpv_elided_(Pr_[jj])) {
+                    m_[std::string(lt)] = Pr_[jj];
+                    return Pr_[jj];
+                }
+                return std::string(lt);
             }
             if (n_slots_ == 1) return sole_;
             return Sr_.size() == Pr_.size() ? Pr_[jj] : std::string(lt);
