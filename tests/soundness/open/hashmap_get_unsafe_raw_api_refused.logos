@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row hashmap_get_unsafe_raw_api_refused (tier 3, `refuses`). `HashMap::get` / `get_mut` are
+// `unsafe fn get(&mut self, key: &K) -> *const V` / `-> *mut V` in stdlib/mem/collections/hashmap — Rust's are safe
+// `get(&self, &Q) -> Option<&V>` / `get_mut(&mut self, &Q) -> Option<&mut V>`. A Rust program calling them is
+// refused: "call to unsafe method 'HashMap__get' requires unsafe context", then E0599 `unwrap` on `*const i64`.
+// rustc 1.98.1 --edition 2024 runs it and prints "10 21 true". Found 10-17 writing the raw-pointer Ord/Hash
+// fixture (matrix 12_56). Callers of the raw API across stdlib/tools/tests must move with it (the safe `Entry`,
+// `contains_key`, `remove` are already Rust-shaped); `get_or_insert` has no Rust counterpart (use `entry`).
+package hashmap_get_unsafe_raw_api_refused;
+use logos.std.fmt;
+use logos.mem.collections.hashmap;
+fn main() {
+    let mut m: HashMap<i64, i64> = HashMap::new();
+    m.insert(1, 10);
+    m.insert(2, 20);
+    let a: i64 = *m.get(&1).unwrap();
+    if let Some(v) = m.get_mut(&2) { *v += 1; }
+    println!("{} {} {}", a, m.get(&2).copied().unwrap_or(0), m.get(&3).is_none());
+}
