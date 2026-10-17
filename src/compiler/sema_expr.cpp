@@ -19175,6 +19175,23 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         // Look through all traits implemented by class_name for a matching constant.
         std::string cname_str = std::string(class_name);
         std::string mname_str = std::string(method_name);
+        // A GENERIC inherent impl's const (`impl<const M: usize> Buf<M> { const LEN:
+        // usize = M; }`) depends on the impl's parameters: `Buf::<4>::LEN` is its
+        // accessor `kassoc_LEN` called at Self = Buf<4> (const_accessor_fn_).
+        if (node.has_key(la::TYPE_PARAMS) && node.has_key(la::RECEIVER)) {
+            TypeRef cs = lookup_type_by_name(cname_str);
+            if (cs && TypeRef(cs).kind() == LogosType::Kind::Struct) {
+                cs = make_generic_struct(std::string(TypeRef(cs).struct_name()), collect_type_args(node), {},
+                                         std::string(TypeRef(cs).pkg_name()));
+                if (!methods_of_(cs, "kassoc_" + mname_str).empty()) {
+                    const uint32_t ln = node_line_;
+                    auto renamed = synth_with_key(node, la::NAME.code, synth_str("kassoc_" + mname_str));
+                    auto call = synth_with_key(map_of(renamed), la::ARGS.code,
+                                               synth_node(la::BLOCK.code, ln, {{la::ITEMS.code, synth_array({})}}));
+                    return lower_static_call(map_of(call));
+                }
+            }
+        }
         // B97: try inherent assoc-const first (`impl S { const C: T = ... }`).
         // For turbofish path `S::<T>::C`, the type-args don't change the lookup
         // key — inherent consts aren't per-instantiation, they're per-type-name.
