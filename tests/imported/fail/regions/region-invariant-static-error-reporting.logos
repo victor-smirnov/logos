@@ -3,9 +3,12 @@
 // shelf: fail — REFUSED since 2026-08-31n, when the ELISION ENGINE + THE
 // REGION SLOT landed (src/compiler/PROBES.md). The row this file used to
 // carry in tests/logos/bc_admits.ledger is deleted in the same change.
+// 2026-10-17: the port's `Option<&'a mut i64>` is COVARIANT in 'a (rustc admits it);
+// upstream's type is invariant, so the port now holds `&'a mut &'a i64`. The old
+// refusal fired in mk_static, a struct-literal region leak, not at the join.
 package region_invariant_static_error_reporting;
 // port of regions/region-invariant-static-error-reporting.rs
-struct Invariant<'a> { p: Option<&'a mut i64> }
+struct Invariant<'a> { p: Option<&'a mut &'a i64> }
 fn mk_static() -> Invariant<'static> { return Invariant { p: Option::None }; }
 fn unify<'a>(x: Invariant<'a>, c: bool) -> Invariant<'a> {
   let bad: Invariant<'a> = if c { x } else { mk_static() };

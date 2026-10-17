@@ -1580,6 +1580,10 @@ private:
         // mut &'a i64 }` takes `'a` from `m`, not from whichever field came first.
         logos::compiler::StrMap<std::string> inv_pick;
         if (lifetime_params.empty()) return flt;
+        auto own_ = [&](const std::string& a) {
+            return std::find(lifetime_params.begin(), lifetime_params.end(), a) != lifetime_params.end() &&
+                   !current_lt_binders().count(outlives_norm(a));
+        };
         bool inv = false;
         std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef dt, TypeRef at) {
             if (!dt || !at) return;
@@ -1588,7 +1592,7 @@ private:
             if ((dk2 == K::Ref || dk2 == K::MutRef) &&
                 (at.kind() == K::Ref || at.kind() == K::MutRef)) {
                 std::string d(dt.lifetime()), a(at.lifetime());
-                if (!d.empty() && !a.empty()) {
+                if (!d.empty() && !a.empty() && !own_(a)) {
                     cands[d].push_back(a);
                     if (!flt.count(d)) flt.emplace(d, a);
                     if (inv && !inv_pick.count(d)) inv_pick.emplace(d, a);
@@ -1604,7 +1608,7 @@ private:
             if ((dk2 == K::Slice || dk2 == K::TraitObject || dk2 == K::DstRef) &&
                 at.kind() == dk2) {
                 std::string d(dt.lifetime()), a(at.lifetime());
-                if (!d.empty() && !a.empty()) {
+                if (!d.empty() && !a.empty() && !own_(a)) {
                     logos::probe::census("subst.structlit.fat.pair");
                     cands[d].push_back(a);
                     if (!flt.count(d)) flt.emplace(d, a);
@@ -1620,7 +1624,7 @@ private:
                 at.kind() == dk2) {
                 auto dl = dt.lifetime_args(); auto al = at.lifetime_args();
                 for (size_t i = 0; i < dl.size() && i < al.size(); ++i)
-                    if (!dl[i].empty() && !al[i].empty()) {
+                    if (!dl[i].empty() && !al[i].empty() && !own_(al[i])) {
                         cands[dl[i]].push_back(al[i]);
                         if (!flt.count(dl[i])) flt.emplace(dl[i], al[i]);
                     }

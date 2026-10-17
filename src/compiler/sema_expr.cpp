@@ -2769,6 +2769,13 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             }
         }
         if (TypeRef(recv_tuple_type).kind() != LogosType::Kind::Tuple) {
+            // The method-call path's ADR 0021 Phase 4a/4b suppression: an <error>
+            // receiver while a factory deferral is pending (a Canon handle typed
+            // after the drain) or in a metaprog round is a cascade, not a new
+            // error; the post-drain re-sema types it strictly.
+            const bool recv_err = expr_type(recv) && TypeRef(expr_type(recv)).kind() == LogosType::Kind::Error;
+            const bool deferral_pending = cur_prog_ && !cur_prog_->factory_demands.empty();
+            if (recv_err && (metaprog_mode_ || deferral_pending)) return error_expr();
             error(std::format("tuple index on non-tuple type '{}'", type_str(expr_type(recv))));
             return error_expr();
         }
@@ -14669,6 +14676,13 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     if (!sinfo.lifetime_params.empty()) {
         logos::probe::census("subst.structlit.site");
         std::unordered_map<std::string, std::string> flt;
+        // As structlit_lt_subst_: the struct's own binder spelled by a value typed
+        // off a field declaration is no region of this scope.
+        auto own_ = [&](const std::string& a) {
+            return std::find(sinfo.lifetime_params.begin(), sinfo.lifetime_params.end(), a) !=
+                       sinfo.lifetime_params.end() &&
+                   !current_lt_binders().count(outlives_norm(a));
+        };
         std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef dt, TypeRef at) {
             if (!dt || !at) return;
             using K = LogosType::Kind;
@@ -14676,7 +14690,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             if ((dk2 == K::Ref || dk2 == K::MutRef) &&
                 (at.kind() == K::Ref || at.kind() == K::MutRef)) {
                 std::string d(dt.lifetime()), a(at.lifetime());
-                if (!d.empty() && !a.empty() && !flt.count(d)) flt.emplace(d, a);
+                if (!d.empty() && !a.empty() && !own_(a) && !flt.count(d)) flt.emplace(d, a);
                 walk(dt.pointee(), at.pointee());
                 return;
             }
@@ -14685,7 +14699,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             if ((dk2 == K::Slice || dk2 == K::TraitObject || dk2 == K::DstRef) &&
                 at.kind() == dk2) {
                 std::string d(dt.lifetime()), a(at.lifetime());
-                if (!d.empty() && !a.empty() && !flt.count(d)) flt.emplace(d, a);
+                if (!d.empty() && !a.empty() && !own_(a) && !flt.count(d)) flt.emplace(d, a);
                 if (dk2 == K::Slice) walk(dt.elem(), at.elem());
                 else {
                     auto da = dt.type_args(); auto aa = at.type_args();
@@ -14697,7 +14711,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 at.kind() == dk2) {
                 auto dl = dt.lifetime_args(); auto al = at.lifetime_args();
                 for (size_t i = 0; i < dl.size() && i < al.size(); ++i)
-                    if (!dl[i].empty() && !al[i].empty() && !flt.count(dl[i]))
+                    if (!dl[i].empty() && !al[i].empty() && !own_(al[i]) && !flt.count(dl[i]))
                         flt.emplace(dl[i], al[i]);
                 auto da = dt.type_args(); auto aa = at.type_args();
                 for (size_t i = 0; i < da.size() && i < aa.size(); ++i) walk(da[i], aa[i]);
@@ -17540,6 +17554,13 @@ TypeRef SemaChecker::lub_arms_(const std::vector<lir::LExprPtr*>& arms, TypeRef 
     if (hint)
         for (auto* a : arms)
             if (live(a)) coerce_arg_to_param(*a, hint, mask_for(CoercePos::BranchArm));
+    // Each arm coerces to the expected type (rustc), REGIONS included: `if c { x }
+    // else { mk_static() }` into `Invariant<'a>` meets 'static against 'a in an
+    // invariant position. The arms agreeing with one another (types_equal reads no
+    // regions) is no answer to the expectation.
+    if (hint)
+        for (size_t k = 0; k < arms.size(); ++k)
+            if (live(arms[k])) check_variance(expr_type(*arms[k]), hint, label(k), /*permissive=*/true);
     std::vector<lir::LExprPtr*> ls;
     std::vector<size_t> li;
     bool any_error = false;

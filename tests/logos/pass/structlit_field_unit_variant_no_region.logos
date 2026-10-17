@@ -1,0 +1,17 @@
+// A region-free value typed off a field declaration (`g: Option::None` for
+// `Option<G<'d>>`, `lim: L::None`) spells the struct's own 'd — no region of p_empty;
+// it is no candidate, and the nested invariant literal meets the expected P<'a>.
+// rustc 1.98.1 prints "0 0".
+package structlit_field_unit_variant_no_region;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.lang.option;
+enum L<'d> { None, Name(&'d str) }
+struct G<'d> { pub k: Vec<&'d str> }
+struct E<'d> { pub lim: L<'d>, pub t: &'d str }
+fn e_new<'a>() -> E<'a> { return E { lim: L::None, t: "" }; }
+struct C<'d> { pub body: Vec<&'d str>, pub g: Option<G<'d>> }
+struct R<'d> { pub c: C<'d>, pub e: E<'d> }
+struct P<'d> { pub rs: Vec<R<'d>>, pub entry: R<'d> }
+fn p_empty<'a>() -> P<'a> { return P { rs: Vec::<R>::new(), entry: R { c: C { body: Vec::<&str>::new(), g: Option::None }, e: e_new() } }; }
+fn main() -> i32 { let p: P = p_empty(); println!("{} {}", p.rs.len(), p.entry.e.t.len()); return 0; }
