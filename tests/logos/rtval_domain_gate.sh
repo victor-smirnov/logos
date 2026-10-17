@@ -169,7 +169,7 @@ def strip_comments(src):
 
 def variants(path):
     src = strip_comments(open(path).read())
-    m = re.search(r'\bpub\s+enum\s+RtVal\s*\{', src)
+    m = re.search(r'\bpub\s+enum\s+RtVal\s*(?:<[^>{]*>)?\s*\{', src)
     if not m:
         return []
     d = 0; i = m.end() - 1; start = None
