@@ -1,0 +1,16 @@
+// Admit twin of imported/fail/regions/region-invariant-static-error-reporting:
+// `Option<&'a mut i64>` is COVARIANT in 'a, so an `if` arm of `Invariant<'static>`
+// coerces into the expected `Invariant<'a>` (rustc 1.98.1 accepts). The arm
+// check reads variance, not mere region inequality.
+package branch_join_covariant_static_admitted;
+struct Invariant<'a> { p: Option<&'a mut i64> }
+fn mk_static() -> Invariant<'static> { return Invariant { p: Option::None }; }
+fn unify<'a>(x: Invariant<'a>, c: bool) -> Invariant<'a> {
+    let bad: Invariant<'a> = if c { x } else { mk_static() };
+    return bad;
+}
+fn main() -> i32 {
+    let mut v: i64 = 1;
+    let r: Invariant = unify(Invariant { p: Option::Some(&mut v) }, false);
+    return if r.p.is_none() { 0 } else { 1 };
+}
