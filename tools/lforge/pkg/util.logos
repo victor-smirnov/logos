@@ -8,18 +8,18 @@ use logos.lang.str;
 use logos.std.io;
 use lforge.schema_types;
 
-pub fn str_eq_local(a: str, b: str) -> bool {
+pub fn str_eq_local(a: &str, b: &str) -> bool {
     if a.len() != b.len() { return false; }
     return str_starts_with(a, b);
 }
 
-pub fn err_msg(msg: str) -> ManifestError {
+pub fn err_msg(msg: &str) -> ManifestError {
     let mut s: String = String::new();
     s.push_str(msg);
     return ManifestError { message: s };
 }
 
-pub fn err_msg2(a: str, b: str) -> ManifestError {
+pub fn err_msg2(a: &str, b: &str) -> ManifestError {
     let mut s: String = String::new();
     s.push_str(a);
     s.push_str(b);
@@ -28,11 +28,11 @@ pub fn err_msg2(a: str, b: str) -> ManifestError {
 
 // fd 2 → stderr, anything else → stdout. Delegates to the stdlib io primitives
 // (which encapsulate the raw write); lforge only ever uses fd 1/2.
-pub fn print_str(fd: i32, s: str) {
+pub fn print_str(fd: i32, s: &str) {
     if fd == 2 { eprint(s); } else { print(s); }
 }
 
-pub fn println_str(fd: i32, s: str) {
+pub fn println_str(fd: i32, s: &str) {
     if fd == 2 { eprintln(s); } else { println(s); }
 }
 
@@ -41,7 +41,7 @@ pub fn println_string(fd: i32, s: &String) {
 }
 
 // Append `<base>/<rest>` semantics into an existing String.
-pub fn append_path(base: &mut String, rest: str) {
+pub fn append_path(base: &mut String, rest: &str) {
     if base.len() > 0 as i64 && !str_ends_with(base.as_str(), "/") {
         base.push_u8(47 as u8);
     }

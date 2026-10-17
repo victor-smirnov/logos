@@ -119,7 +119,7 @@ extern fn getcwd(buf: *mut u8, size: u64) -> *mut u8;
 
 // ── main ──────────────────────────────────────────────────────────────────
 
-fn select_profile() -> str {
+fn select_profile() -> &str {
     if has_flag("release", "") { return "release"; }
     if has_flag("debug",   "") { return "debug"; }
     return "debug";
@@ -127,7 +127,7 @@ fn select_profile() -> str {
 
 fn main() -> i32 {
     unsafe {
-        let cmd: str = positional(0 as i32);
+        let cmd: &str = positional(0 as i32);
     if cmd.len() == 0 as i64 {
         println_str(2, "usage: lforge <build|run|update|clean|test|install|doc> [--release] [target] [-- args...]");
         return 2;
@@ -155,11 +155,11 @@ fn main() -> i32 {
     let req_rc: i32 = check_requires_logos(&m);
     if req_rc != 0 { return req_rc; }
 
-    let profile: str = select_profile();
+    let profile: &str = select_profile();
 
     if str_eq_local(cmd, "build") {
         // Optional positional: target name to build (with transitive deps).
-        let target_arg: str = positional(1 as i32);
+        let target_arg: &str = positional(1 as i32);
         let mut sel: i64 = 0 as i64 - 1 as i64;
         if target_arg.len() > 0 as i64 {
             sel = find_target_index(&m.targets, target_arg);
@@ -198,12 +198,12 @@ fn main() -> i32 {
     }
     if str_eq_local(cmd, "run") {
         // Optional positional: bin target to run.
-        let target_arg: str = positional(1 as i32);
+        let target_arg: &str = positional(1 as i32);
         let mut run_args: Vec<String> = vec_new::<String>();
         let rap: *mut Vec<String> = (&mut run_args) as *mut Vec<String>;
         let pn: i32 = positional_count();
         let mut start_k: i32 = 1;
-        let mut sel_target: str = "";
+        let mut sel_target: &str = "";
         if target_arg.len() > 0 as i64 {
             // Treat first positional after `run` as a target name only if
             // it matches an existing bin target; otherwise it's a run arg.
@@ -222,7 +222,7 @@ fn main() -> i32 {
         }
         let mut k: i32 = start_k;
         while k < pn {
-            let a: str = positional(k);
+            let a: &str = positional(k);
             let mut copy: String = String::new();
             copy.push_str(a);
             (*rap).push(copy);

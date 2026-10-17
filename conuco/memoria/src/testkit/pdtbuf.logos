@@ -123,7 +123,7 @@ fn hex_val(b: u8) -> u64 {
     return ((b - 97u8) as u64) + 10u64;
 }
 
-fn next_tok(s: str, pos: &mut i64) -> u64 {
+fn next_tok(s: &str, pos: &mut i64) -> u64 {
     let n: i64 = s.len();
     let mut i: i64 = *pos;
     while i < n && is_ws(s[i]) {
@@ -2194,7 +2194,7 @@ fn check_under_covering_index(seed: &mut u64) -> i32 {
 
 // ── 80.. / 90.. / 130.. the C++ HEAD cross-check ───────────────────────────
 
-fn check_fixture_case(s: str, pos: &mut i64) -> i32 {
+fn check_fixture_case(s: &str, pos: &mut i64) -> i32 {
     let ord_tok: u64 = next_tok(s, pos);
     let cols: u32 = next_tok(s, pos) as u32;
     let rows: u64 = next_tok(s, pos);
@@ -2229,7 +2229,7 @@ fn check_fixture_case(s: str, pos: &mut i64) -> i32 {
     }
 }
 
-fn check_fixture_body(b: &PdtBuf, m: &Model, ordering: u32, s: str, pos: &mut i64) -> i32 {
+fn check_fixture_body(b: &PdtBuf, m: &Model, ordering: u32, s: &str, pos: &mut i64) -> i32 {
     // The buffer must first agree with our OWN model — the C++ tokens are
     // only consulted afterwards, so a fixture can never be what defines
     // correctness here.
@@ -2311,7 +2311,7 @@ fn check_fixture_body(b: &PdtBuf, m: &Model, ordering: u32, s: str, pos: &mut i6
 // partial sum of its span), section 12x already pinned that value against the
 // independent model, and HEAD agrees. Where HEAD and the model disagree the
 // model wins — no such disagreement was observed at this rung.
-fn check_index_fixture_case(s: str, pos: &mut i64) -> i32 {
+fn check_index_fixture_case(s: &str, pos: &mut i64) -> i32 {
     let cols: u32 = next_tok(s, pos) as u32;
     let rows: u64 = next_tok(s, pos);
     let mut sd: u64 = next_tok(s, pos);
@@ -2336,7 +2336,7 @@ fn check_index_fixture_case(s: str, pos: &mut i64) -> i32 {
     }
 }
 
-fn check_index_fixture_body(b: &PdtBuf, cols: u32, s: str, pos: &mut i64) -> i32 {
+fn check_index_fixture_body(b: &PdtBuf, cols: u32, s: &str, pos: &mut i64) -> i32 {
     // Our own structure first: the fixture is consulted only afterwards, so
     // it can never be what defines correctness here.
     if b.check() != 0i32 {
@@ -2407,7 +2407,7 @@ fn check_index_fixture_body(b: &PdtBuf, cols: u32, s: str, pos: &mut i64) -> i32
 //                    std::terminate(). The harness cannot even record an
 //                    answer; it identifies these queries independently and
 //                    reports them unexecuted. Our derivation answers them.
-fn check_dir_fixture_case(s: str, pos: &mut i64) -> i32 {
+fn check_dir_fixture_case(s: &str, pos: &mut i64) -> i32 {
     let cols: u32 = next_tok(s, pos) as u32;
     let rows: u64 = next_tok(s, pos);
     let mut sd: u64 = next_tok(s, pos);
@@ -2470,7 +2470,7 @@ fn dir_model(m: &Model, dir: u64, op: u64, c: u32, start: u64, v: u64) -> PdtFin
     return model_find_bw(m, c, m.rows, v, strict);
 }
 
-fn check_dir_fixture_body(b: &PdtBuf, m: &Model, s: str, pos: &mut i64) -> i32 {
+fn check_dir_fixture_body(b: &PdtBuf, m: &Model, s: &str, pos: &mut i64) -> i32 {
     let n_q: u64 = next_tok(s, pos);
     let mut i: u64 = 0u64;
     while i < n_q {
@@ -2557,7 +2557,7 @@ fn check_dir_fixture_body(b: &PdtBuf, m: &Model, s: str, pos: &mut i64) -> i32 {
 // provoke. NO new upstream bug is claimed at P3 — a suspicion that does not
 // survive checking is not a bug, and one of mine did not
 // (do_commit_update_fxd_sum reindexes after all).
-fn check_mut_fixture_case(s: str, pos: &mut i64) -> i32 {
+fn check_mut_fixture_case(s: &str, pos: &mut i64) -> i32 {
     let cols: u32 = next_tok(s, pos) as u32;
     let rows: u64 = next_tok(s, pos);
     let seed0: u64 = next_tok(s, pos);
@@ -2750,7 +2750,7 @@ fn check_fixtures() -> i32 {
         Result::Ok(c) => { c }
         Result::Err(_) => { return 100i32; }
     };
-    let s: str = content.as_str();
+    let s: &str = content.as_str();
     let mut pos: i64 = 0i64;
     let mut cases: i64 = 0i64;
     let mut index_cases: i64 = 0i64;
@@ -5639,7 +5639,7 @@ fn vle_pay_flat(d: &PdtDescr, bytes: u64) -> Vec<u64> {
 // The corpus shape is HEAD's: PackedDataTypeBufferT<Varchar, false, C,
 // DTOrdering::UNORDERED>, i.e. our shape 0, one VLE dimension, no FSE key.
 // maxlen 0 cases make an ENTIRE corpus of empty spans.
-fn check_vle_fixture_case(s: str, pos: &mut i64) -> i32 {
+fn check_vle_fixture_case(s: &str, pos: &mut i64) -> i32 {
     let cols: u32 = next_tok(s, pos) as u32;
     let rows: u64 = next_tok(s, pos);
     if cols < 1u32 || cols > 4u32 {
@@ -5726,7 +5726,7 @@ fn check_vle_fixture_case(s: str, pos: &mut i64) -> i32 {
 //       our commit — correct the aggregate, leave the interior alone — makes
 //       this section fail, which is what makes it a real probe rather than a
 //       restatement.
-fn vm_push_lit(m: &mut VModel, s: str) {
+fn vm_push_lit(m: &mut VModel, s: &str) {
     let n: i64 = s.len();
     m.lens.push(n as u64);
     let mut i: i64 = 0i64;
@@ -5737,7 +5737,7 @@ fn vm_push_lit(m: &mut VModel, s: str) {
     m.rows = m.rows + 1u64;
 }
 
-fn vle_row_is(b: &PdtBuf, dim: u32, r: u64, want: str) -> bool {
+fn vle_row_is(b: &PdtBuf, dim: u32, r: u64, want: &str) -> bool {
     let sp: &[u8] = b.row_span(0u32, dim, r);
     if sp.len() != want.len() {
         return false;

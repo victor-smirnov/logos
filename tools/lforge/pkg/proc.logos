@@ -12,7 +12,7 @@ use logos.std.env;                // LFORGE_JOBS — the job-pool cap
 
 use lforge.util;
 
-pub fn push_arg(args: &mut Vec<String>, s: str) {
+pub fn push_arg(args: &mut Vec<String>, s: &str) {
     let mut a: String = String::new();
     a.push_str(s);
     args.push(a);
@@ -187,7 +187,7 @@ fn spawn_inherit_argv(argv_strs: &Vec<String>) -> Child {
     }
 }
 
-fn parse_i64_or(s: str, dflt: i64) -> i64 {
+fn parse_i64_or(s: &str, dflt: i64) -> i64 {
     let n: i64 = s.len();
     if n == 0 as i64 { return dflt; }
     let mut v: i64 = 0 as i64;

@@ -27,7 +27,7 @@ pub struct FileOut {
     ok: bool,
 }
 
-pub fn file_out_create(path: str) -> Option<FileOut> {
+pub fn file_out_create(path: &str) -> Option<FileOut> {
     match create(path.as_ptr()) {
         Result::Ok(f) => {
             return Option::Some(FileOut {
@@ -95,7 +95,7 @@ pub struct FileIn {
     eof: bool,
 }
 
-pub fn file_in_open(path: str) -> Option<FileIn> {
+pub fn file_in_open(path: &str) -> Option<FileIn> {
     match open(path.as_ptr()) {
         Result::Ok(f) => {
             return Option::Some(FileIn {
