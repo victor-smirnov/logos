@@ -151,10 +151,10 @@ impl SExprArr {
 // view" + the seam's "backends trust the IR". A separate name→type dictionary
 // (built by the handler from schema reflection + the macro param list)
 // supplies value-types.
-pub schema SLit   : code(0x0010_0000_0000_0000) { val: WAny = 0, soff: i64 = 1, txt: str = 2 }                                  // literal, value verbatim
-pub schema SParam : code(0x0010_0000_0000_0001) { name: str = 0, soff: i64 = 1 }                                  // bound parameter (prepared-stmt arg) — by NAME
-pub schema SVar   : code(0x0010_0000_0000_0002) { name: str = 0, soff: i64 = 1 }                                  // comprehension-bound row variable — by NAME
-pub schema SField : code(0x0010_0000_0000_0003) { base: WRef<SExpr> = 0, name: str = 1, soff: i64 = 2 }           // ONE field / edge step — field NAME
+pub schema SLit   : code(0x0010_0000_0000_0000) { val: WAny = 0, soff: i64 = 1, txt: &str = 2 }                                  // literal, value verbatim
+pub schema SParam : code(0x0010_0000_0000_0001) { name: &str = 0, soff: i64 = 1 }                                  // bound parameter (prepared-stmt arg) — by NAME
+pub schema SVar   : code(0x0010_0000_0000_0002) { name: &str = 0, soff: i64 = 1 }                                  // comprehension-bound row variable — by NAME
+pub schema SField : code(0x0010_0000_0000_0003) { base: WRef<SExpr> = 0, name: &str = 1, soff: i64 = 2 }           // ONE field / edge step — field NAME
 // ⚠ `ordw` — THE CLAIM, WRITTEN ON THE NODE THAT CONSUMES IT.
 // "The integer operation this node performs runs in the u64 domain": for an
 // ARITHMETIC op (+ − * / %) the overflow predicate and, for `/` and `%`, the
@@ -175,11 +175,11 @@ pub schema SField : code(0x0010_0000_0000_0003) { base: WRef<SExpr> = 0, name: s
 // never reached loses nothing it had.
 pub schema SBin   : code(0x0010_0000_0000_0004) { op: i32 = 0, lhs: WRef<SExpr> = 1, rhs: WRef<SExpr> = 2, soff: i64 = 3, ordw: bool = 4 }
 pub schema SUn    : code(0x0010_0000_0000_0005) { op: i32 = 0, arg: WRef<SExpr> = 1, soff: i64 = 2 }
-pub schema SCall  : code(0x0010_0000_0000_0006) { fn_name: str = 0, args: WRef<SExprArr> = 1, soff: i64 = 2 }     // function/filter call — call NAME
+pub schema SCall  : code(0x0010_0000_0000_0006) { fn_name: &str = 0, args: WRef<SExprArr> = 1, soff: i64 = 2 }     // function/filter call — call NAME
 pub schema SCond  : code(0x0010_0000_0000_0007) { c: WRef<SExpr> = 0, t: WRef<SExpr> = 1, e: WRef<SExpr> = 2, soff: i64 = 3 }  // ternary
-pub schema SComp  : code(0x0010_0000_0000_0008) { plan: WRef<RExpr> = 0, head: WRef<SExpr> = 1, var: str = 2, soff: i64 = 3 }   // comprehension → list value; `var` = loop-var NAME
+pub schema SComp  : code(0x0010_0000_0000_0008) { plan: WRef<RExpr> = 0, head: WRef<SExpr> = 1, var: &str = 2, soff: i64 = 3 }   // comprehension → list value; `var` = loop-var NAME
 pub schema STuple : code(0x0010_0000_0000_0009) { items: WRef<SExprArr> = 0, soff: i64 = 1 }                       // tuple projection `(a, b, …)` — ≥2 components
-pub schema SCast  : code(0x0010_0000_0000_000B) { arg: WRef<SExpr> = 0, ty: str = 1, soff: i64 = 2 }        // `arg as ty` — Rust's numeric conversion; `ty` = the target type NAME
+pub schema SCast  : code(0x0010_0000_0000_000B) { arg: WRef<SExpr> = 0, ty: &str = 1, soff: i64 = 2 }        // `arg as ty` — Rust's numeric conversion; `ty` = the target type NAME
 
 pub schema enum SExpr : category(0x0010_0000_0000_0000) {
     Lit(SLit), Param(SParam), Var(SVar), Field(SField),
@@ -242,8 +242,8 @@ impl SExprArr { pub fn as_ref(self: SExprArr) -> WAny { return unsafe { WAny::re
 // maps it to the AGG_* id); `out` is the bound column name the projection reads;
 // `arg` is the inner `WRef<SExpr>` expression (absent for `count()`, `has_arg`).
 pub schema RAgg : code(0x0011_0000_0000_0010) {
-    out:     str          = 0,
-    fn_name: str          = 1,
+    out:     &str          = 0,
+    fn_name: &str          = 1,
     arg:     WRef<SExpr>  = 2,
     has_arg: bool         = 3,
 }
@@ -281,7 +281,7 @@ impl RAggArr {
 // `RScan` now carries the SOURCE BINDING (source name + row-type name + loop-var
 // name) so the executable algebra is self-sufficient to emit the scan loop — the
 // query-PLAN's `from src:[Ty] var` recovered onto the leaf, self-describing IR.
-pub schema RScan   : code(0x0011_0000_0000_0000) { node_code: i56 = 0, src_name: str = 1, row_ty: str = 2, var_name: str = 3 } // scan a source: name + row-type + loop var
+pub schema RScan   : code(0x0011_0000_0000_0000) { node_code: i56 = 0, src_name: &str = 1, row_ty: &str = 2, var_name: &str = 3 } // scan a source: name + row-type + loop var
 pub schema RFilter : code(0x0011_0000_0000_0002) { input: WRef<RExpr> = 0, pred: WRef<SExpr> = 1 }    // σ
 // ADR 0031 R6.7c — what is left of the relational algebra is a COMPREHENSION's
 // source and filter (`[h for x in xs if p]`, built by the EL parser). Joins,

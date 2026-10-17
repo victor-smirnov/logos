@@ -30,8 +30,8 @@ use logos.std.wql.srcloc;         // query_src_of — where a diagnostic points 
 /// Type-check every rule of `p`; false = diagnosed.
 /// `tys` receives each rule's environment — rel `r`'s rules from `off[r]`, the
 /// entry last — for the emitters to start from (R4.5b).
-pub fn core_typecheck(p: &CProgram, prm: &MacroParams, h: &Writ,
-                      tys: &mut Vec<ElTypes>, off: &mut Vec<i64>) -> bool {
+pub fn core_typecheck<'d>(p: &CProgram<'d>, prm: &MacroParams<'d>, h: &Writ,
+                      tys: &mut Vec<ElTypes<'d>>, off: &mut Vec<i64>) -> bool {
     let view: OView = oview_module_ast();
     let rels: &[CRel] = p.rels.as_slice();
     let mut r: i64 = 0i64;
@@ -145,7 +145,7 @@ fn head_is_row_var(cl: &CClause) -> bool {
 /// A rule's type environment as its checks and its emitters read it: the
 /// clause's sources, the query, every free name; for the entry (not `find`)
 /// the comprehension variables of its head. Before any `group by` outputs.
-fn rule_type_env(view: &OView, prm: &MacroParams, ru: &CRule, entry: bool) -> ElTypes {
+fn rule_type_env<'d>(view: &OView, prm: &MacroParams<'d>, ru: &CRule<'d>, entry: bool) -> ElTypes<'d> {
     let cl: &CClause = &ru.clause;
     let mut ty: ElTypes = type_clause(view, prm, cl, false);
     ty.src = query_src_of(prm);

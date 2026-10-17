@@ -3671,11 +3671,13 @@ std::map<std::string, LogosItem> read_logos_schemas(const std::vector<fs::path>&
     return out;
 }
 
-// The .logos spelling of a %schema ftype. `ref X` is `WRef<X>`; everything else
-// is written the same on both sides.
+// The .logos spelling of a %schema ftype. `ref X` is `WRef<X>`; a captured
+// string `str` is read as `&str` (a view into the document); everything else is
+// written the same on both sides.
 std::string logos_type_of(const SchemaField& f) {
     if (f.is_ref()) return "WRef<" + f.ref_target() + ">";
     if (f.is_list()) return "WAny";
+    if (f.ftype == "str") return "&str";
     return f.ftype;
 }
 

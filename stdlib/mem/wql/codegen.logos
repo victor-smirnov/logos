@@ -269,7 +269,7 @@ pub fn order_census(fn_name: &str, ncand: i64, deferred: bool) {
     unsafe { write(2i32, ln.as_ptr(), ln.len()); }
 }
 
-pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> &str {
+pub fn infer_ty_name<'a>(e: SExpr, t: &'a ElTypes) -> &'a str {
     match e {
         SExpr::Lit(l) => {
             // A literal names its suffix (`5i32`), or the representative of its
@@ -372,7 +372,7 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> &str {
 /// the tower result back into the node's type. Until 2026-10-02 this answered the
 /// tower's type (SQL-style promotion), and `select s.w + 1` was a `Vec<i64>`.
 /// FLOAT arithmetic still answers the class representative (`f64`).
-pub fn infer_emit_ty(e: SExpr, t: &ElTypes) -> &str {
+pub fn infer_emit_ty<'a>(e: SExpr, t: &'a ElTypes) -> &'a str {
     if el_computes_in_repr(e) {
         let c: i32 = infer_ty(e, t);
         if c == EL_TY_INT() { return arith_node_ty(e, t); }
@@ -457,7 +457,7 @@ pub fn arith_node_tower(e: SExpr, t: &ElTypes) -> i32 {
 /// operands naming DIFFERENT integer types (`i32 + i64`) are refused before any
 /// of this is asked (`check_operand_types_agree`); the tower answer for them below
 /// is what a caller that skipped the check would get, not a typing rule.
-pub fn arith_node_ty(e: SExpr, t: &ElTypes) -> &str {
+pub fn arith_node_ty<'a>(e: SExpr, t: &'a ElTypes) -> &'a str {
     let tw: i32 = arith_node_tower(e, t);
     let rep: &str = el_tower_repr(tw);
     let mut n: &str = "";
@@ -484,7 +484,7 @@ pub fn arith_node_ty(e: SExpr, t: &ElTypes) -> &str {
 /// `check_operand_types_agree`); a node naming no type (`1.5 * 2.0`) is `f64`.
 /// Until 2026-10-02 every float node computed in f64 and an `f32` operand was
 /// widened into it.
-pub fn float_node_ty(e: SExpr, t: &ElTypes) -> &str {
+pub fn float_node_ty<'a>(e: SExpr, t: &'a ElTypes) -> &'a str {
     let mut n: &str = "";
     match e {
         SExpr::Bin(b) => {
@@ -513,7 +513,7 @@ pub fn lit_suffix(e: SExpr) -> &str {
 /// The type ONE operand names for `arith_node_ty` — a literal's suffix ("" when
 /// it has none: it takes the other side's), the node's own type for a nested
 /// arithmetic node, and the declared type for everything else.
-fn arith_operand_ty(e: SExpr, t: &ElTypes) -> &str {
+fn arith_operand_ty<'a>(e: SExpr, t: &'a ElTypes) -> &'a str {
     match e {
         SExpr::Lit(_) => { return lit_suffix(e); }
         _ => { }
@@ -612,7 +612,7 @@ pub fn root_ident_name(e: SExpr) -> &str {
 ///            field whose base is a field — so the base's own DECLARED TYPE is
 ///            the key: `a.b` is an `Inner`, and (`Inner`, `c`) is as precise a
 ///            key as (`a`, `n`). `reflect::stamp_schema_by_type` fills it.
-pub fn field_ty_name(f: SField, t: &ElTypes) -> &str {
+pub fn field_ty_name<'a>(f: SField, t: &'a ElTypes) -> &'a str {
     let base_ref: WRef<SExpr> = f.base;
     if base_ref.any().is_null() { return ""; }   // a BARE name, not a step
     let be: SExpr = f.base_expr();
@@ -1036,7 +1036,7 @@ fn check_lit_fits(lit: SExpr, other: SExpr, op: i32, t: &ElTypes, ctx: &str) -> 
 /// The type an operand of a binary node NAMES for the agreement check — "" for a
 /// literal (it takes the other side's), a nested arithmetic node's own type, a
 /// declared type otherwise.
-fn operand_named_ty(e: SExpr, t: &ElTypes) -> &str {
+fn operand_named_ty<'a>(e: SExpr, t: &'a ElTypes) -> &'a str {
     let mut v: i64 = 0i64;
     if int_lit_value(e, &mut v) { return lit_suffix(e); }
     match e {
@@ -1239,7 +1239,7 @@ pub fn int_lit_fits(e: SExpr, want: &str) -> bool {
 /// THE TYPE OF `e` as the query gave it — the declared name of a column or a
 /// parameter, an arithmetic node's operand type, a literal's suffix or kind
 /// representative. `infer_ty_name` with the arithmetic nodes typed as printed.
-pub fn expr_ty(e: SExpr, t: &ElTypes) -> &str {
+pub fn expr_ty<'a>(e: SExpr, t: &'a ElTypes) -> &'a str {
     if el_computes_in_repr(e) && infer_ty(e, t) == EL_TY_INT() { return arith_node_ty(e, t); }
     if el_computes_in_repr(e) && infer_ty(e, t) == EL_TY_FLT() { return float_node_ty(e, t); }
     return infer_ty_name(e, t);
@@ -1767,7 +1767,7 @@ pub fn emit_norm_operand(out: &mut String, e: SExpr, t: &ElTypes, var: &str, wan
 /// names an integer type.
 /// The emitted float TYPE NAME of `e` — `f32` when that is what its generated
 /// text has, `f64` otherwise. The target of the int→float promotion beside it.
-fn float_side_ty(e: SExpr, t: &ElTypes) -> &str {
+fn float_side_ty<'a>(e: SExpr, t: &'a ElTypes) -> &'a str {
     let n: &str = infer_emit_ty(e, t);
     if str_eq(n, "f32") { return "f32"; }
     return "f64";
@@ -2083,7 +2083,7 @@ pub fn el_int_bits(n: &str) -> i64 {
 
 /// The type `min(a, b)` / `max(a, b)` is in: the one its non-literal
 /// argument names (a literal names none).
-pub fn minmax_ty(args: SExprArr, t: &ElTypes) -> &str {
+pub fn minmax_ty<'a>(args: SExprArr, t: &'a ElTypes) -> &'a str {
     let a: &str = operand_named_ty(args.arg_at(0i64), t);
     if a.len() > 0i64 { return a; }
     let b: &str = operand_named_ty(args.arg_at(1i64), t);

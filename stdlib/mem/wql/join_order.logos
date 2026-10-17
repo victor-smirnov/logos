@@ -192,10 +192,10 @@ use logos.std.wql.typing;         // type_clause — the planner's and the emitt
 // join-order derivation needs is the source text, the row var, the predicate, the
 // two pin flags and the recorded strategy — copied in rather than reached for, so
 // this module cannot accidentally depend on an emitter detail.
-pub struct JCh {
+pub struct JCh<'d> {
     pub n:     i64,
-    pub src:   Vec<str>,
-    pub var:   Vec<str>,
+    pub src:   Vec<&'d str>,
+    pub var:   Vec<&'d str>,
     pub onw:   Vec<i64>,
     pub anti:  Vec<bool>,
     pub edge:  Vec<bool>,
@@ -269,12 +269,12 @@ pub fn jch_new(n: i64) -> JCh {
 // comparison is made there, once, above the nest. `dynamic` still means "more than
 // one nest is emitted" either way; `deferred` says WHICH of the two decision points
 // filled the discriminant, and the emitter reads exactly that.
-pub struct JoinOrder {
+pub struct JoinOrder<'d> {
     pub dynamic:  bool,
     pub deferred: bool,
     pub ncand:    i64,
     pub nfl:      i64,
-    pub w:        Why,
+    pub w:        Why<'d>,
     pub fl:       [i64; 4],
     pub cslot:    [i64; 16],
     pub conw:     [i64; 16],
@@ -600,7 +600,7 @@ fn push_seq(out: &mut String, c: &JCh, seq: &Vec<i64>, np: i64) {
 /// census with nothing enumerated under it, which is precisely the "count that means
 /// two things" this record replaces; `false` says the axis was refused before the
 /// derivation (an invariant since `WG_CROSS` was refuted: no such step exists).
-fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
+fn derive_orders<'d>(c: &JCh<'d>, t: &ElTypes<'d>, h: &Writ, szs: &mut [String; 4],
                  jo: &mut JoinOrder) -> bool {
     let m: i64 = c.n + 1i64;
     // Floatable slots (base + classic steps) in QUERY order, and the pinned ones
@@ -894,9 +894,9 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
 /// deferred binding above the nest for a deferred one (S4j). When `deferred` comes
 /// back true, every `ats` entry is -1 and the expressions in `szs` are to be
 /// evaluated in `run`, not in `prepare`.
-pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: &str, key_kv: &str, t: &ElTypes,
-                          prm: &MacroParams, h: &Writ,
-                          szs: &mut [String; 4], ats: &mut [i64; 4]) -> JoinOrder {
+pub fn decide_join_orders<'d>(c: &JCh<'d>, has_sort: bool, key_tn: &str, key_kv: &str, t: &ElTypes<'d>,
+                          prm: &MacroParams<'d>, h: &Writ,
+                          szs: &mut [String; 4], ats: &mut [i64; 4]) -> JoinOrder<'d> {
     let mut jo: JoinOrder = jo_ground(WG_UNSET(), AX_NONE());
     let base_var: &str = c.var[0];
     let s0_var: &str = c.var[1];
@@ -980,9 +980,9 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: &str, key_kv: &str, t
 /// it: the size expressions and reporter bindings (`decide_join_orders`' out
 /// parameters), and the sort key's named and emitted type the licence was
 /// checked against (owned: the emitter prints the key in exactly these).
-pub struct JoinPlan {
+pub struct JoinPlan<'d> {
     pub decided: bool,
-    pub jo:      JoinOrder,
+    pub jo:      JoinOrder<'d>,
     pub szs:     [String; 4],
     pub ats:     [i64; 4],
     pub key_tn:  String,
@@ -992,7 +992,7 @@ pub struct JoinPlan {
 /// The chain as the derivation sees it, read off a core clause: one slot per
 /// source literal (an atom or a traversal), a positive step's `on` the On
 /// condition right after it, an anti step's its own.
-pub fn jch_from_core(cl: &CClause) -> JCh {
+pub fn jch_from_core<'d>(cl: &CClause<'d>) -> JCh<'d> {
     let bs: &[CLit] = cl.body.as_slice();
     let n: i64 = cl.body.len();
     let mut ns: i64 = 0i64;
@@ -1049,7 +1049,7 @@ pub fn join_plan_none() -> JoinPlan {
                       ats: [-1i64; 4], key_tn: String::from_str("i64"), key_kv: String::from_str("i64") };
 }
 
-pub fn plan_join_order(cl: &CClause, scan: bool, sort_key: WAny, prm: &MacroParams, h: &Writ) -> JoinPlan {
+pub fn plan_join_order<'d>(cl: &CClause<'d>, scan: bool, sort_key: WAny, prm: &MacroParams<'d>, h: &Writ) -> JoinPlan<'d> {
     let mut jp: JoinPlan = join_plan_none();
     if !scan { return jp; }
     let view: OView = oview_module_ast();
@@ -1082,8 +1082,8 @@ pub fn plan_join_order(cl: &CClause, scan: bool, sort_key: WAny, prm: &MacroPara
 /// both used to be built as text into a caller's buffer that had to outlive the
 /// emission. What is recorded now is the OPERANDS those sentences were built from,
 /// on `jo.w`, and the sentences are built once, at the edge, by `why::why_render`.
-fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
-                   szs: &mut [String; 4], ats: &mut [i64; 4]) -> JoinOrder {
+fn decide_over_set<'d>(c: &JCh<'d>, t: &ElTypes<'d>, prm: &MacroParams<'d>, h: &Writ,
+                   szs: &mut [String; 4], ats: &mut [i64; 4]) -> JoinOrder<'d> {
     // How many floatable sources, and is that within the plan's fact table?
     let m: i64 = c.n + 1i64;
     let mut nfl: i64 = 0i64;

@@ -21,7 +21,7 @@ use logos.lcm.deem.data.bt.cow;
 use logos.lcm.deem.data.bt.shuttle;
 
 // ── CFG fanout readers ────────────────────────────────────────────────
-unsafe fn cfg_int_or<const CFG: WritStatic>(key: str, dflt: u64) -> u64 {
+unsafe fn cfg_int_or<const CFG: WritStatic>(key: &str, dflt: u64) -> u64 {
     // The compiler emits @{}/WritStatic blobs in writ format, so read them
     // with the matching writ reader (WView2), not the legacy WritView.
     let v: WView2 = wview2_from_ptr(CFG.ptr);

@@ -1,0 +1,135 @@
+// ADR 0039 M4 (D8): merge commits, named heads, labels and the first-parent
+// log in the in-memory model — the port of deem.data's data_merge_heads.
+// A select-one merge's state is the winner's, and the loser stays reachable
+// as a further parent. Asserts:
+//   (a) two branches forked off one base diverge (no cross-contamination);
+//   (b) store_merge(winner, [loser]) → state ≡ winner (container contents);
+//   (c) the merge's parents = [winner, loser]; the loser's children = [merge];
+//   (d) named heads move and resolve (0 = no such head);
+//   (e) labels round-trip; the log walks the first-parent chain to the root;
+//   (f) dropping the loser keeps the merge readable, and pack keeps the
+//       loser while the merge names it;
+//   (g) a saved and reloaded store keeps the merge's parents and its label.
+// Prints ok iff every assertion holds; otherwise the first failure's code.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.bt.stream;     // MemStream — the save/load round trip
+use logos.mem.sync;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.str;
+use logos.std.fmt;
+
+container Ledger {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+
+fn put_range(st: &mut Arc<MemoryStore>, parent: u64, lo: u64, hi: u64, mul: u64) -> u64 {
+    let s: Arc<dyn Snapshot> = if parent == 0u64 { store_fork_arc(st) } else { store_fork_from(st, parent).unwrap() };
+    {
+        let mut l = if parent == 0u64 { create_ctr::<typeof(Ledger)>(&s, 1u64) } else { open_ctr::<typeof(Ledger)>(&s, 1u64) };
+        let mut k: u64 = lo;
+        while k < hi { l.insert(k, k * mul); k = k + 1u64; }
+    }
+    s.commit();
+    return s.snapshot_id();
+}
+
+fn ctr_len(st: &mut Arc<MemoryStore>, at: u64) -> u64 {
+    let s: Arc<dyn Snapshot> = store_find(st, at).unwrap();
+    let l = open_ctr::<typeof(Ledger)>(&s, 1u64);
+    return l.size();
+}
+
+fn ctr_get(st: &mut Arc<MemoryStore>, at: u64, k: u64) -> Option<u64> {
+    let s: Arc<dyn Snapshot> = store_find(st, at).unwrap();
+    let l = open_ctr::<typeof(Ledger)>(&s, 1u64);
+    return l.find(k);
+}
+
+fn run() -> i32 {
+    let mut st: Arc<MemoryStore> = store_new();
+    let base: u64 = put_range(&mut st, 0u64, 0u64, 10u64, 2u64);          // [0..10)
+    store_set_branch(&mut st, "main", base);
+
+    // (a) two diverging branches off base.
+    let br_a: u64 = put_range(&mut st, base, 10u64, 20u64, 3u64);         // [0..20)
+    let br_b: u64 = put_range(&mut st, base, 50u64, 55u64, 5u64);         // [0..10)+[50..55)
+    store_set_branch(&mut st, "a", br_a);
+    store_set_branch(&mut st, "b", br_b);
+    if ctr_len(&mut st, br_a) != 20u64 { return 10i32; }
+    if ctr_len(&mut st, br_b) != 15u64 { return 11i32; }
+    if ctr_get(&mut st, br_a, 52u64).is_some() { return 12i32; }          // b's keys not in a
+
+    // (b)+(c) select-one merge: a wins, b becomes a further parent.
+    let mut losers: Vec<u64> = vec_new::<u64>();
+    losers.push(br_b);
+    let m: u64 = store_merge(&mut st, br_a, &losers);
+    store_set_branch(&mut st, "main", m);
+    store_set_label(&mut st, m, "select_one: a over b");
+    if ctr_len(&mut st, m) != 20u64 { return 20i32; }                     // state ≡ winner
+    if ctr_get(&mut st, m, 52u64).is_some() { return 21i32; }
+    match ctr_get(&mut st, m, 15u64) { Option::Some(v) => { if v != 45u64 { return 22i32; } }
+                                       Option::None    => { return 23i32; } }
+    let ps: Vec<u64> = store_parents(&st, m);
+    if ps.len() != 2i64 { return 24i32; }
+    if ps.get(0i64) != br_a { return 25i32; }
+    if ps.get(1i64) != br_b { return 26i32; }
+    let cb: Vec<u64> = store_children_of(&st, br_b);
+    if cb.len() != 1i64 { return 27i32; }
+    if cb.get(0i64) != m { return 28i32; }
+
+    // (d) heads resolve.
+    if store_branch_head(&st, "main") != m { return 30i32; }
+    if store_branch_head(&st, "a") != br_a { return 32i32; }
+    if store_branch_head(&st, "nope") != 0u64 { return 34i32; }
+
+    // (e) label + first-parent log: m → br_a → base.
+    if !str_eq(store_label(&st, m).as_str(), "select_one: a over b") { return 40i32; }
+    if store_label(&st, br_a).len() != 0i64 { return 41i32; }
+    let lg: Vec<u64> = store_log(&st, m);
+    if lg.len() != 3i64 { return 42i32; }
+    if lg.get(0i64) != m { return 43i32; }
+    if lg.get(1i64) != br_a { return 44i32; }
+    if lg.get(2i64) != base { return 45i32; }
+
+    // (f) dropping the loser keeps the merge readable; pack keeps the loser.
+    store_remove_branch(&mut st, "b");
+    store_drop(&mut st, br_b);
+    if store_snapshot_status(&st, br_b) != SNAP_DROPPED { return 50i32; }
+    if ctr_len(&mut st, m) != 20u64 { return 51i32; }
+    if store_pack(&mut st) != 0i64 { return 52i32; }
+    let ps2: Vec<u64> = store_parents(&st, m);
+    if ps2.len() != 2i64 { return 53i32; }
+
+    // (g) save / load keeps the merge's parents and label (br_b, dropped, is
+    // not written; the merge still names it).
+    let mut img: MemStream = mem_stream_new();
+    if !store_save::<MemStream>(&st, &mut img) { return 60i32; }
+    img.rewind();
+    let back: Arc<MemoryStore> = match store_load::<MemStream>(&mut img) {
+        Option::Some(b) => b,
+        Option::None => { return 61i32; }
+    };
+    let ps3: Vec<u64> = store_parents(&back, m);
+    if ps3.len() != 2i64 || ps3.get(0i64) != br_a || ps3.get(1i64) != br_b { return 62i32; }
+    if !str_eq(store_label(&back, m).as_str(), "select_one: a over b") { return 63i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let r: i32 = run();
+    if r != 0i32 {
+        println!("FAIL memoria_merge_heads: diagnostic code {}", r);
+        return 1i32;
+    }
+    println!("ok");
+    return 0i32;
+}

@@ -51,9 +51,9 @@ pub enum DScanArm {
     Indexed,
 }
 
-pub struct DScan {
+pub struct DScan<'d> {
     /// The source as the query names it.
-    pub src: str,
+    pub src: &'d str,
     /// Its registry index, or -1 (a slice parameter has none).
     pub rel: i64,
     pub arm: DScanArm,
@@ -73,7 +73,7 @@ pub fn dp_slice_stream_src(prm: &MacroParams, src: &str) -> bool {
 
 /// The entry scan's shape, from the facts the access plan left on the
 /// registry. `has_sort`: the query writes an `order by`.
-pub fn plan_entry_scan(prm: &MacroParams, src: &str, has_sort: bool) -> DScan {
+pub fn plan_entry_scan<'d>(prm: &MacroParams<'d>, src: &'d str, has_sort: bool) -> DScan<'d> {
     let elided: bool = has_sort && prm.rel_src_ord_noop(src);
     let sorts: bool = has_sort && !elided;
     let slice: bool = dp_slice_stream_src(prm, src);
@@ -116,7 +116,7 @@ pub fn plan_group_pure(ru: &CRule) -> bool {
 }
 
 /// The names a grouped clause's `select` / `having` may read besides `key`.
-pub fn group_out_names(g: &CGroup) -> Vec<&str> {
+pub fn group_out_names<'d>(g: &CGroup<'d>) -> Vec<&'d str> {
     let mut onames: Vec<&str> = Vec::<&str>::new();
     let ags: &[CAgg] = g.aggs.as_slice();
     let mut j: i64 = 0i64;
@@ -156,11 +156,11 @@ pub enum DForm {
 
 /// The single-source entry, its clauses folded (ADR 0031 R6.2): what the scan
 /// emitter is handed. `pred` / `sort_key` null = none left.
-pub struct DSimple {
+pub struct DSimple<'d> {
     pub form: DForm,
-    pub src: str,
-    pub row_ty: str,
-    pub var: str,
+    pub src: &'d str,
+    pub row_ty: &'d str,
+    pub var: &'d str,
     pub pred: WAny,
     /// A group's `having`, folded (null = none left).
     pub having: WAny,
@@ -171,7 +171,7 @@ pub struct DSimple {
     pub has_limit: bool,
     pub limit_n: i64,
     pub limit_is_param: bool,
-    pub limit_param: str,
+    pub limit_param: &'d str,
 }
 
 // The entry's clauses folded as the relational simplifier folded them — the
@@ -180,8 +180,8 @@ pub struct DSimple {
 // `limit 0` empties it; identity needs a single bare source, no distinct or
 // limit, and a select that is the row variable (or `find`). `cond` is the
 // rule's one `where` (null = none).
-fn dp_fold_entry(ru: &CRule, src: &str, row_ty: &str, var: &str, cond: WAny, single: bool,
-                 h: &Writ) -> DSimple {
+fn dp_fold_entry<'d>(ru: &CRule<'d>, src: &'d str, row_ty: &'d str, var: &'d str, cond: WAny, single: bool,
+                 h: &'d Writ) -> DSimple<'d> {
     let find: bool = match &ru.env.mode { CMode::Find => { true } CMode::All => { false } CMode::First => { false } };
     let mut empty: bool = false;
     let mut pred: WAny = WAny::null();
@@ -265,7 +265,7 @@ fn dp_base(ru: &CRule) -> Option<CAtomRef> {
     }
 }
 
-struct CAtomRef { name: str, row_ty: str, var: str }
+struct CAtomRef<'d> { name: &'d str, row_ty: &'d str, var: &'d str }
 
 /// The planned core's entry as a single-source query, or None when it is not
 /// one (a join, a traversal, a group). `where_retired`: an exact access op
@@ -399,7 +399,7 @@ pub fn dscan_backward(d: &DScan) -> bool {
     }
 }
 
-pub fn dscan_arm_name(d: &DScan) -> &str {
+pub fn dscan_arm_name<'d>(d: &DScan<'d>) -> &'d str {
     match &d.arm {
         DScanArm::SortSlice => { return "sort-slice"; }
         DScanArm::SortIndexed => { return "sort-indexed"; }
@@ -445,14 +445,14 @@ fn dplan_dump_scan(d: &DScan) {
 // not by reference.
 // `jstrat`/`jkey`/`jsel`/`jground` — the PLAN'S DECISION, carried off the node
 // (`JS_NONE` = no planner reached it; see analyze_chain).
-pub struct DNest {
-    pub base_src: str,
-    pub base_ty:  str,
-    pub base_var: str,
+pub struct DNest<'d> {
+    pub base_src: &'d str,
+    pub base_ty:  &'d str,
+    pub base_var: &'d str,
     pub n:    i64,
-    pub src:  Vec<str>,
-    pub ty:   Vec<str>,
-    pub var:  Vec<str>,
+    pub src:  Vec<&'d str>,
+    pub ty:   Vec<&'d str>,
+    pub var:  Vec<&'d str>,
     pub anti: Vec<bool>,
     /// 0 inner, `core::OUTER_LEFT`, `core::OUTER_FULL` (its `on` in `onw`, as an anti step's).
     pub outer: Vec<i32>,
@@ -486,7 +486,7 @@ pub fn dn_push(ch: &mut DNest, src: &str, ty: &str, var: &str, anti: bool, onw: 
 // step in order — a positive step's `on` is the condition right after it, a
 // negated step's lives inside it; a traversal reads its stamped collection
 // expression.
-pub fn plan_nest(cl: &CClause) -> DNest {
+pub fn plan_nest<'d>(cl: &CClause<'d>) -> DNest<'d> {
     let mut ch: DNest = dnest_new();
     let bs: &[CLit] = cl.body.as_slice();
     let n: i64 = cl.body.len();
@@ -538,9 +538,9 @@ pub fn plan_nest(cl: &CClause) -> DNest {
 
 /// One rule run: the rule, and the source each chain slot reads instead of its
 /// own (slot 0 the base; "" = its own) — the semi-naïve delta rename.
-pub struct DRun {
+pub struct DRun<'d> {
     pub rule: i64,
-    pub ovr: Vec<str>,
+    pub ovr: Vec<&'d str>,
     /// Per chain slot: the slot's source does not change while the SCC's loop
     /// runs — a parameter, or a rel outside the SCC (ADR 0031 R7.2: its index
     /// may be built once, before the loop). A traversal's source depends on its
@@ -548,20 +548,20 @@ pub struct DRun {
     pub inv: Vec<bool>,
     /// The variant's own clause when it is not the rule's: the DELTA-FIRST
     /// reordering (R7.3), with its own join decisions. None = the rule as written.
-    pub clause: Option<CClause>,
+    pub clause: Option<CClause<'d>>,
 }
 
-pub struct DSccMember {
+pub struct DSccMember<'d> {
     pub rel: i64,
     /// Every rule, at its canonical (total) sources.
     pub all: Vec<i64>,
     /// The rules that read no member of the SCC.
     pub seeds: Vec<i64>,
     /// Each recursive rule × each of its in-SCC occurrences.
-    pub variants: Vec<DRun>,
+    pub variants: Vec<DRun<'d>>,
 }
 
-pub struct DScc { pub scc: i64, pub members: Vec<DSccMember> }
+pub struct DScc<'d> { pub scc: i64, pub members: Vec<DSccMember<'d>> }
 
 /// Rule `ru`'s occurrences of SCC `c`'s rels, in chain order: (slot − 1, rel)
 /// — slot 0 is the base, a traversal holds a slot and is never an occurrence.
@@ -605,7 +605,7 @@ fn clause_slot_invariance(cl: &CClause, scc: &RelScc, c: i64) -> Vec<bool> {
 
 /// The plan of SCC `c` over the planned core. Members in declaration order
 /// (registry order); a member's rules in declaration order.
-pub fn plan_scc(prm: &MacroParams, scc: &RelScc, c: i64, h: &Writ) -> DScc {
+pub fn plan_scc<'d>(prm: &MacroParams<'d>, scc: &RelScc, c: i64, h: &Writ) -> DScc<'d> {
     let mut out: DScc = DScc { scc: c, members: Vec::<DSccMember>::new() };
     let rels: &[CRel] = prm.plan_core.rels.as_slice();
     let mut r: i64 = 0i64;
@@ -698,12 +698,12 @@ pub fn plan_scc(prm: &MacroParams, scc: &RelScc, c: i64, h: &Writ) -> DScc {
 /// key differently. Later steps are left `JS_NONE`; `plan_insert_drains` reads
 /// that as "not proven read-once" and drains the step's source on
 /// `MG_UNDECIDED`.
-fn core_base_var_of(cl: &CClause) -> &str {
+fn core_base_var_of<'d>(cl: &CClause<'d>) -> &'d str {
     if cl.body.len() < 1i64 { return ""; }
     match &cl.body.as_slice()[0i64] { CLit::Atom(a) => { return a.var; } CLit::Trav(t) => { return t.var; } CLit::Cond(_c) => { return ""; } }
 }
 
-pub fn plan_decide_clause(prm: &MacroParams, view: &OView, cl: &mut CClause, h: &Writ, full: bool) {
+pub fn plan_decide_clause<'d>(prm: &MacroParams<'d>, view: &OView, cl: &mut CClause<'d>, h: &Writ, full: bool) {
     let t: ElTypes = type_clause(view, prm, cl, !full);
     let bvar: String = String::from_str(core_base_var_of(cl));
     let n: i64 = cl.body.len();
@@ -747,7 +747,7 @@ pub fn plan_decide_clause(prm: &MacroParams, view: &OView, cl: &mut CClause, h: 
 
 // ── R7.3 — DELTA FIRST ──────────────────────────────────────────────────────
 
-fn lit_copy(l: &CLit) -> CLit {
+fn lit_copy<'d>(l: &CLit<'d>) -> CLit<'d> {
     match l {
         CLit::Atom(a) => {
             let mut cs: Vec<WAny> = Vec::<WAny>::new();
@@ -789,7 +789,7 @@ fn and_w(h: &Writ, acc: WAny, e: WAny) -> WAny {
 /// Nothing bound before a literal is bound after it (only the moved atom went
 /// earlier), so every traversal base and negation scope is still satisfied.
 /// The steps' join strategies are decided anew, as the planner decides a rule's.
-pub fn delta_first(prm: &MacroParams, cl: &CClause, dslot: i64, h: &Writ) -> Option<CClause> {
+pub fn delta_first<'d>(prm: &MacroParams<'d>, cl: &CClause<'d>, dslot: i64, h: &Writ) -> Option<CClause<'d>> {
     let bs: &[CLit] = cl.body.as_slice();
     let mut srcs: Vec<i64> = Vec::<i64>::new();      // body indices of the source literals
     let mut ons: Vec<WAny> = Vec::<WAny>::new();

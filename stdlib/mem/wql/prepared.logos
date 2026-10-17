@@ -191,19 +191,19 @@ use logos.std.wql.why;   // Why — the justification as a RECORD, and its one r
 // entry point precisely because it lived beside the decision instead of in it; a
 // record carries it wherever the record goes, and the one site that entered the axis
 // no longer has to remember to write it down.
-pub struct Prepared {
+pub struct Prepared<'d> {
     pub on:       bool,
     pub dynamic:  bool,
     pub deferred: bool,
     pub nfl:      i64,
     pub ncand:    i64,
-    pub sz0:      str,
-    pub sz1:      str,
-    pub sz2:      str,
-    pub sz3:      str,
-    pub measure:  str,
-    pub tbl:      str,
-    pub w:        Why,
+    pub sz0:      &'d str,
+    pub sz1:      &'d str,
+    pub sz2:      &'d str,
+    pub sz3:      &'d str,
+    pub measure:  &'d str,
+    pub tbl:      &'d str,
+    pub w:        Why<'d>,
 }
 
 pub fn prep_off() -> Prepared {
@@ -233,8 +233,8 @@ pub fn prep_ground(g: i32, ax: i32) -> Prepared {
     return prep_fixed(why_of(g, ax));
 }
 
-pub fn prep_dyn(nfl: i64, ncand: i64, sz0: &str, sz1: &str, sz2: &str, sz3: &str,
-                measure: &str, tbl: &str, w: Why) -> Prepared {
+pub fn prep_dyn<'d>(nfl: i64, ncand: i64, sz0: &'d str, sz1: &'d str, sz2: &'d str, sz3: &'d str,
+                measure: &'d str, tbl: &'d str, w: Why<'d>) -> Prepared<'d> {
     return Prepared { on: true, dynamic: true, deferred: false, nfl: nfl, ncand: ncand,
                       sz0: sz0, sz1: sz1, sz2: sz2, sz3: sz3,
                       measure: measure, tbl: tbl, w: w };
@@ -246,8 +246,8 @@ pub fn prep_dyn(nfl: i64, ncand: i64, sz0: &str, sz1: &str, sz2: &str, sz3: &str
 /// the lengths of bindings the prelude already made, which is precisely what makes
 /// the deferral affordable. The TABLE is still carried: `run` needs it to price the
 /// candidates, and it is the only account `explain()` can give of what will be.
-pub fn prep_deferred(nfl: i64, ncand: i64, sz0: &str, sz1: &str, sz2: &str, sz3: &str,
-                     tbl: &str, w: Why) -> Prepared {
+pub fn prep_deferred<'d>(nfl: i64, ncand: i64, sz0: &'d str, sz1: &'d str, sz2: &'d str, sz3: &'d str,
+                     tbl: &'d str, w: Why<'d>) -> Prepared<'d> {
     return Prepared { on: true, dynamic: false, deferred: true, nfl: nfl, ncand: ncand,
                       sz0: sz0, sz1: sz1, sz2: sz2, sz3: sz3,
                       measure: "", tbl: tbl, w: w };

@@ -24,7 +24,7 @@ The static surface is `resource <name> = trama!(<params>){ <template> };`; `#[to
 
 ### `trama.surface.params-form` — Params are a real Logos parameter list
 
-`params` is a genuine Logos fn-style parameter list (e.g. `o: &Order, greeting: str`), re-emitted VERBATIM into the generated signature so the compiler parses and type-checks it, and parsed a second time locally (`parse_macro_params`, shared with the deem item) to drive reflection; at least one parameter is required (`trama!: needs at least one parameter`).
+`params` is a genuine Logos fn-style parameter list (e.g. `o: &Order, greeting: &str`), re-emitted VERBATIM into the generated signature so the compiler parses and type-checks it, and parsed a second time locally (`parse_macro_params`, shared with the deem item) to drive reflection; at least one parameter is required (`trama!: needs at least one parameter`).
 
 *Divergence:* Replaces Jinja2's dynamic, untyped context dict with a typed, compiler-checked parameter list — the params ARE the type source (the old `data`/`with` DSL header is GONE).
 
@@ -160,7 +160,7 @@ A param whose core type resolves to a schema struct is REFLECTED (`stamp_types_f
 
 ### `trama.typing.scalar-params` — Scalar/str params render directly
 
-A scalar or `str` param (`greeting: str`) gets its EL value-type set directly (`el_ty_of_name`), so a bare `{{ greeting }}` renders with the correct push (str vs bool/f64/i64) and the param name is usable directly in the template.
+A scalar or `&str` param (`greeting: &str`) gets its EL value-type set directly (`el_ty_of_name`), so a bare `{{ greeting }}` renders with the correct push (str vs bool/f64/i64) and the param name is usable directly in the template.
 
 *Evidence:* `stdlib/mem/wql/trama_render.logos#L611-L616`
 
@@ -192,7 +192,7 @@ On the static surface, unknown-function / arity / tuple-in-render errors are lat
 
 ### `trama.dynamic.compile-render` — `Tpl::compile(text, &cat)?` / `.render(&env)?`
 
-The runtime API is `Tpl::compile(text: str, cat: &SchemaCatalog) -> Result<Tpl, QError>` (parse + chain-stitch + shared IR optimizer + env-independent checks, compile-once) then `render(env: &QEnv) -> Result<String, QError>` (strict check against catalog+env, then a `TStmt` walk building a `String`, re-entrant over different envs).
+The runtime API is `Tpl::compile(text: &str, cat: &SchemaCatalog) -> Result<Tpl, QError>` (parse + chain-stitch + shared IR optimizer + env-independent checks, compile-once) then `render(env: &QEnv) -> Result<String, QError>` (strict check against catalog+env, then a `TStmt` walk building a `String`, re-entrant over different envs).
 
 *Divergence:* EXTENSION — Jinja2's canonical mode; here the template TEXT arrives at RUNTIME but is parsed by the SAME generated `parse_tpl` and rendered by the SAME shared chain-walk as the static surface.
 

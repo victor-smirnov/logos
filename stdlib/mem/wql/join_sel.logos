@@ -210,7 +210,7 @@ pub fn step_terms(on: WRef<SExpr>, h: &Writ) -> StepTerms {
 ///
 /// `sel < 0` means no term qualifies, which is the honest form of "this step
 /// has no join key" and is what forces LOOP.
-pub struct StepKey { pub sel: i64, pub bw: i64, pub pw: i64, pub ktn: str }
+pub struct StepKey<'d> { pub sel: i64, pub bw: i64, pub pw: i64, pub ktn: &'d str }
 
 /// Split ONE candidate term into its BUILD side (the half referencing only the
 /// step's new row var) and its PROBE side (the half referencing only already-
@@ -241,7 +241,7 @@ pub fn equi_term_sides(te: SExpr, new_var: &str) -> EquiSides {
     return EquiSides { bw: 0i64, pw: 0i64 };
 }
 
-pub fn step_equi_key(tl: &TermList, new_var: &str, t: &ElTypes) -> StepKey {
+pub fn step_equi_key<'a>(tl: &TermList, new_var: &str, t: &'a ElTypes) -> StepKey<'a> {
     let mut i: i64 = 0i64;
     while i < tl.n {
         let te: SExpr = unsafe { WAny::ref_to(tl.w[i] as *const u8) }.view::<SExpr>();
@@ -270,7 +270,7 @@ pub fn step_equi_key(tl: &TermList, new_var: &str, t: &ElTypes) -> StepKey {
 /// map must hold the type that normalization lands in — and each side reaches it
 /// by the value-preserving cast `key_norm_body` emits. Printing either side's own
 /// type would have declared a map neither expression can be inserted into.
-pub fn step_key_ty_of(be: SExpr, pe: SExpr, t: &ElTypes) -> &str {
+pub fn step_key_ty_of<'a>(be: SExpr, pe: SExpr, t: &'a ElTypes) -> &'a str {
     let bt: &str = infer_emit_ty(be, t);
     let pt: &str = infer_emit_ty(pe, t);
     if str_eq(bt, pt) { return bt; }
@@ -292,7 +292,7 @@ pub fn step_key_ty_of(be: SExpr, pe: SExpr, t: &ElTypes) -> &str {
 /// A join step's chosen strategy AND what entailed it. `g` is the rule that fired
 /// and the facts it fired on (`why::JoinGround`); its sentence is `jg_render(&s.g)`,
 /// produced at the edge — the trace, the plan's IR, `explain` — and nowhere else.
-pub struct StepSel { pub strat: i32, pub key_tn: str, pub sel: i64, pub g: JoinGround }
+pub struct StepSel<'d> { pub strat: i32, pub key_tn: &'d str, pub sel: i64, pub g: JoinGround<'d> }
 
 /// The strategy cascade as RULES over FACTS: ask the facts, then take the first rule
 /// whose body holds — hash, the forced tree, tree, loop on equality — in the order
@@ -330,7 +330,7 @@ pub fn step_cascade(k: StepKey) -> StepSel {
 }
 
 /// The whole decision for one classic (non-traversal) step.
-pub fn decide_join_step(on: WRef<SExpr>, new_var: &str, t: &ElTypes, h: &Writ) -> StepSel {
+pub fn decide_join_step<'a>(on: WRef<SExpr>, new_var: &str, t: &'a ElTypes, h: &Writ) -> StepSel<'a> {
     let st: StepTerms = step_terms(on, h);
     return step_cascade(step_equi_key(&st.tl, new_var, t));
 }

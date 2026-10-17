@@ -101,8 +101,8 @@ use logos.std.wql.optimize;       // refs_mask — does a clause read a row var
 // ADR 0031 R6.1 — THE SHAPE AND THE ENVELOPE ARE THE CORE'S. The four surface
 // shapes are read off the rule: a group is an aggregate, `Find` mode is `find`,
 // more than one source literal is a join chain, and one is a single scan.
-pub fn walk_query(name: &str, params_text: &str, prm: &MacroParams,
-                  jp: JoinPlan, prelude: &str, h: &Writ) -> bool {
+pub fn walk_query<'d>(name: &'d str, params_text: &'d str, prm: &MacroParams<'d>,
+                  jp: JoinPlan<'d>, prelude: &'d str, h: &Writ) -> bool {
     let ru: &CRule = &prm.plan_core.entry;
     let env: &CEnvelope = &ru.env;
     let has_rty: bool = env.result_ty.len() > 0i64;
@@ -287,11 +287,11 @@ fn check_stratified(prm: &mut MacroParams, deps: &RelDeps, scc: &RelScc) -> bool
 // completed before any body resolves), so self/forward/mutual references are
 // LEGAL — a rel reference from a body records the dependency edge the SCC
 // condensation consumes; recursion is realized by the semi-naïve fixpoint.
-struct SrcRes { ok: bool, is_rel: bool, idx: i64, row_ty: str }
+struct SrcRes<'d> { ok: bool, is_rel: bool, idx: i64, row_ty: &'d str }
 
 fn src_fail() -> SrcRes { return SrcRes { ok: false, is_rel: false, idx: -1i64, row_ty: "" }; }
 
-fn resolve_source(prm: &MacroParams, src: &str, cur_rel: i64, deps: &mut RelDeps) -> SrcRes {
+fn resolve_source<'a>(prm: &'a MacroParams, src: &'a str, cur_rel: i64, deps: &mut RelDeps) -> SrcRes<'a> {
     let i: i64 = prm.index_of(src);
     if i >= 0i64 {
         if prm.is_slice[i] {
@@ -576,7 +576,7 @@ fn check_edge_step(bv: &str, path: &Vec<&str>, var: &str,
     return true;
 }
 
-struct ClauseVars { pub name: Vec<str>, pub n: i64 }
+struct ClauseVars<'d> { pub name: Vec<&'d str>, pub n: i64 }
 
 fn clause_vars_new() -> ClauseVars {
     return ClauseVars { name: Vec::<&str>::new(), n: 0i64 };
@@ -787,14 +787,14 @@ fn check_rel_body(ru: &CRule, rel_name: &str, cur_rel: i64,
 }
 
 /// The base atom's source as written ("" when the clause has none).
-fn core_base_name(cl: &CClause) -> &str {
+fn core_base_name<'d>(cl: &CClause<'d>) -> &'d str {
     if cl.body.len() < 1i64 { return ""; }
     let bs: &[CLit] = cl.body.as_slice();
     match &bs[0i64] { CLit::Atom(a) => { return a.name; } CLit::Trav(t) => { return t.name; } CLit::Cond(_c) => { return ""; } }
 }
 
 /// The row variables a clause binds outside a negation, in order.
-fn core_bound_vars(cl: &CClause) -> Vec<&str> {
+fn core_bound_vars<'d>(cl: &CClause<'d>) -> Vec<&'d str> {
     let bs: &[CLit] = cl.body.as_slice();
     let mut v: Vec<&str> = Vec::<&str>::new();
     let mut i: i64 = 0i64;
@@ -861,7 +861,7 @@ fn rel_col_ty_ok(rel_name: &str, col_name: &str, t: &str) -> bool {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // A column reference `rv.col` decoded off an SExpr (SField over a simple root).
-struct ColRef { pub ok: bool, pub rv: str, pub col: str }
+struct ColRef<'d> { pub ok: bool, pub rv: &'d str, pub col: &'d str }
 
 // The per-program existential extractor state: a per-RULE union-find over
 // (row-var, column) pairs (var identity = the union-find ROOT slot index, kept
@@ -871,16 +871,16 @@ struct ColRef { pub ok: bool, pub rv: str, pub col: str }
 // point a non-warded diagnostic back at its source rule.
 fn WX_EXBASE() -> i64 { return 100000i64; }
 
-struct WardX {
-    pub vv:  Vec<str>,    // union-find pair: row var
-    pub vc:  Vec<str>,    //               : column
+struct WardX<'d> {
+    pub vv:  Vec<&'d str>,    // union-find pair: row var
+    pub vc:  Vec<&'d str>,    //               : column
     pub par: Vec<i64>,    // union-find parent
     pub nvar: i64,
-    pub exn:  Vec<str>,   // per-rule existential names (fresh(z))
+    pub exn:  Vec<&'d str>,   // per-rule existential names (fresh(z))
     pub exi:  Vec<i64>,   // → assigned existential var id
     pub nexn: i64,
     pub exctr: i64,       // next existential id (reset per rule)
-    pub esrc: Vec<str>,   // program-global EDB source name
+    pub esrc: Vec<&'d str>,   // program-global EDB source name
     pub epid: Vec<i64>,   // → WardProg predicate id
     pub nedb: i64,
     pub prel: Vec<i64>,   // rule r → declaring rel index
@@ -1345,8 +1345,8 @@ fn ward_sel_idents_ok(sel: SExpr, vars: &Vec<&str>, nv: i64,
 // String buffers backing the rel registry (emitted source names + row-type
 // texts) and the prelude live in THIS frame — everything downstream is called
 // from here, so the borrowed `str` views stay valid for the whole walk.
-pub fn walk_program_params(root: WAny, pc: CProgram, name: &str, params_text: &str,
-                           natspec: &str, prm: &mut MacroParams, h: &Writ) -> bool {
+pub fn walk_program_params<'d>(root: WAny, pc: CProgram<'d>, name: &'d str, params_text: &'d str,
+                           natspec: &'d str, prm: &mut MacroParams<'d>, h: &Writ) -> bool {
     if root.is_null() { error("wql!: empty query plan"); return false; }
     // The query is a source, and every check downstream may need to say where
     // it is (ADR 0024 S0). Carried in the walker's context because that is what
@@ -1946,7 +1946,7 @@ fn core_source_regs(cl: &CClause) -> Vec<i64> {
 }
 
 /// The base atom's row variable ("" when the clause has none).
-fn core_base_var(cl: &CClause) -> &str {
+fn core_base_var<'d>(cl: &CClause<'d>) -> &'d str {
     if cl.body.len() < 1i64 { return ""; }
     let bs: &[CLit] = cl.body.as_slice();
     match &bs[0i64] { CLit::Atom(a) => { return a.var; } CLit::Trav(t) => { return t.var; } CLit::Cond(_c) => { return ""; } }
@@ -2157,7 +2157,7 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
 /// source anyway (a body may scan a native rel any number of times), so no
 /// decision of theirs could widen anything. Their atoms stay `JS_NONE` and the
 /// emitter decides them by the same rule at emission — stated in `analyze_chain`.
-fn plan_decide_joins(prm: &MacroParams, pc: &mut CProgram, h: &Writ) {
+fn plan_decide_joins<'d>(prm: &MacroParams<'d>, pc: &mut CProgram<'d>, h: &Writ) {
     let view: OView = oview_module_ast();
     plan_decide_clause(prm, &view, &mut pc.entry.clause, h, false);
 }
@@ -2289,7 +2289,7 @@ fn merge_bare_col(e: SExpr, var: &str, col: &str) -> bool {
 // The ENTRY's remaining steps are decided AFTER its join order
 // (`plan_entry_order`): the order derivation's C2 refuses a reorder over a step
 // pass 1 could not decide, and that is a claim about pass 1, so it reads pass 1.
-fn plan_decide_rest(prm: &MacroParams, pc: &mut CProgram, h: &Writ, entry: bool) {
+fn plan_decide_rest<'d>(prm: &MacroParams<'d>, pc: &mut CProgram<'d>, h: &Writ, entry: bool) {
     let view: OView = oview_module_ast();
     if entry { plan_decide_clause(prm, &view, &mut pc.entry.clause, h, true); return; }
     let mut r: i64 = 0i64;
@@ -2305,7 +2305,7 @@ fn plan_decide_rest(prm: &MacroParams, pc: &mut CProgram, h: &Writ, entry: bool)
 
 /// ADR 0031 R5.2 — the order of a join-chain entry's nest, decided by the
 /// planner (`join_order::plan_join_order`) and handed to the emitter.
-fn plan_entry_order(pc: &CProgram, prm: &MacroParams, h: &Writ) -> JoinPlan {
+fn plan_entry_order<'d>(pc: &CProgram<'d>, prm: &MacroParams<'d>, h: &Writ) -> JoinPlan<'d> {
     let cl: &CClause = &pc.entry.clause;
     let grouped: bool = match &cl.group { Option::Some(_g) => true, Option::None => false };
     let find: bool = match &pc.entry.env.mode { CMode::Find => true, CMode::All => false, CMode::First => false };

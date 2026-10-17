@@ -172,19 +172,19 @@ const CAT_FIELDS:  i64 = 96i64;
 // those kilobytes into unrolled per-word copies — minutes-long stdlib builds
 // (the queue-2 I3 build-time incident). Vec-backing keeps the value a few
 // words; the (tiny) CAT_* caps are kept for behavior parity.
-pub struct SchemaCatalog {
+pub struct SchemaCatalog<'d> {
     // schemas
-    s_names: Vec<str>,
+    s_names: Vec<&'d str>,
     pub s_codes: Vec<u64>,
     s_n:     i64,
     // fields (flat, owner-indexed)
     pub f_owner:   Vec<i64>,   // index into the schema tables
-    pub f_names:   Vec<str>,
+    pub f_names:   Vec<&'d str>,
     pub f_keys:    Vec<i64>,   // TOM key code
     f_tys:     Vec<i64>,   // EL_TY_* (FK_SCALAR only)
     f_kinds:   Vec<i64>,   // FK_*
     f_targets: Vec<u64>,   // FK_EDGE: target schema code (0 = unresolved)
-    f_tnames:  Vec<str>,   // FK_EDGE: target schema NAME (late resolution)
+    f_tnames:  Vec<&'d str>,   // FK_EDGE: target schema NAME (late resolution)
     // The one fact `f_tys` cannot hold: this column's ORDER MOVED when its value
     // was normalized into the EL's i64 (`ElTy.ord == EL_ORD_WRAP` — u64/usize).
     // Not "is it unsigned": u8..u56 are unsigned and arrive non-negative, so
@@ -194,7 +194,7 @@ pub struct SchemaCatalog {
     pub f_n:       i64,
 }
 
-impl SchemaCatalog {
+impl<'d> SchemaCatalog<'d> {
     pub fn new() -> SchemaCatalog {
         return SchemaCatalog {
             s_names: vec_new::<&str>(), s_codes: vec_new::<u64>(), s_n: 0i64,
@@ -205,7 +205,7 @@ impl SchemaCatalog {
     }
 
     // Internal: schema index by name / code (-1 = absent).
-    pub fn sidx_of_name(self: &SchemaCatalog, name: &str) -> i64 {
+    pub fn sidx_of_name(self: &Self, name: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.s_n {
             if str_eq(self.s_names.get(i), name) { return i; }
@@ -213,7 +213,7 @@ impl SchemaCatalog {
         }
         return -1i64;
     }
-    fn sidx_of_code(self: &SchemaCatalog, code: u64) -> i64 {
+    fn sidx_of_code(self: &Self, code: u64) -> i64 {
         if code == 0u64 { return -1i64; }
         let mut i: i64 = 0i64;
         while i < self.s_n {
@@ -223,7 +223,7 @@ impl SchemaCatalog {
         return -1i64;
     }
     // Internal: field index within schema `si` (-1 = absent).
-    fn fidx(self: &SchemaCatalog, si: i64, fname: &str) -> i64 {
+    fn fidx(self: &Self, si: i64, fname: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.f_n {
             if self.f_owner.get(i) == si && str_eq(self.f_names.get(i), fname) { return i; }
@@ -235,7 +235,7 @@ impl SchemaCatalog {
     // Register a schema (name + its `code(…)` value). Idempotent by name.
     // Backfills any edge fields whose target name matches (so multi-blob
     // aggregation — the decl-site annotation route — is order-independent).
-    pub fn add_schema(self: &mut SchemaCatalog, name: &str, code: u64) {
+    pub fn add_schema(self: &mut Self, name: &'d str, code: u64) {
         if self.sidx_of_name(name) >= 0i64 { return; }
         if self.s_n >= CAT_SCHEMAS { return; }
         self.s_names.push(name);
@@ -254,7 +254,7 @@ impl SchemaCatalog {
     // Register a SCALAR (or erased) field: `ty` ∈ i64/f64/bool/str/any
     // (canonical value-type names; the integer/float families are already
     // collapsed by the emitter). Unknown ty names register as erased.
-    pub fn add_field(self: &mut SchemaCatalog, sname: &str, field: &str, key: i64, ty: &str) {
+    pub fn add_field(self: &mut Self, sname: &str, field: &'d str, key: i64, ty: &str) {
         self.add_field_src(sname, field, key, ty, "");
     }
 
@@ -270,7 +270,7 @@ impl SchemaCatalog {
     // erased and refuse aggregates that compile today — a capability withdrawal,
     // and a decision about the rule `b761b283` landed, not a plumb. What `src`
     // adds is strictly a fact that had no carrier at all.
-    pub fn add_field_src(self: &mut SchemaCatalog, sname: &str, field: &str, key: i64,
+    pub fn add_field_src(self: &mut Self, sname: &str, field: &'d str, key: i64,
                          ty: &str, src: &str) {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return; }
@@ -306,7 +306,7 @@ impl SchemaCatalog {
     // element EL type is recorded in `f_tys`. Both emission routes (the
     // schema_catalog! macro and the future decl-site annotation) use the SAME
     // blob entry shape — {"ty":"edge","target":"<name>"} — the name decides.
-    pub fn add_edge(self: &mut SchemaCatalog, sname: &str, field: &str, key: i64, target: &str) {
+    pub fn add_edge(self: &mut Self, sname: &str, field: &'d str, key: i64, target: &'d str) {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return; }
         if self.f_n >= CAT_FIELDS { return; }
@@ -374,7 +374,7 @@ impl SchemaCatalog {
     // annotation route: one per-schema blob per decl, merged at the pickup
     // point). Order-independent: edge targets resolving to a schema merged
     // LATER are backfilled by add_schema.
-    pub fn merge_static(self: &mut SchemaCatalog, blob: WritStatic) {
+    pub fn merge_static(self: &mut Self, blob: WritStatic) {
         let c: &mut SchemaCatalog = self;
         let vw: WView2 = wview2_from_ptr(blob.ptr);
         let root: WAny = vw.root();
@@ -427,7 +427,7 @@ impl SchemaCatalog {
 
     // ── Probe API (tests / tooling) ────────────────────────────────────────
     // The registered code of schema `name` (0 = not in the catalog).
-    pub fn schema_code(self: &SchemaCatalog, name: &str) -> u64 {
+    pub fn schema_code(self: &Self, name: &str) -> u64 {
         let si: i64 = self.sidx_of_name(name);
         if si < 0i64 { return 0u64; }
         return self.s_codes.get(si);
@@ -437,7 +437,7 @@ impl SchemaCatalog {
     // field and for every type whose order survived. Public so a fixture can
     // pin that the fact REACHED the runtime catalog, separately from anything
     // that consumes it — the plumb and its consumers fail independently.
-    pub fn field_ord_wrap(self: &SchemaCatalog, sname: &str, field: &str) -> bool {
+    pub fn field_ord_wrap(self: &Self, sname: &str, field: &str) -> bool {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return false; }
         let fi: i64 = self.fidx(si, field);
@@ -445,7 +445,7 @@ impl SchemaCatalog {
         return self.f_ordw.get(fi);
     }
     // The TOM key of `schema.field` (-1 = unknown).
-    pub fn field_key(self: &SchemaCatalog, sname: &str, field: &str) -> i64 {
+    pub fn field_key(self: &Self, sname: &str, field: &str) -> i64 {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return -1i64; }
         let fi: i64 = self.fidx(si, field);
@@ -455,7 +455,7 @@ impl SchemaCatalog {
     // The value-type name of `schema.field`: "i64"/"f64"/"bool"/"str" for
     // scalars, "edge" for WRef<S> fields, "arr:i64"/"arr:f64"/"arr:bool"/
     // "arr:str" for scalar-element array edges, "any" for erased, "" unknown.
-    pub fn field_ty(self: &SchemaCatalog, sname: &str, field: &str) -> &str {
+    pub fn field_ty(self: &Self, sname: &str, field: &str) -> &str {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return ""; }
         let fi: i64 = self.fidx(si, field);
@@ -479,7 +479,7 @@ impl SchemaCatalog {
 
 // Element-wise copy (a Tpl owns its catalog snapshot; compile-once/run-many
 // must not depend on the caller keeping the source catalog alive).
-fn catalog_clone(src: &SchemaCatalog) -> SchemaCatalog {
+fn catalog_clone<'d>(src: &SchemaCatalog<'d>) -> SchemaCatalog<'d> {
     let mut c: SchemaCatalog = SchemaCatalog::new();
     let mut i: i64 = 0i64;
     while i < src.s_n {
@@ -539,25 +539,25 @@ const QENV_AGGS:    i64 = 4i64;
 /// data nodes/sources, and the UDF/UDA registry.
 /// Holds at most 24 value/source bindings; binds past capacity are silently ignored.
 /// Rebinding an existing name overwrites it (last write wins).
-pub struct QEnv {
-    names: [str; 24],
+pub struct QEnv<'d> {
+    names: [&'d str; 24],
     kinds: [i32; 24],
     ivals: [i64; 24],
     fvals: [f64; 24],
     bvals: [bool; 24],
-    svals: [str; 24],
+    svals: [&'d str; 24],
     words: [i64; 24],   // node/source bindings: the WAny ref word
     codes: [u64; 24],   // node bindings: the object's schema code
     n:     i64,
     // ── UDF registry (ADR §6) — name + ptr + DECLARED signature ──────────
-    f_names: [str; 8],
+    f_names: [&'d str; 8],
     f_ptrs:  [QFn; 8],
     f_arity: [i64; 8],
     f_args:  [i32; 32],   // flattened [fn][arg] EL types (QENV_FN_ARGS stride)
     f_ret:   [i32; 8],    // EL return type
     f_n:     i64,
     // ── UDA registry — init/step/fin triple + declared arg/ret EL types ──
-    a_names: [str; 4],
+    a_names: [&'d str; 4],
     a_init:  [QAggInit; 4],
     a_step:  [QAggStep; 4],
     a_fin:   [QAggFin; 4],
@@ -566,7 +566,7 @@ pub struct QEnv {
     a_n:     i64,
 }
 
-impl QEnv {
+impl<'d> QEnv<'d> {
     /// Creates an empty environment with no bindings and no registered UDFs/UDAs.
     pub fn new() -> QEnv {
         let dfn: QFn      = qfn_nop;
@@ -584,7 +584,7 @@ impl QEnv {
         };
     }
 
-    fn find(self: &QEnv, name: &str) -> i64 {
+    fn find(self: &Self, name: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.n {
             if str_eq(self.names[i], name) { return i; }
@@ -593,7 +593,7 @@ impl QEnv {
         return -1i64;
     }
     // Rebind-aware slot allocation (last write wins per name).
-    fn slot(self: &mut QEnv, name: &str) -> i64 {
+    fn slot(self: &mut Self, name: &'d str) -> i64 {
         let i: i64 = self.find(name);
         if i >= 0i64 { return i; }
         if self.n >= QENV_CAP { return -1i64; }
@@ -605,7 +605,7 @@ impl QEnv {
     /// Binds `name` to a schema'd Writ object (a `WAny` ref to a schema-stamped TOM).
     /// The schema code is read off the object; a non-schema value binds with code 0 and is
     /// diagnosed by the strict checker on first use.
-    pub fn bind_node(self: &mut QEnv, name: &str, node: WAny) {
+    pub fn bind_node(self: &mut Self, name: &'d str, node: WAny) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_NODE;
@@ -613,28 +613,28 @@ impl QEnv {
         self.codes[i] = node_schema_code(node);
     }
     /// Binds `name` to an `i64` query/template parameter.
-    pub fn bind_i64(self: &mut QEnv, name: &str, v: i64) {
+    pub fn bind_i64(self: &mut Self, name: &'d str, v: i64) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_I64;
         self.ivals[i] = v;
     }
     /// Binds `name` to an `f64` query/template parameter.
-    pub fn bind_f64(self: &mut QEnv, name: &str, v: f64) {
+    pub fn bind_f64(self: &mut Self, name: &'d str, v: f64) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_F64;
         self.fvals[i] = v;
     }
     /// Binds `name` to a `bool` query/template parameter.
-    pub fn bind_bool(self: &mut QEnv, name: &str, v: bool) {
+    pub fn bind_bool(self: &mut Self, name: &'d str, v: bool) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_BOOL;
         self.bvals[i] = v;
     }
     /// Binds `name` to a `str` parameter; the view must stay valid across `render`/`run`.
-    pub fn bind_str(self: &mut QEnv, name: &str, v: &str) {
+    pub fn bind_str(self: &mut Self, name: &'d str, v: &'d str) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_STR;
@@ -645,7 +645,7 @@ impl QEnv {
     /// The element schema resolves live at `run` (off the first element's stamped code) — an
     /// empty array binds fine and yields no rows.
     /// The caller keeps the backing doc alive across `run`.
-    pub fn bind_source(self: &mut QEnv, name: &str, arr: WAny) {
+    pub fn bind_source(self: &mut Self, name: &'d str, arr: WAny) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_SRC;
@@ -674,7 +674,7 @@ impl QEnv {
     /// 8-element rows in the edge vocabulary (parent, key, idx, child, kind,
     /// tag, vi, vs; see `edges_to_source`). Scanned like a tree source (the
     /// same dotted columns), but from the given rows instead of a walk.
-    pub fn bind_edge_rows(self: &mut QEnv, name: &str, rows: WAny) {
+    pub fn bind_edge_rows(self: &mut Self, name: &'d str, rows: WAny) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_EDGE;
@@ -688,7 +688,7 @@ impl QEnv {
     /// (`"i64"`/`"f64"`/`"bool"`/`"str"`, max 4), `ret` likewise. The checker resolves calls
     /// against builtins first, then this registry; re-registering a name overwrites it.
     /// Returns `false` (registers nothing) on a bad type name, >4 args, or a full registry.
-    pub fn register_fn(self: &mut QEnv, name: &str, f: QFn, args: &[str], ret: &str) -> bool {
+    pub fn register_fn(self: &mut Self, name: &'d str, f: QFn, args: &[&str], ret: &str) -> bool {
         let rc: i32 = el_ret_class(ret);
         if rc < 0i32 { return false; }
         let na: i64 = args.len();
@@ -716,7 +716,7 @@ impl QEnv {
         return true;
     }
 
-    fn find_fn(self: &QEnv, name: &str) -> i64 {
+    fn find_fn(self: &Self, name: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.f_n {
             if str_eq(self.f_names[i], name) { return i; }
@@ -729,7 +729,7 @@ impl QEnv {
     /// `arg_ty`/`ret_ty` are the declared EL types of the aggregate argument and the finalized
     /// result. Builtin aggregate names shadow UDAs. Returns `false` (nothing registered) on a
     /// bad type name or a full registry (same contract as `register_fn`).
-    pub fn register_agg(self: &mut QEnv, name: &str, init: QAggInit, step: QAggStep,
+    pub fn register_agg(self: &mut Self, name: &'d str, init: QAggInit, step: QAggStep,
                         fin: QAggFin, arg_ty: &str, ret_ty: &str) -> bool {
         let ac: i32 = el_ret_class(arg_ty);
         let rc: i32 = el_ret_class(ret_ty);
@@ -749,7 +749,7 @@ impl QEnv {
         return true;
     }
 
-    fn find_agg(self: &QEnv, name: &str) -> i64 {
+    fn find_agg(self: &Self, name: &str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.a_n {
             if str_eq(self.a_names[i], name) { return i; }
@@ -817,7 +817,7 @@ fn wany_to_rt(v: WAny) -> RtVal {
 // ═══════════════════════════════════════════════════════════════════════════
 /// Runtime scalar value of the Deem evaluator — the argument/result type of UDFs and UDAs.
 /// Cheap to copy (all payloads are word-sized views/handles).
-pub enum RtVal {
+pub enum RtVal<'d> {
     /// 64-bit integer.
     I(i64),
     /// 64-bit float.
@@ -826,7 +826,7 @@ pub enum RtVal {
     B(bool),
     /// Borrowed string view. A UDF returning `S` must return a view that outlives the call
     /// (a literal, or a view into an input).
-    S(str),
+    S(&'d str),
     /// Handle to a Writ object (schema'd row / node) in the caller's data doc.
     Node(WAny),
     /// Absent value (lenient miss); propagates CEL-style through operators.
@@ -836,7 +836,7 @@ pub enum RtVal {
     /// as a `QError` rather than dropping the row.
     Error,
 }
-impl Copy for RtVal {}
+impl Copy for RtVal<'_> {}
 
 // ⚠⚠ NO `match` OVER `RtVal` IN THIS SUBSYSTEM ENDS IN `_`, AND THAT IS A RULE,
 // NOT A STYLE. MEASURED 2026-08-04: `RtVal` had 27 match sites, 24 of them
@@ -880,18 +880,18 @@ fn rt_is_err(v: RtVal) -> bool {
 // step(acc, arg) folds one row, fin(acc) finalizes (pass an identity fn when
 // no finalization is needed).
 /// Scalar UDF: evaluated argument values in, one value out.
-pub type QFn      = fn(&[RtVal]) -> RtVal;
+pub type QFn      = for<'x, 's> fn(&'x [RtVal<'s>]) -> RtVal<'s>;
 /// UDA initializer: seeds the accumulator.
-pub type QAggInit = fn() -> RtVal;
+pub type QAggInit = fn() -> RtVal<'static>;
 /// UDA step: folds one row's value into the accumulator.
-pub type QAggStep = fn(RtVal, RtVal) -> RtVal;
+pub type QAggStep = for<'s> fn(RtVal<'s>, RtVal<'s>) -> RtVal<'s>;
 /// UDA finalizer: maps the accumulator to the result (pass an identity fn when unneeded).
 pub type QAggFin  = fn(RtVal) -> RtVal;
 
 // Registry no-op seeds (the fixed-slot tables need an initial value).
-fn qfn_nop(_a: &[RtVal]) -> RtVal { return RtVal::Null; }
+fn qfn_nop<'d>(_a: &[RtVal<'d>]) -> RtVal<'d> { return RtVal::Null; }
 fn qagg_init_nop() -> RtVal { return RtVal::Null; }
-fn qagg_step_nop(acc: RtVal, _v: RtVal) -> RtVal { return acc; }
+fn qagg_step_nop<'d>(acc: RtVal<'d>, _v: RtVal<'d>) -> RtVal<'d> { return acc; }
 fn qagg_fin_nop(acc: RtVal) -> RtVal { return acc; }
 
 fn rt_kind(v: RtVal) -> i32 {
@@ -1159,12 +1159,12 @@ fn ct_is_open(t: i32) -> bool { return t == CT_UNKNOWN || t == CT_DYN; }
 const QREL_MAX:  i64 = 16i64;   // static parity (RQREL_MAX)
 const QRELC_MAX: i64 = 128i64;  // flat column table (16 rels × 8 cols)
 
-pub struct QRelReg {
+pub struct QRelReg<'d> {
     n:      i64,
-    names:  [str; 16],
+    names:  [&'d str; 16],
     ncols:  [i64; 16],
     coff:   [i64; 16],     // rel → first index into the flat column tables
-    cnames: Vec<str>,     // flat, declaration order (Vec-backed: the Query
+    cnames: Vec<&'d str>,     // flat, declaration order (Vec-backed: the Query
     ctys:   Vec<i64>,     // must stay SMALL — big by-value aggregates
                           // scalarize pathologically in codegen; CT_* tags)
     // SCC condensation (compute_rel_scc results, copied flat)

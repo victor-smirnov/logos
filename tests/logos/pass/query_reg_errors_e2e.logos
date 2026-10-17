@@ -9,10 +9,10 @@ use logos.mem.deem;
 use logos.mem.string;
 use logos.lang.str;
 
-fn f0(_a: &[RtVal]) -> RtVal { return RtVal::I(0i64); }
+fn f0<'s>(_a: &[RtVal<'s>]) -> RtVal<'s> { return RtVal::I(0i64); }
 
-fn ainit() -> RtVal { return RtVal::I(1i64); }
-fn astep(acc: RtVal, _v: RtVal) -> RtVal { return acc; }
+fn ainit() -> RtVal<'static> { return RtVal::I(1i64); }
+fn astep<'s>(acc: RtVal<'s>, _v: RtVal<'s>) -> RtVal<'s> { return acc; }
 fn afin(acc: RtVal) -> RtVal { return acc; }
 
 fn main() -> i32 {

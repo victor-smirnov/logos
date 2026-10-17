@@ -67,7 +67,7 @@ pub fn core_desugar_eqrel(p: &mut CProgram, h: &Writ) {
 /// a recursive rel keeps as its dominance rule (`CRel.dom`).
 /// Soufflé's non-recursive subsumption: delete every tuple a distinct tuple
 /// dominates (two rows that dominate each other both go).
-pub fn subsume_rule(p: &CProgram, r: i64, src: i64, neg: bool, h: &Writ) -> CRule {
+pub fn subsume_rule<'d>(p: &CProgram<'d>, r: i64, src: i64, neg: bool, h: &Writ) -> CRule<'d> {
     let rel: &CRel = &p.rels.as_slice()[r];
     let sn: &str = p.rels.as_slice()[src].name;
     let (a, b, pred): (&str, &str, WAny) = match &rel.sub {
@@ -109,7 +109,7 @@ pub fn subsume_rule(p: &CProgram, r: i64, src: i64, neg: bool, h: &Writ) -> CRul
 /// The dominance clause as the scope checker reads it: `from r a join r b
 /// where P` — the names `P` may read are a rel body's, and a diagnostic names
 /// the `where` the user wrote.
-pub fn subsume_scope_rule(p: &CProgram, r: i64, h: &Writ) -> CRule {
+pub fn subsume_scope_rule<'d>(p: &CProgram<'d>, r: i64, h: &Writ) -> CRule<'d> {
     let rel: &CRel = &p.rels.as_slice()[r];
     let (a, b, pred): (&str, &str, WAny) = match &rel.sub {
         Option::Some(s) => { (s.a, s.b, s.pred) }
@@ -129,7 +129,7 @@ pub fn subsume_scope_rule(p: &CProgram, r: i64, h: &Writ) -> CRule {
 /// dominance rule (`CRel.dom`), which the fixpoint runs at each promote.
 /// Run after the oracle export, which hands Soufflé the clause itself.
 /// False (with `err` set) for a recursive rel with a grouping body.
-pub fn core_desugar_subsume(p: &mut CProgram, h: &Writ, err: &mut String) -> bool {
+pub fn core_desugar_subsume<'d>(p: &mut CProgram<'d>, h: &Writ, err: &mut String) -> bool {
     // READ through an immutable view, WRITE through `p` (`core_magic`'s idiom):
     // the rows and names read are arena/string-store texts, not rel storage.
     let pr: *const CProgram = p as *const CProgram;
@@ -381,7 +381,7 @@ pub fn core_live_rels(p: &CProgram, fal: &mut RelSet) -> RelSet {
 
 pub struct MtBind { pub kind: i32, pub e: i64, pub hi: i64 }
 
-pub struct MtAtom { pub src: str, pub var: str, pub anti: bool, pub edge: bool, pub base: str }
+pub struct MtAtom<'d> { pub src: &'d str, pub var: &'d str, pub anti: bool, pub edge: bool, pub base: &'d str }
 
 /// The decisions of one rewrite, in the order they were taken (owned: they
 /// are read after the program they name has been rewritten further).
@@ -427,7 +427,7 @@ pub fn ms_sel_item(sel: WRef<SExpr>, ci: i64, ncols: i64) -> SExpr {
 }
 
 // `v.f` → (v, f); anything else → ("", "").
-pub struct MsCol { pub var: str, pub fld: str }
+pub struct MsCol<'d> { pub var: &'d str, pub fld: &'d str }
 pub fn ms_col_ref(e: SExpr) -> MsCol {
     match e {
         SExpr::Field(f) => {
@@ -680,13 +680,13 @@ pub fn mt_item_raw(sel: WRef<SExpr>, ci: i64, ncols: i64) -> i64 {
 // built here. Atoms are named while the rewrite runs; their sources are linked
 // to rel indices once every rel exists (`core_relink`), as the lowering does.
 
-struct CmCtx {
+struct CmCtx<'d> {
     key: Vec<String>,
     src: Vec<i64>,
     cols: Vec<Vec<i64>>,
     arel: Vec<String>,
     mrel: Vec<String>,
-    mbody: Vec<Vec<CRule>>,
+    mbody: Vec<Vec<CRule<'d>>>,
     refuse: Vec<i32>,
 }
 
@@ -826,7 +826,7 @@ fn cm_head(head: WAny, cols: Vec<i64>, ncols: i64) -> MtHead {
     return hd;
 }
 
-pub struct MtHead { pub hv: Vec<str>, pub hf: Vec<str>, pub hi: Vec<i64> }
+pub struct MtHead<'d> { pub hv: Vec<&'d str>, pub hf: Vec<&'d str>, pub hi: Vec<i64> }
 pub struct MtPlan { pub order: Vec<i64>, pub sri: Vec<i64>, pub cols: Vec<Vec<i64>>, pub binds: Vec<Vec<MtBind>> }
 
 fn cm_sips(p: &CProgram, atoms: &Vec<MtAtom>, conj: &Vec<i64>, hv: &Vec<&str>, hf: &Vec<&str>, hi: &Vec<i64>,
@@ -880,7 +880,7 @@ fn cm_sips(p: &CProgram, atoms: &Vec<MtAtom>, conj: &Vec<i64>, hv: &Vec<&str>, h
     return pl;
 }
 
-fn fresh_atom(src: CSrc, name: &str, var: &str) -> CLit {
+fn fresh_atom<'d>(src: CSrc<'d>, name: &'d str, var: &'d str) -> CLit<'d> {
     return CLit::Atom(CAtom { src: src, reg: -1i64, name: name, var: var, row_ty: "", neg: false, outer: 0i32,
                               conds: Vec::<WAny>::new(), strat: 0i32, jsel: -1i32, ground: 0i64 });
 }
@@ -888,9 +888,9 @@ fn fresh_atom(src: CSrc, name: &str, var: &str) -> CLit {
 fn on_cond(e: WRef<SExpr>) -> CLit { return CLit::Cond(CCond { e: e.any(), site: CSite::On }); }
 
 // The magic rule for an occurrence whose SIPS visit came after `order[0..upto)`.
-fn cm_magic_body(cl: &CClause, names: &Vec<&str>, lit: &Vec<i64>, atoms: &Vec<MtAtom>, order: &Vec<i64>, upto: i64,
-                 inc: &Vec<bool>, conj: &Vec<i64>, binds: &Vec<MtBind>, hmrel: &str,
-                 hv: &Vec<&str>, hf: &Vec<&str>, hi: &Vec<i64>, h: &Writ) -> CRule {
+fn cm_magic_body<'d>(cl: &CClause<'d>, names: &Vec<&'d str>, lit: &Vec<i64>, atoms: &Vec<MtAtom<'d>>, order: &Vec<i64>, upto: i64,
+                 inc: &Vec<bool>, conj: &Vec<i64>, binds: &Vec<MtBind>, hmrel: &'d str,
+                 hv: &Vec<&'d str>, hf: &Vec<&'d str>, hi: &Vec<i64>, h: &Writ) -> CRule<'d> {
     let mut link: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::null());
     let mut k: i64 = 0i64;
     while k < hv.len() {
@@ -1020,8 +1020,8 @@ fn cm_get(ctx: &mut CmCtx, rname: &str, ri: i64, cols: &Vec<i64>) -> i64 {
 
 // Adorn one clause: `names` (one per atom) receives the renames, which the
 // caller writes onto the clause. `hk` is the head's adornment (−1 = the entry).
-fn cm_clause(p: &CProgram, ru: &CRule, names: &mut Vec<&str>, lit: &Vec<i64>, atoms: &Vec<MtAtom>,
-             hk: i64, nrel0: i64, ctx: &mut CmCtx, prm: &MacroParams, h: &Writ, out: &mut MsDecisions) {
+fn cm_clause<'d>(p: &CProgram<'d>, ru: &CRule<'d>, names: &mut Vec<&'d str>, lit: &Vec<i64>, atoms: &Vec<MtAtom<'d>>,
+             hk: i64, nrel0: i64, ctx: &mut CmCtx<'d>, prm: &MacroParams<'d>, h: &Writ, out: &mut MsDecisions) {
     let conj: Vec<i64> = cm_conjuncts(ru);
     let mut hd: MtHead = MtHead { hv: Vec::<&str>::new(), hf: Vec::<&str>::new(), hi: Vec::<i64>::new() };
     let mut hmrel: &str = "";
@@ -1125,7 +1125,7 @@ fn cm_free_rels(p: &CProgram, nrel0: i64, refuse: &Vec<i32>, prm: &MacroParams) 
     return free;
 }
 
-fn clause_copy(cl: &CClause) -> CClause {
+fn clause_copy<'d>(cl: &CClause<'d>) -> CClause<'d> {
     let mut body: Vec<CLit> = Vec::<CLit>::new();
     let bs: &[CLit] = cl.body.as_slice();
     let mut i: i64 = 0i64;
@@ -1175,7 +1175,7 @@ fn apply_names(cl: &mut CClause, names: &Vec<&str>, lit: &Vec<i64>) {
 
 // Restrict an adorned body to its magic rel: `join __m_R_β __mm on
 // __mm.c<k> == <head column k's select item>`, before the clause's `where`.
-fn cm_restrict(cl: &mut CClause, cols: &Vec<i64>, ncols: i64, mrel: &str, h: &Writ) {
+fn cm_restrict<'d>(cl: &mut CClause<'d>, cols: &Vec<i64>, ncols: i64, mrel: &'d str, h: &Writ) {
     let sel: WRef<SExpr> = WRef::<SExpr>::from_any(cl.head);
     let mut on: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::null());
     let mut k: i64 = 0i64;
@@ -1199,7 +1199,7 @@ fn cm_restrict(cl: &mut CClause, cols: &Vec<i64>, ncols: i64, mrel: &str, h: &Wr
 
 /// The magic-sets transformation of the program, on the core. Returns the
 /// number of decisions written to `out`.
-pub fn core_magic(pc: &mut CProgram, h: &Writ, prm: &MacroParams, out: &mut MsDecisions) -> i64 {
+pub fn core_magic<'d>(pc: &mut CProgram<'d>, h: &Writ, prm: &MacroParams<'d>, out: &mut MsDecisions) -> i64 {
     if pc.rels.len() == 0i64 { return 0i64; }
     // READ phase over an immutable view (nothing below writes `pc` until the
     // write phase at the end; rels the rewrite adds are collected in `added`).
@@ -1366,7 +1366,7 @@ fn gpc_fail(msg: &str) -> GpC {
 
 // The rels a desugar injects, and the backing of their names.
 // `chain` — the steps the current build emits.
-struct GpInj { rels: Vec<CRel>, strs: Vec<String>, chain: Vec<CLit> }
+struct GpInj<'d> { rels: Vec<CRel<'d>>, strs: Vec<String>, chain: Vec<CLit<'d>> }
 
 fn gp_inj_find(inj: &GpInj, nm: &str) -> i64 {
     let rs: &[CRel] = inj.rels.as_slice();
@@ -1377,18 +1377,18 @@ fn gp_inj_find(inj: &GpInj, nm: &str) -> i64 {
 
 fn i64_col(nm: &str) -> CCol { return CCol { name: nm, ty: "i64" }; }
 
-fn gp_rule(head: WRef<SExpr>, body: Vec<CLit>) -> CRule {
+fn gp_rule<'d>(head: WRef<SExpr>, body: Vec<CLit<'d>>) -> CRule<'d> {
     return CRule { clause: CClause { head: head.any(), body: body, group: Option::None, gpath: Option::None }, env: envelope_new() };
 }
 
 // One step of a chain: the atom and its `on`.
-fn gp_step(out: &mut Vec<CLit>, src: &str, var: &str, on: WRef<SExpr>) {
+fn gp_step<'d>(out: &mut Vec<CLit<'d>>, src: &'d str, var: &'d str, on: WRef<SExpr>) {
     out.push(fresh_atom(CSrc::Param(src), src, var));
     out.push(on_cond(on));
 }
 
 // Add one seed rule to `__mreach_<src>`, injecting the rel on first use.
-fn gp_magic_seed(inj: &mut GpInj, src: &str, body: CRule) {
+fn gp_magic_seed<'d>(inj: &mut GpInj<'d>, src: &'d str, body: CRule<'d>) {
     let mut nm: String = String::new();
     nm.push_str("__mreach_");
     nm.push_str(src);
@@ -1404,7 +1404,7 @@ fn gp_magic_seed(inj: &mut GpInj, src: &str, body: CRule) {
 
 // The seed rule of one `**` site: the path prefix, projecting the node the
 // `**` stands on.
-fn gp_seed_body(src: &str, h: &Writ, steps: Vec<CLit>, extra: WRef<SExpr>, prev: &str) -> CRule {
+fn gp_seed_body<'d>(src: &'d str, h: &Writ, steps: Vec<CLit<'d>>, extra: WRef<SExpr>, prev: &'d str) -> CRule<'d> {
     let mut body: Vec<CLit> = Vec::<CLit>::new();
     body.push(fresh_atom(CSrc::Param(src), src, "__ga"));
     let mut st: Vec<CLit> = steps;
@@ -1414,7 +1414,7 @@ fn gp_seed_body(src: &str, h: &Writ, steps: Vec<CLit>, extra: WRef<SExpr>, prev:
 }
 
 // The reach rel for `src`, injected on first use. Returns its name.
-fn gp_reach_rel<'b>(inj: &mut GpInj, src: &str, h: &Writ) -> &'b str {
+fn gp_reach_rel<'d, 'b>(inj: &mut GpInj<'d>, src: &'d str, h: &Writ) -> &'b str {
     let mut nm: String = String::new();
     nm.push_str("__reach_");
     nm.push_str(src);
@@ -1445,7 +1445,7 @@ fn gp_reach_rel<'b>(inj: &mut GpInj, src: &str, h: &Writ) -> &'b str {
 // The chain of one graph path into `out` and its residual predicate. `stop`
 // >= 0 builds only the PREFIX [0, stop) — a `**` site's seed body; the
 // prefix's own `**` hops join reach without seeding it again.
-fn gp_build(src: &str, gp: &Vec<CPathStep>, h: &Writ, inj: &mut GpInj, stop: i64) -> GpC {
+fn gp_build<'d>(src: &'d str, gp: &Vec<CPathStep<'d>>, h: &Writ, inj: &mut GpInj<'d>, stop: i64) -> GpC {
     let n: i64 = if stop >= 0i64 { stop } else { gp.len() };
     if gp.len() < 1i64 { return gpc_fail("wql!: a graph path needs at least one step"); }
     let mut extra: WRef<SExpr> = gp_bin(h, OP_EQ(), gp_field(h, "__ga", "parent"), make_int_lit(h, WG_ROOT_PARENT));
@@ -1524,7 +1524,7 @@ fn gp_build(src: &str, gp: &Vec<CPathStep>, h: &Writ, inj: &mut GpInj, stop: i64
 // Lower one clause's graph path: the base reads the source as `__ga`, the
 // path's chain comes first, the clause's own steps after it, and the WHERE is
 // the path's residual ANDed with the clause's own.
-fn gp_clause(cl: &mut CClause, h: &Writ, inj: &mut GpInj, err: &mut String) -> bool {
+fn gp_clause<'d>(cl: &mut CClause<'d>, h: &'d Writ, inj: &mut GpInj<'d>, err: &mut String) -> bool {
     let mut steps: Vec<CPathStep> = Vec::<CPathStep>::new();
     match &cl.gpath {
         Option::None => { return true; }
@@ -1540,7 +1540,7 @@ fn gp_clause(cl: &mut CClause, h: &Writ, inj: &mut GpInj, err: &mut String) -> b
         }
     }
     let gp: &Vec<CPathStep> = &steps;
-    let src: &str = dv(core_base_name_of(cl));
+    let src: &str = core_base_name_of(cl);
     let res: GpC = gp_build(src, gp, h, inj, -1i64);
     let mut chain: Vec<CLit> = Vec::<CLit>::new();
     while inj.chain.len() > 0i64 { chain.push(inj.chain.remove(0i64)); }
@@ -1580,7 +1580,7 @@ fn gp_clause(cl: &mut CClause, h: &Writ, inj: &mut GpInj, err: &mut String) -> b
     return true;
 }
 
-fn core_base_name_of(cl: &CClause) -> &str {
+fn core_base_name_of<'d>(cl: &CClause<'d>) -> &'d str {
     if cl.body.len() < 1i64 { return ""; }
     match &cl.body.as_slice()[0i64] { CLit::Atom(a) => { return a.name; } CLit::Trav(t) => { return t.name; } CLit::Cond(_c) => { return ""; } }
 }
@@ -1588,7 +1588,7 @@ fn core_base_name_of(cl: &CClause) -> &str {
 /// Lower every graph path of the program (rel rules in order, then the entry)
 /// into its join chain, injecting the reach rels `**` needs. False with `err`
 /// filled on a malformed path.
-pub fn core_desugar_gpaths(p: &mut CProgram, h: &Writ, err: &mut String) -> bool {
+pub fn core_desugar_gpaths<'d>(p: &mut CProgram<'d>, h: &'d Writ, err: &mut String) -> bool {
     let mut inj: GpInj = GpInj { rels: Vec::<CRel>::new(), strs: Vec::<String>::new(), chain: Vec::<CLit>::new() };
     let mut r: i64 = 0i64;
     while r < p.rels.len() {
@@ -1689,7 +1689,7 @@ fn src_key(s: &CSrc) -> i64 {
     match s { CSrc::Rel(r) => { return *r; } CSrc::Param(_n) => { return -2i64; } CSrc::Unit => { return -3i64; } }
 }
 
-fn src_name(s: &CSrc) -> &str {
+fn src_name<'d>(s: &CSrc<'d>) -> &'d str {
     match s { CSrc::Param(n) => { return *n; } CSrc::Rel(_r) => { return ""; } CSrc::Unit => { return ""; } }
 }
 

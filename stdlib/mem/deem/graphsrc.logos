@@ -42,10 +42,10 @@ use logos.mem.collections.hashmap;// HashMap — the expanded-node set
 const RS_VARS: i64 = 32i64;   // graph-source scans carry 8 dotted vars each — a 3-step chain + slack fits
 
 // A row set: named columns (row vars) × rows, cells flattened at stride nvars.
-struct RowSet {
-    vars:  [str; 32],
+struct RowSet<'d> {
+    vars:  [&'d str; 32],
     nvars: i64,
-    cells: Vec<RtVal>,
+    cells: Vec<RtVal<'d>>,
     nrows: i64,
 }
 
@@ -122,7 +122,7 @@ fn ts_kind(v: WAny) -> &str {
 // static walkers — say FNV(parent word, ordinal), so every non-container root
 // (null, i64, bool, f64, str) answered `child == 1` dynamically and
 // FNV(0, 0) == 590684067820433389 statically. One relation, one emitter.
-fn ts_edge_row(out: &mut RowSet, parent_word: i64, key: &str, idx: i64,
+fn ts_edge_row<'d>(out: &mut RowSet<'d>, parent_word: i64, key: &'d str, idx: i64,
                child: WAny, ord: i64) {
     out.cells.push(RtVal::I(parent_word));
     out.cells.push(RtVal::S(key));
@@ -255,9 +255,9 @@ fn ts_walk(v: WAny, out: &mut RowSet, seen: &mut HashMap<u64, i64>) {
 
 // The scan entry: dotted column vars (interned into the per-run scratch) +
 // the walk from the bound root.
-fn ts_scan(var: &str, root_w: i64, scratch: &Writ) -> RowSet {
+fn ts_scan<'d>(var: &'d str, root_w: i64, scratch: &Writ) -> RowSet<'d> {
     let mut out: RowSet = rs_new();
-    let cols: [str; 8] = ["parent", "key", "idx", "child", "kind", "tag", "vi", "vs"];
+    let cols: [&str; 8] = ["parent", "key", "idx", "child", "kind", "tag", "vi", "vs"];
     let mut c: i64 = 0i64;
     while c < TS_NCOLS {
         let mut nm: String = String::new();
@@ -358,15 +358,15 @@ pub fn dyn_graph_edges(root: WAny, scratch: &Writ) -> Vec<WritEdgeRow> {
 // The field names are the vocabulary's own column names, in the vocabulary's
 // own column order, so `from edges e select e.child` reads identically over a
 // materialized dynamic walk and over a `&Writ` static one.
-pub struct DynEdge {
+pub struct DynEdge<'d> {
     pub parent: i64,
-    pub key:    str,
+    pub key:    &'d str,
     pub idx:    i64,
     pub child:  i64,
-    pub kind:   str,
+    pub kind:   &'d str,
     pub tag:    i64,
     pub vi:     i64,
-    pub vs:     str,
+    pub vs:     &'d str,
 }
 
 // The DEEM-SOURCEABLE form of the dynamic walk. A PROJECTION of

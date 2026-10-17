@@ -32,7 +32,7 @@ use logos.mem.string;
 // the encodable integer set (u64-castable cells; bool excluded in v0 —
 // its cast verdict rides the Canon column rules, not this adapter)
 fn ad_is_int(t: &SView) -> bool {
-    let names: [str; 10] = ["u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64",
+    let names: [&str; 10] = ["u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64",
                             "usize", "isize"];
     let mut i: i64 = 0i64;
     while i < 10i64 {

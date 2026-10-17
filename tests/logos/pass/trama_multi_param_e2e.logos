@@ -8,7 +8,7 @@
 //                    (str vs i64), and `{% for t in u.tags %}` follows the
 //                    `[str; 2]` field to bind `t: str` — ALL with zero
 //                    annotations.
-//   • `greeting: str` — a bare SCALAR/str param used DIRECTLY: `{{ greeting }}`
+//   • `greeting: &str` — a bare SCALAR/str param used DIRECTLY: `{{ greeting }}`
 //                    is the param itself, rendered as a string.
 //   • `count: i64` — a bare scalar param, rendered as an integer AND used in a
 //                    truthiness condition (`{% if count %}`).
@@ -30,7 +30,7 @@ struct User {
 }
 
 // Emits (shape):
-//   pub fn card(u: &User, greeting: str, count: i64) -> String {
+//   pub fn card(u: &User, greeting: &str, count: i64) -> String {
 //       let mut __out = String::new();
 //       __out.push_str(greeting); __out.push_str(", ");
 //       __out.push_str(u.name); __out.push_str(" (");
@@ -41,7 +41,7 @@ struct User {
 //       if (count != 0) { __out.push_str("!"); }
 //       return __out;
 //   }
-resource card = trama!(u: &User, greeting: str, count: i64){
+resource card = trama!(u: &User, greeting: &str, count: i64){
 `{{ greeting }}, {{ u.name }} ({{ u.age }}) tags:{% for t in u.tags %}{{ t }},{% endfor %} x{{ count }}{% if count %}!{% endif %}`  };
 
 fn streq_all(s: &String, want: str) -> bool {

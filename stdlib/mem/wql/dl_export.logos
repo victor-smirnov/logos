@@ -332,9 +332,9 @@ fn DX_MAX_ARITY() -> i64 { return 22i64; }
 // and apart from them its COLLECTION fields (`Vec<E>`, `[E; N]`, `&[E]` — what
 // a traversal step walks), each with its traversal kind (`field_traversal_kind`:
 // 1 = Vec, 2 = the slice/array family) and element type name.
-struct DxCols { pub n: i64, pub names: Vec<str>, pub tys: Vec<str>,
-                pub coll: Vec<str>, pub ckind: Vec<i32>, pub celem: Vec<str> }
-fn dx_struct_cols(view: &OView, tn: &str) -> DxCols {
+struct DxCols<'d> { pub n: i64, pub names: Vec<&'d str>, pub tys: Vec<&'d str>,
+                pub coll: Vec<&'d str>, pub ckind: Vec<i32>, pub celem: Vec<&'d str> }
+fn dx_struct_cols<'d>(view: &OView, tn: &'d str) -> DxCols<'d> {
     let mut c: DxCols = DxCols { n: 0i64, names: Vec::<&str>::new(), tys: Vec::<&str>::new(),
                                  coll: Vec::<&str>::new(), ckind: Vec::<i32>::new(), celem: Vec::<&str>::new() };
     if view.holder == (0 as *mut u8) { return c; }
@@ -378,19 +378,19 @@ fn dx_fieldless_enum(view: &OView, tn: &str) -> bool {
 }
 
 /// What the exporter knows about each source name of the program.
-pub struct DxEnv {
+pub struct DxEnv<'d> {
     pub n: i64,
-    pub src: Vec<str>,      // a source name (slice param or rel)
+    pub src: Vec<&'d str>,      // a source name (slice param or rel)
     pub cn: Vec<i64>,       // its column count, names and Logos types
-    pub cnames: Vec<Vec<str>>,
-    pub ctys: Vec<Vec<str>>,
-    pub scalars: Vec<str>,  // scalar param names
-    pub stys: Vec<str>,     // their Soufflé types
-    pub sltys: Vec<str>,    // and their Logos types
+    pub cnames: Vec<Vec<&'d str>>,
+    pub ctys: Vec<Vec<&'d str>>,
+    pub scalars: Vec<&'d str>,  // scalar param names
+    pub stys: Vec<&'d str>,     // their Soufflé types
+    pub sltys: Vec<&'d str>,    // and their Logos types
     pub ns: i64,
     // native sources left out of the fragment, and why (`dx_atom` reports it)
-    pub skn: Vec<str>,
-    pub skw: Vec<str>,
+    pub skn: Vec<&'d str>,
+    pub skw: Vec<&'d str>,
     // a source whose rows are SCALARS (a collection of `i64`, `str`, …): its one
     // value column is `v`, and its row var is read bare (`k`, not `k.v`)
     pub byval: Vec<bool>,
@@ -398,14 +398,14 @@ pub struct DxEnv {
     // the program): its name is `<parent>__<field>`, spelled where it is printed
     // and never stored (`src` is "" for it, so `dx_find` cannot match it)
     pub parent: Vec<i64>,
-    pub field: Vec<str>,
+    pub field: Vec<&'d str>,
     pub nsk: i64,
     // UDFs read as relations `udf_<name>(args…, result)` of the calls an oracle
     // build logged (`reflect::udf_oracle_kinds`): name, and dump kinds (one per
     // parameter, then the result's)
-    pub udf: Vec<str>,
+    pub udf: Vec<&'d str>,
     pub udfk: Vec<String>,
-    pub odir: str,          // the oracle directory, where `udf_<name>.facts` lives
+    pub odir: &'d str,          // the oracle directory, where `udf_<name>.facts` lives
 }
 
 // Add source `nm` with its columns.
@@ -482,30 +482,30 @@ fn dx_is_scalar(env: &DxEnv, nm: &str) -> bool {
 
 // One clause being built: the atoms (in order), the constraints, the scalar
 // params it names, and the row vars it binds (var → source index).
-struct DxClause {
+struct DxClause<'d> {
     pub body: String,
     pub ok: bool,
     pub nv: i64,
-    pub vars: Vec<str>,
+    pub vars: Vec<&'d str>,
     pub vsrc: Vec<i64>,
     pub nparams: i64,
-    pub params: Vec<str>,
+    pub params: Vec<&'d str>,
     // module / imported consts the clause reads (`c_<name>`, bound by `__c_<name>`)
-    pub consts: Vec<str>,
+    pub consts: Vec<&'d str>,
     // names an aggregate head binds (`key`, the aggregate outputs) → variable
     pub nal: i64,
-    pub al_names: Vec<str>,
-    pub al_vars: Vec<str>,
-    pub al_tys: Vec<str>,     // their Soufflé types (entry typing only)
-    pub al_kinds: Vec<str>,   // their dump kinds
+    pub al_names: Vec<&'d str>,
+    pub al_vars: Vec<&'d str>,
+    pub al_tys: Vec<&'d str>,     // their Soufflé types (entry typing only)
+    pub al_kinds: Vec<&'d str>,   // their dump kinds
     // after `group by`: a key component spelled `v.f` and its group variable —
     // the representative row's `v.f` IS that component's value in its group
-    pub kc_var: Vec<str>,
-    pub kc_fld: Vec<str>,
-    pub kc_out: Vec<str>,
+    pub kc_var: Vec<&'d str>,
+    pub kc_fld: Vec<&'d str>,
+    pub kc_out: Vec<&'d str>,
     // the first construct outside the fragment (`dl_export` writes it to
     // `<q>.skip`, and the gate counts the reasons)
-    pub why: str,
+    pub why: &'d str,
     // a UDF call may read its relation here (a plain clause: atoms and
     // constraints, no aggregate braces); `nudf` numbers its result variables
     pub udf_ok: bool,
@@ -554,11 +554,11 @@ fn dx_alias_add(cl: &mut DxClause, nm: &str, var: &str, ty: &str, kind: &str) {
 // by the index's digits) and its Datalog variable. Static spellings: a rel row
 // holds at most 12 columns, so a key has at most 12 components.
 fn dx_kdig(i: i64) -> &'static str {
-    let d: [str; 12] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"];
+    let d: [&str; 12] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"];
     return d[i];
 }
 fn dx_kvar(i: i64) -> &'static str {
-    let v: [str; 12] = ["gk0", "gk1", "gk2", "gk3", "gk4", "gk5", "gk6", "gk7", "gk8", "gk9", "gk10", "gk11"];
+    let v: [&str; 12] = ["gk0", "gk1", "gk2", "gk3", "gk4", "gk5", "gk6", "gk7", "gk8", "gk9", "gk10", "gk11"];
     return v[i];
 }
 fn dx_digits(n: &str) -> bool {
@@ -1277,9 +1277,9 @@ fn dx_is_id(c: u8) -> bool {
 
 // Occurrences of `v_…` tokens: the outer scope per token, each brace scope per
 // (token, scope).
-struct DxOcc {
-    pub no: i64, pub otok: Vec<str>, pub ocnt: Vec<i64>,
-    pub ni: i64, pub itok: Vec<str>, pub isc: Vec<i64>, pub icnt: Vec<i64>,
+struct DxOcc<'d> {
+    pub no: i64, pub otok: Vec<&'d str>, pub ocnt: Vec<i64>,
+    pub ni: i64, pub itok: Vec<&'d str>, pub isc: Vec<i64>, pub icnt: Vec<i64>,
 }
 
 fn dx_occ_add(o: &mut DxOcc, t: &str, sc: i64) {
@@ -1670,7 +1670,7 @@ fn dx_core_lit(p: &CProgram, cl: &mut DxClause, env: &DxEnv, lit: &CLit) -> bool
 
 // The entry's optional variables: the outer atom's, and for `full join` also
 // the source it is joined to (the body's first plain atom).
-fn dx_opt_vars(c: &CClause) -> Vec<&str> {
+fn dx_opt_vars<'d>(c: &CClause<'d>) -> Vec<&'d str> {
     let mut ov: Vec<&str> = Vec::<&str>::new();
     let bs: &[CLit] = c.body.as_slice();
     let mut first: &str = "";
@@ -1810,7 +1810,7 @@ fn dx_outer_atom(p: &CProgram, cl: &mut DxClause, env: &DxEnv, a: &CAtom) -> boo
 // 1 left kept, 2 right kept) and the absent side's columns, filled with a
 // constant of their type, keep one tuple per joined row; each aggregate's
 // argument is a value column, computed where the optional columns are known.
-struct DxOAgg { pub on: bool, pub kes: Vec<SExpr>, pub vals: Vec<SExpr>, pub lvars: Vec<str>, pub lsrc: Vec<i64> }
+struct DxOAgg<'d> { pub on: bool, pub kes: Vec<SExpr>, pub vals: Vec<SExpr>, pub lvars: Vec<&'d str>, pub lsrc: Vec<i64> }
 fn dx_oagg_none() -> DxOAgg {
     return DxOAgg { on: false, kes: Vec::<SExpr>::new(), vals: Vec::<SExpr>::new(), lvars: Vec::<&str>::new(), lsrc: Vec::<i64>::new() };
 }
@@ -2529,7 +2529,7 @@ fn dx_udf_idx(env: &DxEnv, name: &str) -> i64 {
 }
 
 // A UDF's result: its dump kind (the last of its kinds) and Soufflé type.
-fn dx_udf_kind(env: &DxEnv, i: i64) -> &str {
+fn dx_udf_kind<'d>(env: &DxEnv<'d>, i: i64) -> &'d str {
     let ks: &str = dx_view(&env.udfk.as_slice()[i]);
     let k: &str = dx_slice(ks, ks.len() - 1i64, ks.len());
     if str_eq(k, "i") { return "i"; }
@@ -2853,8 +2853,8 @@ fn dx_entry_vars(p: &CProgram, ru: &CRule, env: &DxEnv, cl: &mut DxClause) {
     }
 }
 
-struct DxLimit { pub first: bool, pub has: bool, pub n: i64, pub param: str }
-fn dx_entry_limit(ru: &CRule) -> DxLimit {
+struct DxLimit<'d> { pub first: bool, pub has: bool, pub n: i64, pub param: &'d str }
+fn dx_entry_limit<'d>(ru: &CRule<'d>) -> DxLimit<'d> {
     let mut l: DxLimit = DxLimit { first: false, has: false, n: 0i64, param: "" };
     match &ru.env.mode { CMode::First => { l.first = true; } CMode::All => { } CMode::Find => { return l; } }
     match &ru.env.limit {

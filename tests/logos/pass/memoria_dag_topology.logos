@@ -1,0 +1,86 @@
+// ADR 0039 M4: the in-memory model's history is a DAG — the port of deem.data's
+// data_dag_topology. Six commits fork a tree off one root:
+//     c0 ── c1 ── c3
+//      │     └─── c4
+//      └─── c2 ── c5
+// parents, children, roots and heads answer the shape, and each commit still
+// reads its own write. (deem.data had a GENESIS commit above c0; here the
+// first commit is the root.)
+// Prints ok iff every assertion holds; otherwise the first failure's code.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.std.fmt;
+
+container Ledger {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+
+fn has(v: &Vec<u64>, x: u64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < v.len() { if v.get(i) == x { return true; } i = i + 1i64; }
+    return false;
+}
+
+fn commit_with(st: &mut Arc<MemoryStore>, parent: u64, k: u64) -> u64 {
+    let s: Arc<dyn Snapshot> = if parent == 0u64 { store_fork_arc(st) } else { store_fork_from(st, parent).unwrap() };
+    {
+        let mut l = if parent == 0u64 { create_ctr::<typeof(Ledger)>(&s, 7u64) } else { open_ctr::<typeof(Ledger)>(&s, 7u64) };
+        l.insert(k, k * 2u64);
+    }
+    s.commit();
+    return s.snapshot_id();
+}
+
+fn run() -> i32 {
+    let mut st: Arc<MemoryStore> = store_new();
+    let c0: u64 = commit_with(&mut st, 0u64, 100u64);
+    let c1: u64 = commit_with(&mut st, c0, 101u64);
+    let c2: u64 = commit_with(&mut st, c0, 201u64);
+    let c3: u64 = commit_with(&mut st, c1, 301u64);
+    let c4: u64 = commit_with(&mut st, c1, 401u64);
+    let c5: u64 = commit_with(&mut st, c2, 501u64);
+
+    if store_parents(&st, c0).len() != 0i64 { return 20i32; }
+    { let p = store_parents(&st, c1); if p.len() != 1i64 || p.get(0i64) != c0 { return 21i32; } }
+    { let p = store_parents(&st, c5); if p.len() != 1i64 || p.get(0i64) != c2 { return 23i32; } }
+
+    { let ch = store_children_of(&st, c0); if ch.len() != 2i64 || !has(&ch, c1) || !has(&ch, c2) { return 30i32; } }
+    { let ch = store_children_of(&st, c1); if ch.len() != 2i64 || !has(&ch, c3) || !has(&ch, c4) { return 33i32; } }
+    { let ch = store_children_of(&st, c2); if ch.len() != 1i64 || ch.get(0i64) != c5 { return 36i32; } }
+    if store_children_of(&st, c3).len() != 0i64 { return 38i32; }
+    if store_children_of(&st, c4).len() != 0i64 { return 39i32; }
+    if store_children_of(&st, c5).len() != 0i64 { return 40i32; }
+
+    { let rs = store_roots(&st); if rs.len() != 1i64 || rs.get(0i64) != c0 { return 50i32; } }
+    { let hs = store_heads(&st); if hs.len() != 3i64 || !has(&hs, c3) || !has(&hs, c4) || !has(&hs, c5) { return 52i32; } }
+
+    let probes: [u64; 6] = [100u64, 101u64, 201u64, 301u64, 401u64, 501u64];
+    let cids: [u64; 6] = [c0, c1, c2, c3, c4, c5];
+    let mut i: i64 = 0i64;
+    while i < 6i64 {
+        let s: Arc<dyn Snapshot> = store_find(&mut st, cids[i]).unwrap();
+        let l = open_ctr::<typeof(Ledger)>(&s, 7u64);
+        if l.find(probes[i]).is_none() { return 60i32; }
+        i = i + 1i64;
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let r: i32 = run();
+    if r != 0i32 {
+        println!("FAIL memoria_dag_topology: diagnostic code {}", r);
+        return 1i32;
+    }
+    println!("ok");
+    return 0i32;
+}

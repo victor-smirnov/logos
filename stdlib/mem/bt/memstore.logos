@@ -90,6 +90,8 @@ pub const SNAP_DROPPED:   u32 = 2u32;
 pub struct SnapDesc {
     pub id: u64,
     parent: u64,             // the snapshot this one forked from (0 = root)
+    merged: Vec<u64>,        // a merge commit's further parents (D8), after `parent`
+    label: String,           // a human-readable note on the commit ("" = none)
     branch: String,          // the branch commit() advances (default "master")
     dir_root: MemBlockPtr,   // the directory container's root (a CoW dirmap tree)
     dir_level: u32,          // its level (grows as the directory splits)
@@ -680,8 +682,8 @@ impl MemoryStore {
             }
         }
         let d: *mut SnapDesc = box_into_raw(box_new(SnapDesc {
-            id: id, parent: parent, branch: String::from(branch),
-            dir_root: dr, dir_level: dl,
+            id: id, parent: parent, merged: vec_new::<u64>(), label: String::new(),
+            branch: String::from(branch), dir_root: dr, dir_level: dl,
             status: SNAP_ACTIVE, wrappers: atomic_i32_new(1),
         }));
         // LOCK POINT (v1): history-table insert vs concurrent find().
@@ -957,8 +959,116 @@ pub fn store_snapshot_parent(st: &Arc<MemoryStore>, id: u64) -> u64 {
     return unsafe { (*d).parent };
 }
 
+// Whether `id` is one of `d`'s parents — the fork parent or a merge parent.
+fn desc_has_parent(d: *mut SnapDesc, id: u64) -> bool {
+    unsafe {
+        if (*d).parent == id { return true; }
+        let n: i64 = (*d).merged.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            if (*d).merged.get(i) == id { return true; }
+            i = i + 1i64;
+        }
+    }
+    return false;
+}
+
+/// Every parent of a snapshot, the fork parent first, then a merge commit's
+/// further parents in the order given to `store_merge`. Empty for a root or an
+/// unknown id.
+pub fn store_parents(st: &Arc<MemoryStore>, id: u64) -> Vec<u64> {
+    let g: &MemoryStore = &**st;
+    let mut out: Vec<u64> = vec_new::<u64>();
+    let d: *mut SnapDesc = g.desc_of(id);
+    if d == (0 as *mut SnapDesc) { return out; }
+    unsafe {
+        if (*d).parent != 0u64 { out.push((*d).parent); }
+        let n: i64 = (*d).merged.len();
+        let mut i: i64 = 0i64;
+        while i < n { out.push((*d).merged.get(i)); i = i + 1i64; }
+    }
+    return out;
+}
+
+/// A select-one merge (ADR 0039 D8; ADR 0017 D2 v0): a new committed snapshot
+/// whose state is `winner`'s — it shares the winner's directory — with
+/// `winner` as its first parent and each of `losers` as a further parent, so
+/// the merged-away lines stay reachable in the history. No branch moves; the
+/// caller points one at the result. Every parent must be committed.
+pub fn store_merge(st: &mut Arc<MemoryStore>, winner: u64, losers: &Vec<u64>) -> u64 {
+    let g: &mut MemoryStore = unsafe { store_mut(&*st) };
+    assert(store_desc_committed(g, winner), "store_merge: the winner must be a committed snapshot");
+    let n: i64 = losers.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        assert(store_desc_committed(g, losers.get(i)), "store_merge: every loser must be a committed snapshot");
+        i = i + 1i64;
+    }
+    let br: String = unsafe { String::from((*g.desc_of(winner)).branch.as_str()) };
+    let d: *mut SnapDesc = g.fork_desc(winner, br.as_str());
+    unsafe {
+        let mut j: i64 = 0i64;
+        while j < n { (*d).merged.push(losers.get(j)); j = j + 1i64; }
+        (*d).status = SNAP_COMMITTED;
+        (*d).wrappers.store(0i32);           // no wrapper was minted
+        return (*d).id;
+    }
+}
+
+fn store_desc_committed(g: &MemoryStore, id: u64) -> bool {
+    let d: *mut SnapDesc = g.desc_of(id);
+    return d != (0 as *mut SnapDesc) && unsafe { (*d).status } == SNAP_COMMITTED;
+}
+
+/// Attach a label to a snapshot, replacing any earlier one.
+pub fn store_set_label(st: &mut Arc<MemoryStore>, id: u64, label: &str) {
+    let g: &mut MemoryStore = unsafe { store_mut(&*st) };
+    let d: *mut SnapDesc = g.desc_of(id);
+    assert(d != (0 as *mut SnapDesc), "store_set_label: unknown snapshot id");
+    unsafe { (*d).label = String::from(label); }
+}
+
+/// A snapshot's label ("" when unset or the id is unknown).
+pub fn store_label(st: &Arc<MemoryStore>, id: u64) -> String {
+    let g: &MemoryStore = &**st;
+    let d: *mut SnapDesc = g.desc_of(id);
+    if d == (0 as *mut SnapDesc) { return String::new(); }
+    return unsafe { String::from((*d).label.as_str()) };
+}
+
+/// The first-parent chain from `from` to its root, inclusive, newest first
+/// (`git log --first-parent`).
+pub fn store_log(st: &Arc<MemoryStore>, from: u64) -> Vec<u64> {
+    let g: &MemoryStore = &**st;
+    let mut out: Vec<u64> = vec_new::<u64>();
+    let mut cur: u64 = from;
+    while cur != 0u64 {
+        let d: *mut SnapDesc = g.desc_of(cur);
+        if d == (0 as *mut SnapDesc) { break; }
+        out.push(cur);
+        cur = unsafe { (*d).parent };
+    }
+    return out;
+}
+
+/// The committed snapshots with no parent — every root of the history.
+pub fn store_roots(st: &Arc<MemoryStore>) -> Vec<u64> {
+    let g: &MemoryStore = &**st;
+    let mut out: Vec<u64> = vec_new::<u64>();
+    let n: i64 = g.snaps.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let d: *mut SnapDesc = g.snaps.get(i) as *mut SnapDesc;
+        unsafe {
+            if (*d).parent == 0u64 && (*d).status == SNAP_COMMITTED { out.push((*d).id); }
+        }
+        i = i + 1i64;
+    }
+    return out;
+}
+
 /// The direct children of a snapshot (Memoria `children_of`): every descriptor
-/// whose parent is `id`.
+/// with `id` among its parents (a merge commit is a child of each).
 pub fn store_children_of(st: &Arc<MemoryStore>, id: u64) -> Vec<u64> {
     let g: &MemoryStore = &**st;
     let mut out: Vec<u64> = vec_new::<u64>();
@@ -966,7 +1076,7 @@ pub fn store_children_of(st: &Arc<MemoryStore>, id: u64) -> Vec<u64> {
     let mut i: i64 = 0i64;
     while i < n {
         let d: *mut SnapDesc = g.snaps.get(i) as *mut SnapDesc;
-        if unsafe { (*d).parent } == id { out.push(unsafe { (*d).id }); }
+        if desc_has_parent(d, id) { out.push(unsafe { (*d).id }); }
         i = i + 1i64;
     }
     return out;
@@ -1005,7 +1115,7 @@ pub fn store_heads(st: &Arc<MemoryStore>) -> Vec<u64> {
             while j < n {
                 let e: *mut SnapDesc = g.snaps.get(j) as *mut SnapDesc;
                 unsafe {
-                    if (*e).parent == id && (*e).status == SNAP_COMMITTED { has_child = true; }
+                    if desc_has_parent(e, id) && (*e).status == SNAP_COMMITTED { has_child = true; }
                 }
                 j = j + 1i64;
             }
@@ -1108,7 +1218,7 @@ impl MemoryStore {
         while i < n {
             let d: *mut SnapDesc = self.snaps.get(i) as *mut SnapDesc;
             unsafe {
-                if (*d).parent == id && (*d).status == SNAP_COMMITTED { return true; }
+                if desc_has_parent(d, id) && (*d).status == SNAP_COMMITTED { return true; }
             }
             i = i + 1i64;
         }
@@ -1153,7 +1263,7 @@ impl Store for MemoryStore {}
 // inc per restored reference, plus one per snapshot's directory-root hold).
 
 pub const STORE_MAGIC:   u64 = 0x4C4F474F534D454Du64;   // "LOGOSMEM"
-pub const STORE_FORMAT:  u32 = 1u32;
+pub const STORE_FORMAT:  u32 = 2u32;   // 2: merge parents + label per snapshot
 
 // Walk from `bp`, assigning a dense id to every block on first visit. Purely
 // slot-driven: a node DECLARES where its refs are, so this needs no level and
@@ -1289,6 +1399,15 @@ pub fn store_save<W: OutStream>(st: &Arc<MemoryStore>, out: &mut W) -> bool {
                 let bn: &str = (*d).branch.as_str();
                 if !out.write_u32(bn.len() as u32) { return false; }
                 if !out.write_all(bn.as_ptr(), bn.len()) { return false; }
+                if !out.write_u32((*d).merged.len() as u32) { return false; }
+                let mut j: i64 = 0i64;
+                while j < (*d).merged.len() {
+                    if !out.write_u64((*d).merged.get(j)) { return false; }
+                    j = j + 1i64;
+                }
+                let lb: &str = (*d).label.as_str();
+                if !out.write_u32(lb.len() as u32) { return false; }
+                if !out.write_all(lb.as_ptr(), lb.len()) { return false; }
                 i = i + 1i64;
             }
         }
@@ -1365,11 +1484,23 @@ pub fn store_load<R: InStream>(inp: &mut R) -> Option<Arc<MemoryStore>> {
                     bname.push_bytes(tmp as *const u8, blen as i64);
                     dealloc(tmp);
                 }
+                let mcount: u32 = inp.read_u32();
+                let mut merged: Vec<u64> = vec_new::<u64>();
+                let mut j: u32 = 0u32;
+                while j < mcount { merged.push(inp.read_u64()); j = j + 1u32; }
+                let llen: u32 = inp.read_u32();
+                let mut label: String = String::new();
+                {
+                    let tmp: *mut u8 = alloc(llen as i64 + 1i64);
+                    if !inp.read_all(tmp, llen as i64) { dealloc(tmp); return Option::None; }
+                    label.push_bytes(tmp as *const u8, llen as i64);
+                    dealloc(tmp);
+                }
                 assert(rid >= 1u64 && rid <= (addrs.len() as u64), "store_load: bad root id");
                 let root: MemBlockPtr = block_from_addr(addrs.get((rid - 1u64) as i64) as *mut u8);
                 root.inc_rc();                      // the snapshot's own hold
                 let d: *mut SnapDesc = box_into_raw(box_new(SnapDesc {
-                    id: id, parent: parent, branch: bname,
+                    id: id, parent: parent, merged: merged, label: label, branch: bname,
                     dir_root: root, dir_level: dlv,
                     status: status, wrappers: atomic_i32_new(0),
                 }));

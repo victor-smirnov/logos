@@ -20182,13 +20182,19 @@ sym	logos_mem.logos.mem.bt.memstore$store_fork_arc__f__refmut_Arc$M682c15861bb22
 sym	logos_mem.logos.mem.bt.memstore$store_fork_branch__f__refmut_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46__slice_str
 sym	logos_mem.logos.mem.bt.memstore$store_fork_from__f__refmut_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46__u64
 sym	logos_mem.logos.mem.bt.memstore$store_heads__f__ref_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46
+sym	logos_mem.logos.mem.bt.memstore$store_label__f__ref_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46__u64
 sym	logos_mem.logos.mem.bt.memstore$store_linear_history__f__ref_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46__u64__u64
+sym	logos_mem.logos.mem.bt.memstore$store_log__f__ref_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46__u64
 sym	logos_mem.logos.mem.bt.memstore$store_master__f__refmut_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46
+sym	logos_mem.logos.mem.bt.memstore$store_merge__f__refmut_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46__u64__ref_Vec$M4edea24aa4768b45$G1$u64
 sym	logos_mem.logos.mem.bt.memstore$store_new__f__void
 sym	logos_mem.logos.mem.bt.memstore$store_pack__f__refmut_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46
+sym	logos_mem.logos.mem.bt.memstore$store_parents__f__ref_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46__u64
 sym	logos_mem.logos.mem.bt.memstore$store_remove_branch__f__refmut_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46__slice_str
 sym	logos_mem.logos.mem.bt.memstore$store_root_id__f__ref_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46
+sym	logos_mem.logos.mem.bt.memstore$store_roots__f__ref_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46
 sym	logos_mem.logos.mem.bt.memstore$store_set_branch__f__refmut_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46__slice_str__u64
+sym	logos_mem.logos.mem.bt.memstore$store_set_label__f__refmut_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46__u64__slice_str
 sym	logos_mem.logos.mem.bt.memstore$store_set_master__f__refmut_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46__u64
 sym	logos_mem.logos.mem.bt.memstore$store_snapshot_parent__f__ref_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46__u64
 sym	logos_mem.logos.mem.bt.memstore$store_snapshot_status__f__ref_Arc$M682c15861bb226ff$G1$MemoryStore$M56fcb7879b553d46__u64
@@ -21248,7 +21254,7 @@ type	logos.mem.bt.memstore.BranchRef	fields=[name:String,tip:u64]
 type	logos.mem.bt.memstore.MemBlocks	fields=[snp:u64]
 type	logos.mem.bt.memstore.MemorySnapshot	fields=[desc:*mut SnapDesc,store:Arc<MemoryStore>]
 type	logos.mem.bt.memstore.MemoryStore	fields=[next_id:u64,snaps:Vec<u64>,branches:Vec<BranchRef>]
-type	logos.mem.bt.memstore.SnapDesc	fields=[id:u64,parent:u64,branch:String,dir_root:MemBlockPtr,dir_level:u32,status:u32,wrappers:AtomicI32]
+type	logos.mem.bt.memstore.SnapDesc	fields=[id:u64,parent:u64,merged:Vec<u64>,label:String,branch:String,dir_root:MemBlockPtr,dir_level:u32,status:u32,wrappers:AtomicI32]
 type	logos.mem.bt.node.CowProfile	fields=[]
 type	logos.mem.bt.ops.BtCur	fields=[found:bool,leaf:*mut u8,idx:u32,pos:u64]
 type	logos.mem.bt.ops.BtInsRet	fields=[ok:bool,addr:*mut u8,lsep:K,lcnt:[u64; N],split:bool,rsep:K,rcnt:[u64; N],rptr:*mut u8]

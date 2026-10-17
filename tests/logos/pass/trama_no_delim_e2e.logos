@@ -8,7 +8,7 @@ use logos.lang.str;
 
 struct User { pub name: str, pub role: str }
 
-resource greet = trama!(u: &User, greeting: str){
+resource greet = trama!(u: &User, greeting: &str){
 {{ greeting }}, {{ upper(u.name) }}! [{% if u.role == "eng" %}eng{% else %}other{% endif %}]
 };
 

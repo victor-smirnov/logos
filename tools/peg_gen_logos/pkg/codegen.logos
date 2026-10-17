@@ -709,7 +709,7 @@ fn gp_ident_byte(c: u8) -> bool {
 // rewrite a token START, never a substring of a longer identifier). `TK_` is
 // itself an identifier START (the token consts are `TK_<NAME>`), so this also
 // correctly prefixes the whole `TK_...` family via the 3-byte `TK_` token.
-fn gp_match_at(src: str, i: i64, prev_is_ident: bool, name: str) -> bool {
+fn gp_match_at(src: &str, i: i64, prev_is_ident: bool, name: str) -> bool {
     if prev_is_ident { return false; }
     let n: i64 = name.len();
     if i + n > src.len() { return false; }
@@ -722,7 +722,7 @@ fn gp_match_at(src: str, i: i64, prev_is_ident: bool, name: str) -> bool {
 }
 
 // Whole-identifier textual prefixing of the four module-global names.
-fn apply_gprefix(src: str, gp: str) -> String {
+fn apply_gprefix(src: &str, gp: str) -> String {
     let mut out: String = String::new();
     let n: i64 = src.len();
     let mut i: i64 = 0i64;
@@ -1318,12 +1318,12 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     // [0, src.len()]), not a HashMap — no hash / slot-probe / key-compare per peek.
     // endpos < 0 is the "not yet lexed" sentinel.
     if cg.uses_raw_text {
-        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token, pub base: i64 }");
+        w.line("pub struct Lexer<'s> { pub src: &'s str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token, pub base: i64 }");
     } else {
-        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token, pub base: i64 }");
+        w.line("pub struct Lexer<'s> { pub src: &'s str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token, pub base: i64 }");
     }
     w.blank();
-    w.line("pub fn lexer_new(src: str) -> Lexer {");
+    w.line("pub fn lexer_new(src: &str) -> Lexer {");
     w.line("    let mut tb: Vec<TokCell> = vec_new::<TokCell>();");
     if cg.uses_raw_text {
         w.line("    let sent: TokCell = TokCell { tk: 0i32, tstart: 0i64, tlen: 0i64, tline: 0i64, endpos: 0i64 - 1i64, endline: 0i64, intag_after: false };");
@@ -1348,8 +1348,8 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("fn lx_is_alnum(c: u8) -> bool { return lx_is_alpha(c) || lx_is_digit(c); }");
     w.line("fn lx_is_hex(c: u8) -> bool { return lx_is_digit(c) || (c >= 65u8 && c <= 70u8) || (c >= 97u8 && c <= 102u8); }");
     w.blank();
-    w.line("impl Lexer {");
-    w.line("    fn cur(self: &Lexer, off: i64) -> u8 {");
+    w.line("impl Lexer<'_> {");
+    w.line("    fn cur(self: &Self, off: i64) -> u8 {");
     w.line("        let p: i64 = self.pos + off;");
     w.line("        if p < 0i64 || p >= self.src.len() { return 0u8; }");
     w.line("        return unsafe { self.src.as_ptr()[p] };");
@@ -1358,7 +1358,7 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("    // consumed one (max over backtracking) for error reporting —");
     w.line("    // the mirror of the C++ backend's furthest_. After a failed");
     w.line("    // parse, `far.line`/far.start/far.len name where it died.");
-    w.line("    pub fn next(self: &mut Lexer) -> Token {");
+    w.line("    pub fn next(self: &mut Self) -> Token {");
     w.line("        let t: Token = if self.have_la { self.have_la = false; self.la } else { self.lex_one() };");
     w.line("        if t.kind != TK_EOF && (t.line > self.far.line || (t.line == self.far.line && t.start >= self.far.start)) {");
     w.line("            self.far = t;");
@@ -1366,33 +1366,33 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("        return t;");
     w.line("    }");
     w.line("    // Look at the next token without consuming.");
-    w.line("    pub fn peek(self: &mut Lexer) -> Token {");
+    w.line("    pub fn peek(self: &mut Self) -> Token {");
     w.line("        if !self.have_la { self.la = self.lex_one(); self.have_la = true; }");
     w.line("        return self.la;");
     w.line("    }");
-    w.line("    pub fn at_eof(self: &mut Lexer) -> bool { return self.peek().kind == TK_EOF; }");
+    w.line("    pub fn at_eof(self: &mut Self) -> bool { return self.peek().kind == TK_EOF; }");
     w.line("    // The (pos, line, have_la) triple is the full backtrack state.");
-    w.line("    pub fn save_pos(self: &Lexer) -> i64 {");
+    w.line("    pub fn save_pos(self: &Self) -> i64 {");
     w.line("        // When a lookahead is buffered, the logical position is the start of");
     w.line("        // that token; otherwise it is `pos`. Encode have_la in the high bit-");
     w.line("        // free way: callers pair save_pos with save_line and restore via reset.");
     w.line("        if self.have_la { return self.la.start; }");
     w.line("        return self.pos;");
     w.line("    }");
-    w.line("    pub fn save_line(self: &Lexer) -> i64 {");
+    w.line("    pub fn save_line(self: &Self) -> i64 {");
     w.line("        if self.have_la { return self.la.line; }");
     w.line("        return self.line;");
     w.line("    }");
-    w.line("    pub fn reset(self: &mut Lexer, p: i64, ln: i64) {");
+    w.line("    pub fn reset(self: &mut Self, p: i64, ln: i64) {");
     w.line("        self.pos = p; self.line = ln; self.have_la = false;");
     w.line("    }");
     w.line("    // Match a specific token kind; on match consume + return true.");
-    w.line("    pub fn try_tok(self: &mut Lexer, kind: i32) -> bool {");
+    w.line("    pub fn try_tok(self: &mut Self, kind: i32) -> bool {");
     w.line("        if self.peek().kind == kind { self.next(); return true; }");
     w.line("        return false;");
     w.line("    }");
     w.line("    // Consume a trailing numeric type suffix (i/u/s/f/d + digits), conservatively.");
-    w.line("    fn scan_num_suffix(self: &mut Lexer) {");
+    w.line("    fn scan_num_suffix(self: &mut Self) {");
     if grammar_has_usize_suffix(cg) {
         // Only grammars whose INTEGER pattern lists `usize`/`isize` get the
         // whole-word match (the loose scan below stops at 'z'); for grammars
@@ -1411,7 +1411,7 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     emit_pseudo_helpers(cg, w);
     // Token-stream cache wrapper around the real scanner (lex_one_raw). On a cache
     // hit, restore the post-token (pos,line) and rebuild the Token — no re-scan.
-    w.line("    fn lex_one(self: &mut Lexer) -> Token {");
+    w.line("    fn lex_one(self: &mut Self) -> Token {");
     w.line("        let k: i64 = self.pos;");
     w.line("        let c: TokCell = self.tbuf.get(k);");
     if cg.uses_raw_text {
@@ -1445,7 +1445,7 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     // is stored into a node / pushed to an array.
     w.line("const NULLP: *const u8 = 0i64 as *const u8;");
     w.line("// Intern a str into the arena; return the raw WString pointer (0 never).");
-    w.line("fn wstr_p(doc: &Writ, s: str) -> *const u8 {");
+    w.line("fn wstr_p(doc: &Writ, s: &str) -> *const u8 {");
     w.line("    let ws: &WString = doc.wstring(s);");
     w.line("    return ws as *const WString as *const u8;");
     w.line("}");
@@ -1529,7 +1529,7 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
         w.line("    let s: &str = wstr_as_str(p);");
         w.line("    let n: i64 = s.len();");
         w.line("    if n < 2i64 { return wstr_p(doc, s); }");
-        w.line("    let inner: str = unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };");
+        w.line("    let inner: &str = unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };");
         w.line("    return wstr_p(doc, inner);");
         w.line("}");
         if cg.uses_embed { emit_embed_helper(cg, w); }
@@ -1615,7 +1615,7 @@ fn emit_embed_call(cg: &mut Codegen, w: &mut CodeWriter, iname: str, gram: str, 
     // Slice the expression bytes and sub-parse into the shared arena.
     let mut esl: String = String::new();
     esl.push_str("let esub_"); esl.push_str(sfx);
-    esl.push_str(": str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_");
+    esl.push_str(": &str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_");
     esl.push_str(sfx); esl.push_str(") as *const u8, eend_"); esl.push_str(sfx);
     esl.push_str(" - est_"); esl.push_str(sfx); esl.push_str(") };");
     w.line(esl.as_str());
@@ -1656,7 +1656,7 @@ fn emit_kw_embed_helper(cg: &mut Codegen, w: &mut CodeWriter) {
     w.blank();
     w.line("// Is a structural keyword at byte `p` (word boundary on both sides)? The");
     w.line("// keyword-delimited embed's stop set — every alpha-keyword token.");
-    w.line("fn embed_at_kw(src: str, p: i64, len: i64) -> bool {");
+    w.line("fn embed_at_kw(src: &str, p: i64, len: i64) -> bool {");
     w.line("    let before: u8 = if p > 0i64 { str_byte_at(src, p - 1i64) } else { 32u8 };");
     w.line("    if lx_is_alnum(before) { return false; }");
     // One `kw_try` block per keyword literal: match the bytes + a trailing word
@@ -1693,7 +1693,7 @@ fn emit_kw_embed_helper(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("// INSIDE a call / comprehension are NOT stops. EOI is a valid stop (the last");
     w.line("// clause). Mirrors the hand QLexer's take_until_kw / take_until_colon /");
     w.line("// take_until_any3 / aggregate-arg depth-balancing, unified into one scan.");
-    w.line("fn embed_find_close(src: str, pos: i64, len: i64) -> i64 {");
+    w.line("fn embed_find_close(src: &str, pos: i64, len: i64) -> i64 {");
     w.line("    let mut p: i64 = pos;");
     w.line("    let mut depth: i64 = 0i64;   // () and [] nesting");
     w.line("    let mut tern: i64 = 0i64;    // '?' opened, closed by ':'");
@@ -1746,7 +1746,7 @@ fn emit_embed_helper(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("// close-tag delimiter (}} / %}) at/after `pos`; -1 if none. The embedded");
     w.line("// expression occupies [pos, close) (a trailing `-` trim marker excluded");
     w.line("// by the caller). Mirrors the hand TrParser's find_close_expr/stmt.");
-    w.line("fn embed_find_close(src: str, pos: i64, len: i64) -> i64 {");
+    w.line("fn embed_find_close(src: &str, pos: i64, len: i64) -> i64 {");
     w.line("    let mut p: i64 = pos;");
     w.line("    while p + 1i64 < len {");
     // Build the disjunction of close pairs from the grammar's 2-byte `}`-literals.
@@ -1787,7 +1787,7 @@ fn emit_embed_helper(cg: &mut Codegen, w: &mut CodeWriter) {
 //     return a Token spanning the RAW inner source (start<0 = no match / unbalanced).
 fn emit_pseudo_helpers(cg: &mut Codegen, w: &mut CodeWriter) {
     if cg.uses_gt_type {
-        w.line("    pub fn try_token_gt(self: &mut Lexer) -> bool {");
+        w.line("    pub fn try_token_gt(self: &mut Self) -> bool {");
         w.line("        let t: Token = self.peek();");
         w.line("        if t.kind == TK_GT { self.next(); return true; }");
         w.line("        if t.kind == TK_SHR {");
@@ -1800,7 +1800,7 @@ fn emit_pseudo_helpers(cg: &mut Codegen, w: &mut CodeWriter) {
         w.line("    }");
     }
     if cg.uses_lt_type {
-        w.line("    pub fn try_token_lt(self: &mut Lexer) -> bool {");
+        w.line("    pub fn try_token_lt(self: &mut Self) -> bool {");
         w.line("        let t: Token = self.peek();");
         w.line("        if t.kind == TK_LT { self.next(); return true; }");
         w.line("        if t.kind == TK_SHL {");
@@ -1825,7 +1825,7 @@ fn emit_pseudo_helpers(cg: &mut Codegen, w: &mut CodeWriter) {
 fn emit_one_raw_group(w: &mut CodeWriter, kind: str, open_tok: str) {
     let mut sig: String = String::new();
     sig.push_str("    pub fn try_raw_group_"); sig.push_str(kind);
-    sig.push_str("(self: &mut Lexer) -> Token {");
+    sig.push_str("(self: &mut Self) -> Token {");
     w.line(sig.as_str());
     w.line("        let sp: i64 = self.save_pos();");
     w.line("        let sln: i64 = self.save_line();");
@@ -1892,7 +1892,7 @@ fn emit_one_raw_group(w: &mut CodeWriter, kind: str, open_tok: str) {
 // through to TK_INVALID.
 fn emit_lex_one(cg: &mut Codegen, w: &mut CodeWriter) {
     if cg.uses_raw_text { emit_lex_one_template(cg, w); return; }
-    w.line("    fn lex_one_raw(self: &mut Lexer) -> Token {");
+    w.line("    fn lex_one_raw(self: &mut Self) -> Token {");
     w.line("        // Skip whitespace and // line / /* */ block comments.");
     w.line("        loop {");
     w.line("            let c: u8 = self.cur(0i64);");
@@ -1975,7 +1975,7 @@ fn lit_is_trim_open(pat: str, x: u8) -> bool {
 // (emit_embed_call), which leaves the cursor at the close delimiter still in TAG
 // mode. This is the mode-switch the single-mode `/[^X]+/` byte-class lacks.
 fn emit_lex_one_template(cg: &mut Codegen, w: &mut CodeWriter) {
-    w.line("    fn lex_one_raw(self: &mut Lexer) -> Token {");
+    w.line("    fn lex_one_raw(self: &mut Self) -> Token {");
     w.line("        if self.in_tag {");
     // ── TAG mode ──
     w.line("            // TAG mode: skip tag-interior whitespace, then match tokens.");
@@ -4234,12 +4234,12 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
             // Schema-emission + external arena: the caller (a wql!/trama! handler)
             // owns the `&Writ`; the parser builds schema views into it and returns
             // the root node's erased ref handle (WAny) for the caller to view::<S>().
-            w.l3("pub fn parse_", e.as_str(), "(src: str, doc: &Writ) -> WAny {");
+            w.l3("pub fn parse_", e.as_str(), "(src: &str, doc: &Writ) -> WAny {");
             w.l3("    return parse_", e.as_str(), "_at(src, doc, 0i64);");
             w.line("}");
             // The same, over a sub-range of an outer text that starts at byte
             // `base` there — what an embedding grammar calls.
-            w.l3("pub fn parse_", e.as_str(), "_at(src: str, doc: &Writ, base: i64) -> WAny {");
+            w.l3("pub fn parse_", e.as_str(), "_at(src: &str, doc: &Writ, base: i64) -> WAny {");
             w.line("    let mut lex: Lexer = lexer_new(src);");
             w.line("    lex.base = base;");
             w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, doc);");
@@ -4258,7 +4258,7 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
             // scalar return cannot borrow, so the caller's root local is not
             // pinned to the out-borrow (elision would tie a returned WAny to
             // every ref param and lock the caller out of `far`).
-            w.l3("pub fn parse_", e.as_str(), "_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {");
+            w.l3("pub fn parse_", e.as_str(), "_far(src: &str, doc: &Writ, out_root: &mut WAny) -> i64 {");
             w.line("    let mut lex: Lexer = lexer_new(src);");
             w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, doc);");
             w.line("    if !lex.at_eof() { *out_root = WAny::ref_to(NULLP); return lex.far.line; }");
@@ -4266,7 +4266,7 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
             w.line("    return lex.far.line;");
             w.line("}");
         } else {
-            w.l3("pub fn parse_", e.as_str(), "(src: str) -> Writ {");
+            w.l3("pub fn parse_", e.as_str(), "(src: &str) -> Writ {");
             w.line("    let doc: Writ = writ_new(1048576i64);");
             w.line("    let mut lex: Lexer = lexer_new(src);");
             w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, &doc);");

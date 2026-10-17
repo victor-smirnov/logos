@@ -116,7 +116,7 @@ fn type_finish(ty: &mut ElTypes, view: &OView, prm: &MacroParams, comp_sel: WAny
 
 /// The variables of a core clause, typed from its resolved atoms. `to_trav`:
 /// stop at the first traversal (the planner's view — see `plan_decide_chain`).
-pub fn type_clause(view: &OView, prm: &MacroParams, cl: &CClause, to_trav: bool) -> ElTypes {
+pub fn type_clause<'d>(view: &OView, prm: &MacroParams<'d>, cl: &CClause<'d>, to_trav: bool) -> ElTypes<'d> {
     let mut ty: ElTypes = el_types_new();
     let bs: &[CLit] = cl.body.as_slice();
     let mut i: i64 = 0i64;
@@ -452,15 +452,15 @@ pub fn clause_vars(cl: &CClause, vars: &mut Vec<&str>, tys: &mut Vec<&str>) {
 // facts about the clause, read by the emitter and the checker alike.
 
 /// Per aggregate of a group, in declaration order.
-pub struct GroupTy {
+pub struct GroupTy<'d> {
     pub flt:     Vec<bool>,   // the result is a float
     pub cast:    Vec<bool>,   // an integer argument is cast into the float result
     pub uda:     Vec<bool>,   // a user aggregate (`X_init` / `X_step` [/ `X_fin`])
     pub uda_fin: Vec<bool>,
-    pub uda_acc: Vec<str>,
-    pub uda_ret: Vec<str>,
-    pub acc:     Vec<str>,    // the accumulator's type ("" for a user aggregate)
-    pub act:     Vec<str>,    // the finalized column's type
+    pub uda_acc: Vec<&'d str>,
+    pub uda_ret: Vec<&'d str>,
+    pub acc:     Vec<&'d str>,    // the accumulator's type ("" for a user aggregate)
+    pub act:     Vec<&'d str>,    // the finalized column's type
 }
 
 /// Type the aggregates of a group over `t`, and record each output name's

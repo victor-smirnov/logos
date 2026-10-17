@@ -30,11 +30,11 @@ extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 // ── the core ───────────────────────────────────────────────────────────────
 
 /// What a positive or negated atom reads.
-pub enum CSrc {
+pub enum CSrc<'d> {
     /// A rel of the program, by its index in `CProgram.rels`.
     Rel(i64),
     /// A source parameter (slice, native source, mapping-bound param).
-    Param(str),
+    Param(&'d str),
     /// The one-row relation a FROM-less `select` reads.
     Unit,
 }
@@ -61,17 +61,17 @@ pub fn clause_outer_count(cl: &CClause) -> i64 {
     return n;
 }
 
-pub struct CAtom {
-    pub src: CSrc,
+pub struct CAtom<'d> {
+    pub src: CSrc<'d>,
     /// The source's index in the walker's registry (`MacroParams.rel_srcs`) in
     /// a PLANNED core (ADR 0031 R4.0, `typing::core_resolve`), -1 otherwise or
     /// for a slice parameter.
     pub reg: i64,
     /// The source as the program spells it (a planned core: the plan's
     /// emitted name for a rel, `typing::core_bind_sources`).
-    pub name: str,
-    pub var: str,
-    pub row_ty: str,
+    pub name: &'d str,
+    pub var: &'d str,
+    pub row_ty: &'d str,
     pub neg: bool,
     /// An OUTER step: 0 inner, OUTER_LEFT (`left join`), OUTER_FULL (`full join`).
     /// Its `on` rides in `conds`, as an anti step's does: the match is its scope.
@@ -87,14 +87,14 @@ pub struct CAtom {
 
 /// A traversal: binds `var` to each element reached from the row bound to
 /// `base` along `path` (`join n.kids k`). Negated = an anti traversal.
-pub struct CTrav {
+pub struct CTrav<'d> {
     /// The source expression the emitters scan for the collection (`d.emps`),
     /// in a planned core (`typing::core_resolve`).
-    pub name: str,
-    pub base: str,
-    pub path: Vec<str>,
-    pub var: str,
-    pub row_ty: str,
+    pub name: &'d str,
+    pub base: &'d str,
+    pub path: Vec<&'d str>,
+    pub var: &'d str,
+    pub row_ty: &'d str,
     pub neg: bool,
     pub outer: i32,
     pub conds: Vec<WAny>,
@@ -113,51 +113,51 @@ pub struct CCond {
     pub site: CSite,
 }
 
-pub enum CLit {
-    Atom(CAtom),
-    Trav(CTrav),
+pub enum CLit<'d> {
+    Atom(CAtom<'d>),
+    Trav(CTrav<'d>),
     Cond(CCond),
 }
 
-pub struct CAgg {
-    pub name: str,
-    pub func: str,
+pub struct CAgg<'d> {
+    pub name: &'d str,
+    pub func: &'d str,
     pub arg: Option<WAny>,
 }
 
 /// `group by key`, the aggregates over each group, and `having` over the
 /// group's row. At most one per clause; aggregates live only here.
-pub struct CGroup {
+pub struct CGroup<'d> {
     pub key: WAny,
-    pub aggs: Vec<CAgg>,
+    pub aggs: Vec<CAgg<'d>>,
     pub having: Option<WAny>,
 }
 
-pub struct CClause {
+pub struct CClause<'d> {
     /// The projected row (`select …`). Null only in `Find` mode, whose answer
     /// is the row bound by the first atom.
     pub head: WAny,
-    pub body: Vec<CLit>,
-    pub group: Option<CGroup>,
+    pub body: Vec<CLit<'d>>,
+    pub group: Option<CGroup<'d>>,
     /// A graph path (`from g .a ** .b v …`), not yet lowered into its join
     /// chain; None otherwise. Only the lowering sets it,
     /// `crewrite::core_desugar_gpaths` lowers and clears it, and `core_verify`
     /// refuses a clause that still carries one (ADR 0031 R3.4).
-    pub gpath: Option<Vec<CPathStep>>,
+    pub gpath: Option<Vec<CPathStep<'d>>>,
 }
 
 /// One step of a graph path: `.key`, `[N]`, `[*]`, `*`, `**`, `{kind}`, each
 /// optionally binding its edge row.
-pub struct CPathStep {
+pub struct CPathStep<'d> {
     pub is_key: bool,
     pub is_elem: bool,
     pub is_at: bool,
     pub is_desc: bool,
     pub is_kind: bool,
-    pub key: str,
+    pub key: &'d str,
     pub idx: i64,
     pub has_binder: bool,
-    pub binder: str,
+    pub binder: &'d str,
 }
 
 fn lower_path(gp: WAny) -> Option<Vec<CPathStep>> {
@@ -173,20 +173,20 @@ fn lower_path(gp: WAny) -> Option<Vec<CPathStep>> {
     return Option::Some(v);
 }
 
-pub struct CCol {
-    pub name: str,
-    pub ty: str,
+pub struct CCol<'d> {
+    pub name: &'d str,
+    pub ty: &'d str,
 }
 
-pub struct CRel {
-    pub name: str,
-    pub cols: Vec<CCol>,
-    pub rules: Vec<CRule>,
+pub struct CRel<'d> {
+    pub name: &'d str,
+    pub cols: Vec<CCol<'d>>,
+    pub rules: Vec<CRule<'d>>,
     /// `rel r(a: T, b: T) eqrel` — `rules` are the user's until
     /// `crewrite::core_desugar_eqrel` appends the closure.
     pub eqrel: bool,
     /// `subsume a by b where P;` — until `crewrite::core_desugar_subsume`.
-    pub sub: Option<CSub>,
+    pub sub: Option<CSub<'d>>,
     /// A recursive rel's dominance rule (`crewrite::subsume_rule`, a join):
     /// its index in `rules`, -1 for none. Not a derivation — the fixpoint
     /// runs it at each promote to drop the dominated rows.
@@ -195,9 +195,9 @@ pub struct CRel {
 
 /// A rel's dominance clause: row `a` is dropped when another row `b` of the
 /// rel satisfies `pred` (Soufflé's subsumptive clause).
-pub struct CSub {
-    pub a: str,
-    pub b: str,
+pub struct CSub<'d> {
+    pub a: &'d str,
+    pub b: &'d str,
     pub pred: WAny,
 }
 
@@ -209,34 +209,34 @@ pub enum CMode {
     Find,
 }
 
-pub enum CLimit {
+pub enum CLimit<'d> {
     None,
     N(i64),
-    Param(str),
+    Param(&'d str),
 }
 
 /// The OUTPUT ENVELOPE — what only the entry has: how its rows are delivered.
-pub struct CEnvelope {
+pub struct CEnvelope<'d> {
     pub mode: CMode,
     pub distinct: bool,
     pub order: Option<WAny>,
     pub desc: bool,
-    pub limit: CLimit,
-    pub result_ty: str,
+    pub limit: CLimit<'d>,
+    pub result_ty: &'d str,
 }
 
 /// A clause and how its rows are delivered. The ENTRY is a rule like any rel
 /// body; only the checks differ — a rel body's envelope must be the default
 /// one (a rel is a set: no order, no limit, no first), which is a refusal for
 /// the checker to issue, so the core keeps what was written.
-pub struct CRule {
-    pub clause: CClause,
-    pub env: CEnvelope,
+pub struct CRule<'d> {
+    pub clause: CClause<'d>,
+    pub env: CEnvelope<'d>,
 }
 
-pub struct CProgram {
-    pub rels: Vec<CRel>,
-    pub entry: CRule,
+pub struct CProgram<'d> {
+    pub rels: Vec<CRel<'d>>,
+    pub entry: CRule<'d>,
     /// Backing for the texts a resolution composes (a traversal's source
     /// expression): every `str` a literal holds outlives the program.
     pub strs: Vec<String>,
@@ -259,8 +259,8 @@ fn prog_rel_names(root: WAny) -> Vec<&str> {
 /// What a lowering resolves a source name against: the program's rel names.
 /// (The registry — native rels, emitted names, row types — is the
 /// declarations', read by `typing::core_resolve`.)
-pub struct CLower {
-    pub names: Vec<str>,
+pub struct CLower<'d> {
+    pub names: Vec<&'d str>,
 }
 
 fn rel_index(rels: &Vec<&str>, name: &str) -> i64 {
@@ -272,7 +272,7 @@ fn rel_index(rels: &Vec<&str>, name: &str) -> i64 {
     return -1i64;
 }
 
-fn src_of(lx: &CLower, name: &str) -> CSrc {
+fn src_of<'d>(lx: &CLower<'d>, name: &'d str) -> CSrc<'d> {
     if name.len() == 0i64 { return CSrc::Unit; }
     let r: i64 = rel_index(&lx.names, name);
     if r >= 0i64 { return CSrc::Rel(r); }
@@ -284,7 +284,7 @@ fn opt(present: bool, e: WAny) -> Option<WAny> {
     return Option::None;
 }
 
-fn base_atom(lx: &CLower, src: &str, var: &str, row_ty: &str) -> CLit {
+fn base_atom<'d>(lx: &CLower<'d>, src: &'d str, var: &'d str, row_ty: &'d str) -> CLit<'d> {
     // A FROM-less `select` names no row; its one row is `__unit`'s, bound to
     // `__u` — `crewrite::core_desugar_facts` then reads it as `__unit`.
     let v: &str = if src.len() == 0i64 && var.len() == 0i64 { "__u" } else { var };
@@ -295,7 +295,7 @@ fn base_atom(lx: &CLower, src: &str, var: &str, row_ty: &str) -> CLit {
 // A join chain's steps, in order: each step an atom (or a traversal), and a
 // positive step's `on` a condition right after it; an anti step keeps its
 // `on` inside the negation.
-fn lower_steps(lx: &CLower, steps: WAny, body: &mut Vec<CLit>) {
+fn lower_steps<'d>(lx: &CLower<'d>, steps: WAny, body: &mut Vec<CLit<'d>>) {
     if steps.is_null() { return; }
     let sa: RQJoinStepArr = steps.view::<RQJoinStepArr>();
     let mut i: i64 = 0i64;
@@ -332,7 +332,7 @@ fn limit_of(has: bool, n: i64, is_param: bool, param: &str) -> CLimit {
 /// One surface query → its clause and its envelope. A rel body's envelope is
 /// read too: the walker refuses the modifiers a rel body may not carry, and
 /// the core keeps what was written so that refusal has a single source.
-pub fn lower_query(lx: &CLower, q: WAny, env: &mut CEnvelope) -> CClause {
+pub fn lower_query<'d>(lx: &CLower<'d>, q: WAny, env: &mut CEnvelope<'d>) -> CClause<'d> {
     let mut body: Vec<CLit> = Vec::<CLit>::new();
     match q.view::<RQuery>() {
         RQuery::Simple(s) => {
@@ -851,7 +851,7 @@ pub fn core_planned_done(p: &CProgram, name: &str) {
 }
 
 /// Lower, verify, and dump when asked. The one entry point the handler calls.
-pub fn core_build(root: WAny, name: &str, h: &Writ) -> CProgram {
+pub fn core_build<'d>(root: WAny, name: &'d str, h: &'d Writ) -> CProgram<'d> {
     let p: CProgram = lower_program(root, h);
     core_finish(&p, name);
     return p;
