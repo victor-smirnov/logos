@@ -2623,6 +2623,20 @@ fn emit_cfg_doc(name: &str, cs: &ContainerSpec) -> bool {
     cfgnm_s.push_str("Cfg");
     let cfgnm: Ident = Ident::new(cfgnm_s.as_str());
     let gp: ExprBlob = parse_type_params(cs.generics);
+    // A DView map (M4b): a `str`/`str` family underneath plus the DView
+    // surface the factory adds on the `"dview"` flag (logos.lcm.canon.dvmap).
+    if str_eq(kty, "DView") || str_eq(vty, "DView") {
+        if !(str_eq(kty, "DView") && str_eq(vty, "DView")) {
+            error("container item: a DView ordered_map keys AND values by DView (`entry { key: DView, val: DView }`)");
+            return false;
+        }
+        let b: QuoteItemBlob = quote_item! {
+            use logos.lang.writ.wstatic;
+            pub const #cfgnm #(gp): WritStatic = @{ "kind": "ordered_map", "key": "str", "value": "str", "dview": "1" };
+        };
+        unsafe { logos_emit_item_blob_subst(&b); }
+        return true;
+    }
     // A `str` KEY (M4b) takes the same `"str"` VLE tag a `str` value does.
     if str_eq(kty, "str") {
         if str_eq(vty, "str") {
@@ -4087,6 +4101,120 @@ fn cfg_read_type_slot(src: &str, at: i64) -> &str {
 
 
 
+// The DView surface of a `entry { key: DView, val: DView }` ordered_map (M4b,
+// replacing deem.data's DView containers): methods on the family handle over
+// its `str`/`str` storage. See logos.lcm.canon.dvmap for the tag record, the
+// order-preserving key bytes and the view contract.
+fn emit_dview_surface(name: &str) {
+    let nm: Ident = Ident::new(name);
+    let q: QuoteItemBlob = quote_item! {
+        use logos.lcm.canon.dvmap;
+        use logos.lang.writ.dview;
+        use logos.lang.option;
+        use logos.lang.result;
+        use logos.lang.str;
+        use logos.lang.slice;
+        use logos.lang.panic;
+        use logos.mem.collections.vec;
+        use logos.mem.bt.memstore;
+        use logos.mem.bt.meta;
+        use logos.mem.bt.node;
+        impl #nm {
+            // The map's element types; None while it is empty of a type.
+            fn dv_tags(self: &#nm) -> Option<DvTags> {
+                unsafe {
+                    let e: DirEntry = self.ms().root_of(self.ctr_id);
+                    if user_meta_size(e.root) != DV_TAGS_BYTES { return Option::None; }
+                    return Option::Some(dv_tags_read(user_meta_ptr(e.root)));
+                }
+            }
+            fn dv_set_tags(self: &mut #nm, t: &DvTags) {
+                let mut b: Vec<u8> = Vec::new();
+                dv_tags_bytes(t, &mut b);
+                unsafe {
+                    let cur: u64 = self.snap.snapshot_id();
+                    let e: DirEntry = self.ms().root_of_mut(self.ctr_id);
+                    let p: *mut u8 = node_privatize(e.root, e.level, cur);
+                    let r: *mut u8 = user_meta_write(p, b.as_ptr(), DV_TAGS_BYTES);
+                    self.ms().set_root(self.ctr_id, r, e.level);
+                }
+            }
+            /// The entry count.
+            pub fn len(self: &#nm) -> u64 { return self.size(); }
+            /// Insert or replace. Refused when the key's or the value's type is
+            /// not the map's (the first insert into an empty map fixes both).
+            pub fn try_insert(self: &mut #nm, k: DView, v: DView) -> Result<(), InsertError> {
+                match self.dv_tags() {
+                    Option::Some(t) => {
+                        if k.type_code() != t.ktag || k.meta_word() != t.kmeta { return Result::Err(InsertError::KeyType); }
+                        if v.type_code() != t.vtag || v.meta_word() != t.vmeta { return Result::Err(InsertError::ValueType); }
+                    }
+                    Option::None => {
+                        let t: DvTags = DvTags { ktag: k.type_code(), kmeta: k.meta_word(),
+                                                 vtag: v.type_code(), vmeta: v.meta_word() };
+                        self.dv_set_tags(&t);
+                    }
+                }
+                let mut kb: Vec<u8> = Vec::new();
+                dv_key_bytes(&k, &mut kb);
+                let ks: &str = unsafe { str_from_raw(kb.as_ptr(), kb.len()) };
+                let vb: &[u8] = dv_obj_slice(&v);
+                let vs: &str = unsafe { str_from_raw(vb.as_ptr(), vb.len()) };
+                self.insert(ks, vs);
+                return Result::Ok(());
+            }
+            /// `try_insert` that panics on a type mismatch.
+            pub fn dv_insert(self: &mut #nm, k: DView, v: DView) {
+                match self.try_insert(k, v) {
+                    Result::Ok(_u) => {}
+                    Result::Err(_e) => { panic("DView map: insert of a key or value of another type"); }
+                }
+            }
+            /// The value at `k`, a view into the map (valid until it is next written).
+            pub fn get(self: &#nm, k: DView) -> Option<DView> {
+                match self.dv_tags() {
+                    Option::Some(t) => {
+                        if k.type_code() != t.ktag || k.meta_word() != t.kmeta { return Option::None; }
+                        let mut kb: Vec<u8> = Vec::new();
+                        dv_key_bytes(&k, &mut kb);
+                        let ks: &str = unsafe { str_from_raw(kb.as_ptr(), kb.len()) };
+                        let c = self.seek_key(ks);
+                        if !c.valid() || !str_eq(c.key(), ks) { return Option::None; }
+                        return Option::Some(dv_val_view(c.value(), t.vtag, t.vmeta));
+                    }
+                    Option::None => { return Option::None; }
+                }
+            }
+            /// The `i`-th entry in key order, as views (valid until the next write).
+            pub fn get_at(self: &#nm, i: u64) -> Option<(DView, DView)> {
+                match self.dv_tags() {
+                    Option::Some(t) => {
+                        let c = self.seek(i);
+                        if !c.valid() { return Option::None; }
+                        let kv: &str = c.key();
+                        let kbytes: &[u8] = unsafe { slice_from_raw::<u8>(kv.as_ptr(), kv.len()) };
+                        return Option::Some((dv_key_view(kbytes, t.ktag, t.kmeta), dv_val_view(c.value(), t.vtag, t.vmeta)));
+                    }
+                    Option::None => { return Option::None; }
+                }
+            }
+            /// Remove `k`. False = absent.
+            pub fn dv_remove(self: &mut #nm, k: DView) -> bool {
+                match self.dv_tags() {
+                    Option::Some(t) => {
+                        if k.type_code() != t.ktag || k.meta_word() != t.kmeta { return false; }
+                        let mut kb: Vec<u8> = Vec::new();
+                        dv_key_bytes(&k, &mut kb);
+                        return self.remove(unsafe { str_from_raw(kb.as_ptr(), kb.len()) });
+                    }
+                    Option::None => { return false; }
+                }
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&q); }
+}
+
 pub fn __container_factory(hash_hex: &str, cfg_src: &str) -> ItemList {
     let out: ItemList = item_list_new();
     if hash_hex.len() == 0i64 {
@@ -4233,6 +4361,10 @@ pub fn __container_factory(hash_hex: &str, cfg_src: &str) -> ItemList {
     unsafe { logos_emit_unit_push(ukey.as_ptr() as *const u8); }
 
     container_item_run(fam.as_str(), sp.as_str(), false, cfg_src);
+    // A DView map: the runtime-typed surface over the `str`/`str` family.
+    if str_eq(kind, KIND_ORDERED_MAP) && cfg_value_pos(cfg_src, "\"dview\"") >= 0i64 {
+        emit_dview_surface(fam.as_str());
+    }
 
     // ── satisfaction marker + Phase 4a surface: the full CtrFamily impl ────
     // type Handle = the family's CoW handle; create/open forward to its
