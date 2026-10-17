@@ -54,8 +54,6 @@ impl Copy for f32   {}
 impl Copy for f64   {}
 impl Copy for bool  {}
 impl Copy for char  {}
-// `str` is the BORROWED string slice (Rust's `&str`), which is Copy.
-impl Copy for str   {}
 
 // A shared reference is Clone by copying the reference (Rust's
 // `impl<T: ?Sized> Clone for &T`).

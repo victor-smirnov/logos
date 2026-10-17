@@ -1202,7 +1202,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     }
 
     // E0277: a parameter or result must be Sized — a bare `str` by value
-    // (LOGOS_STR_UNSIZED resolves it as the unsized str) is `&str` in Rust.
+    // is `&str` in Rust.
     for (auto& p : params)
         if (p.type && bare_str_value(p.type))
             error(std::format("the size for values of type `{}` cannot be known at compilation time (E0277): "

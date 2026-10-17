@@ -1,0 +1,11 @@
+// Closed squeue str_by_value_admitted (#750): `str` is the unsized str (2026-10-17 default flip); a `str`
+// parameter, result or let is E0277 as in rustc, after the stdlib/tests/tools moved to `&str`.
+package str_by_value_refused;
+
+fn len_of(s: str) -> i64 { return s.len(); }
+
+fn main() -> i32 {
+    let r: &str = "hey";
+    let v: str = *r;
+    return (len_of(v) - 3) as i32;
+}
