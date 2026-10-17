@@ -6998,6 +6998,7 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12331 -> 12332 (+1), NOIMPORTED 7772 -> 7773 (+1), TIERCOMMIT 165 -> 165 (+0) — 2026-10-17: +1 pass/generic_cmp_operand_ref_tuple_enum.
 #                ALL 12332 -> 12334 (+2), NOIMPORTED 7773 -> 7775 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-17: +1 pass/call_free_invariant_binder_inferred (+1 fail twin).
 #                ALL 12334 -> 12336 (+2), NOIMPORTED 7775 -> 7777 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-17: +2 pass array_and_ref_partial_ord_generic, structlit_field_call_free_binder_inferred.
+#                ALL 12336 -> 12336 (+0), NOIMPORTED 7777 -> 7777 (+0), TIERCOMMIT 165 -> 165 (+0) — 2026-10-17: array_relational_refused -> pass/array_relational_lexicographic ([T; N] PartialOrd).
 REGISTRY-ALL         12336
 REGISTRY-NOIMPORTED  7777
 REGISTRY-TIERCOMMIT  165
