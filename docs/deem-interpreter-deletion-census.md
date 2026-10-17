@@ -6987,9 +6987,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12313 -> 12314 (+1), NOIMPORTED 7754 -> 7755 (+1), TIERCOMMIT 165 -> 165 (+0) — 2026-10-16: pass/box_dyn_unsize_at_hinted_generic_arg.
 #                ALL 12314 -> 12315 (+1), NOIMPORTED 7755 -> 7756 (+1), TIERCOMMIT 165 -> 165 (+0) — 2026-10-16: pass/call_slice_arg_region_instantiates_binder.
 #                ALL 12315 -> 12317 (+2), NOIMPORTED 7756 -> 7758 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-16: r10 fixtures (call_static_arg_*) + bc_self_type_elided_lt_admit -> fail/..._refused.
-#                ALL 12317 -> 12319 (+2), NOIMPORTED 7758 -> 7760 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-16: merge main bc4a097f4 onto deem: pass/memoria_merge_heads, pass/memoria_dag_topology (ADR 0039 M4a).
-REGISTRY-ALL         12319
-REGISTRY-NOIMPORTED  7760
+#                ALL 12317 -> 12319 (+2), NOIMPORTED 7758 -> 7760 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-16: hrtb_fn_ptr_call_* fixtures.
+#                ALL 12319 -> 12321 (+2), NOIMPORTED 7760 -> 7762 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-16: merge main c4d807d0c onto deem: pass/memoria_merge_heads, pass/memoria_dag_topology (ADR 0039 M4a).
+REGISTRY-ALL         12321
+REGISTRY-NOIMPORTED  7762
 REGISTRY-TIERCOMMIT  165
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
