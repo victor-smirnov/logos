@@ -80,7 +80,7 @@ impl WAny {
     /// Borrows the pointed-at `WParameter`; check `is_parameter` first.
     /// PANICS if this is not a Ref to a `W_PARAMETER` object (resolver-guard class — see
     /// the note at the top of `writ/array.logos`).
-    pub fn as_parameter(self: WAny) -> &WParameter {
+    pub fn as_parameter<'a>(self: WAny) -> &'a WParameter {
         if !self.is_parameter() { panic("WAny::as_parameter: the WAny is not a Ref to a W_PARAMETER object — check is_parameter() first"); }
         return unsafe { &*(self.resolve() as *const WParameter) };
     }

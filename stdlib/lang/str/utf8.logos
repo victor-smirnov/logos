@@ -486,7 +486,7 @@ pub fn str_utf8_chunks<'a>(s: &'a str) -> Utf8Chunks<'a> {
 }
 
 /// Creates a `Utf8Chunks` iterator over the raw byte range `ptr[0..len]`.
-pub unsafe fn utf8_chunks_from_raw(ptr: *const u8, len: i64) -> Utf8Chunks {
+pub unsafe fn utf8_chunks_from_raw<'a>(ptr: *const u8, len: i64) -> Utf8Chunks<'a> {
     return Utf8Chunks { ptr: ptr, pos: 0, len: len };
 }
 

@@ -301,7 +301,7 @@ impl WAnyMut {
     /// Ready to push/grow in the same arena; check `is_array()` first.
     /// PANICS if the cursor's element is not a `W_ARRAY` object — a growable `&mut`
     /// onto something that is not an array writes a `len`/`cap`/`data` triple over it.
-    pub fn as_array_mut(self: WAnyMut) -> &mut WArray<WAny> {
+    pub fn as_array_mut<'a>(self: WAnyMut) -> &'a mut WArray<WAny> {
         let v: WAny = self.get();
         if !v.is_array() { panic("WAnyMut::as_array_mut: the element is not a W_ARRAY object — check is_array() first"); }
         return unsafe { zone_mut_ref::<WArray<WAny>>(v.resolve() as *mut WArray<WAny>, self.zone) };

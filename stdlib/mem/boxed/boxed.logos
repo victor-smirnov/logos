@@ -66,7 +66,7 @@ pub unsafe fn box_from_raw<T>(raw: *mut T) -> Box<T> {
 
 /// Consumes the `Box` and leaks its contents, returning a `&mut T` that lives for
 /// the rest of the program. The allocation is never freed.
-pub fn box_leak<T>(b: Box<T>) -> &mut T {
+pub fn box_leak<'a, T>(b: Box<T>) -> &'a mut T {
     let p: *mut T = box_into_raw::<T>(b);
     unsafe { return &mut *p; }
 }

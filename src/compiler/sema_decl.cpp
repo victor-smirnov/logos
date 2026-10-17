@@ -1187,6 +1187,17 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                       "the return type is `{}`",
                       type_str(ret_type, true)));
             }
+            // squeue elided_return_no_input_lifetime_admitted: no input lifetime and
+            // no `&self` — nothing for the elided output to borrow from. Enumeration
+            // mode until the corpus is annotated (`&'static`, or a named lifetime).
+            static const bool e0106_zero = [] { const char* v = std::getenv("LOGOS_E0106_ZERO"); return v && *v == '1'; }();
+            if (e0106_zero && !has_self_ref && distinct_input_lts_(ptypes) == 0) {
+                error(std::format("missing lifetime specifier (E0106): this function's return "
+                      "type contains a borrowed value, but there is no value for it to be "
+                      "borrowed from — consider `&'static` or a named lifetime; the return "
+                      "type is `{}`",
+                      type_str(ret_type, true)));
+            }
         }
     }
 
