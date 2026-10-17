@@ -1,0 +1,24 @@
+// A comparison operator in generic code instantiated at a non-scalar K is the
+// operator trait's call (as the concrete spelling is): `K = &str` compares the
+// strings, `K = &i64` the pointees — the larger value sits at the LOWER address,
+// so an address compare would answer the reverse — tuples and Option by their
+// PartialOrd/PartialEq. Was: a raw cmpi on the pointer (module verification
+// failed). rustc 1.98.1 prints the same three lines.
+package generic_cmp_operand_ref_tuple_enum;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.option;
+fn le<K: Copy + PartialOrd>(a: K, b: K) -> bool { return a <= b; }
+fn eq<K: Copy + PartialEq>(a: K, b: K) -> bool { return a == b; }
+fn main() -> i32 {
+    let x: &str = "apple"; let y: &str = "banana";
+    println!("{} {} {} {}", le::<&str>(x, y), le::<&str>(y, x), eq::<&str>(x, x), eq::<&str>(x, y));
+    let xs: [i64; 2] = [9, 1];
+    let a: &i64 = &xs[0]; let b: &i64 = &xs[1];
+    let c: i64 = 9; let d: &i64 = &c;
+    println!("{} {} {}", le::<&i64>(a, b), le::<&i64>(b, a), eq::<&i64>(a, d));
+    let t1: (i64, i64) = (1, 9); let t2: (i64, i64) = (2, 0);
+    let o1: Option<i64> = Option::Some(3); let o2: Option<i64> = Option::None;
+    println!("{} {} {} {}", le::<(i64, i64)>(t1, t2), eq::<(i64, i64)>(t1, t1), le::<Option<i64>>(o2, o1), eq::<Option<i64>>(o1, o2));
+    return 0;
+}

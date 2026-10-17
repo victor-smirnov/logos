@@ -1220,14 +1220,40 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             auto new_rhs = subst_child_expr(v.rhs());
             auto lt = new_lhs ? new_lhs.type(out_.type_pool.impl()) : TypeRef{};
             // As Unary; the rhs type picks among impls of one operator trait at
-            // different type arguments (`Add<V>` / `Add<&V>`).
-            if (lt && TypeRef(lt).kind() == LogosType::Kind::Struct)
+            // different type arguments (`Add<V>` / `Add<&V>`). Not only a struct:
+            // any operand the backend does not compare natively — a reference
+            // (`K = &str`, `K = &i64`), slice, enum, tuple, array — is the operator
+            // trait's call, as sema lowers the concrete spelling.
+            auto by_trait_ = [](TypeRef t) {
+                using K = LogosType::Kind;
+                switch (TypeRef(t).kind()) {
+                    case K::Struct: case K::ZonedStruct: case K::Enum: case K::Tuple: case K::Array:
+                    case K::Slice: case K::Ref: case K::MutRef: case K::TraitObject: case K::DstRef:
+                        return true;
+                    default: return false;
+                }
+            };
+            if (lt && by_trait_(lt))
                 if (const OpLangItem* oi = binary_op_item(op)) {
                     std::vector<TypeRef> rtys{new_rhs ? new_rhs.type(out_.type_pool.impl()) : TypeRef{}};
                     if (std::string callee = trait_item_symbol_(oi->trait, lt, oi->method, 2, &rtys); !callee.empty()) {
+                        // A comparison method takes `&self` / `&other`: a THIN reference
+                        // operand (`K = &i64`) is passed by its address. (An aggregate or a
+                        // fat pointer already travels as a pointer to its value.)
+                        auto by_addr_ = [&](lir_view::ExprRef x) -> lir_view::ExprRef {
+                            if (oi->has_output() || !x) return x;
+                            TypeRef xt = x.type(out_.type_pool.impl());
+                            const auto xk = TypeRef(xt).kind();
+                            if (xk != LogosType::Kind::Ref && xk != LogosType::Kind::MutRef) return x;
+                            LogosTypeBuilder rb; rb.kind = LogosType::Kind::Ref; rb.pointee = xt;
+                            TypeRef xref = out_.type_pool.alloc(std::move(rb));
+                            return lir_view::ExprRef(out_.type_pool.arena(),
+                                lir_mirror_emit_addr_of_temp(out_, xref, x, false,
+                                                             lir_schema::expr::BorrowOrigin::Desugar));
+                        };
                         std::vector<lir_view::ExprRef> args;
-                        args.push_back(std::move(new_lhs));
-                        args.push_back(std::move(new_rhs));
+                        args.push_back(by_addr_(std::move(new_lhs)));
+                        args.push_back(by_addr_(std::move(new_rhs)));
                         mp_ = lir_mirror_emit_call(out_, rt_, callee, {}, args);
                         break;
                     }
