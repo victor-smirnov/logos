@@ -8916,8 +8916,10 @@ private:
         // — `for<'a>`): not general enough (rustc E0308), at any site. Only a
         // declared binder of the enclosing scope counts, so a target elided by
         // instantiation (`Item = &i32`) is not mistaken for a binder.
+        // (A fn ITEM's named parameter lifetime is its own binder, whatever the
+        // enclosing fn also calls one — `fn ida<'a>(x: &'a i64)` reifies to any region.)
         if (permissive && TypeRef(to).kind() == LogosType::Kind::FnPtr &&
-            (TypeRef(from).kind() == LogosType::Kind::FnPtr || TypeRef(from).kind() == LogosType::Kind::FnItem)) {
+            TypeRef(from).kind() == LogosType::Kind::FnPtr) {
             auto tp = TypeRef(to).closure_params(), fp = TypeRef(from).closure_params();
             for (size_t i = 0; i < tp.size() && i < fp.size(); ++i) {
                 TypeRef a = tp[i], b = fp[i];
