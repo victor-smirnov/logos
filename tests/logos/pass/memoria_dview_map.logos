@@ -1,0 +1,82 @@
+// dview_map — the runtime-typed (DView) ordered map on Canon (ADR 0039 M4b),
+// ported from deem.data's data_dview_str / data_dview_map / dview_try_insert:
+// String keys in byte order, i64 keys in NUMERIC order (signed, across leaves),
+// u64 values, point reads and misses, `get_at` in key order, commit + reopen in
+// a fork, the homogeneous-type refusals (InsertError::KeyType / ValueType)
+// leaving the map untouched, and removal.
+package test;
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.lcm.canon.dvmap;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cmp;
+use logos.lang.writ.dview;
+use logos.mem.string;
+use logos.std.io;
+container Dyn {
+    kind ordered_map;
+    entry { key: DView, val: DView }
+    measure max(key);
+}
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let mut m = create_ctr::<typeof(Dyn)>(&s1, 1u64);
+        let v1: u64 = 10u64; m.dv_insert(DView::from_str("banana"), DView::from(&v1));
+        let v2: u64 = 20u64; m.dv_insert(DView::from_str("apple"), DView::from(&v2));
+        let v3: u64 = 30u64; m.dv_insert(DView::from_str("cherry"), DView::from(&v3));
+        if m.len() != 3u64 { return 10i32; }
+        match m.get(DView::from_str("apple")) { Option::Some(dv) => { if dv.to::<u64>() != 20u64 { return 11i32; } } Option::None => { return 12i32; } }
+        let bad: i64 = 5i64;
+        match m.try_insert(DView::from(&bad), DView::from(&v1)) { Result::Ok(_) => { return 13i32; } Result::Err(e) => { match e { InsertError::KeyType => {} _ => { return 14i32; } } } }
+    }
+    s1.commit();
+    let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let m = open_ctr::<typeof(Dyn)>(&s2, 1u64);
+        if m.len() != 3u64 { return 20i32; }
+        match m.get_at(0u64) {
+            Option::Some(kv) => {
+                match kv.0.compare(&DView::from_str("apple")) { Ordering::Equal => {} _ => { return 22i32; } }
+                if kv.1.to::<u64>() != 20u64 { return 23i32; }
+            }
+            Option::None => { return 24i32; }
+        }
+        match m.get(DView::from_str("durian")) { Option::Some(_) => { return 25i32; } Option::None => {} }
+    }
+    // signed integer keys order as numbers
+    let s3: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let mut n = create_ctr::<typeof(Dyn)>(&s3, 2u64);
+        let mut i: i64 = -50i64;
+        while i < 50i64 { let v: u64 = (i + 100i64) as u64; n.dv_insert(DView::from(&i), DView::from(&v)); i = i + 1i64; }
+        if n.len() != 100u64 { return 30i32; }
+        let absent: i64 = 12345i64;
+        match n.get(DView::from(&absent)) { Option::Some(_) => { return 41i32; } Option::None => {} }
+        match n.get_at(0u64) { Option::Some(kv) => { if kv.0.to::<i64>() != -50i64 || kv.1.to::<u64>() != 50u64 { return 31i32; } } Option::None => { return 32i32; } }
+        match n.get_at(99u64) { Option::Some(kv) => { if kv.0.to::<i64>() != 49i64 { return 33i32; } } Option::None => { return 34i32; } }
+        let q: i64 = -7i64;
+        match n.get(DView::from(&q)) { Option::Some(dv) => { if dv.to::<u64>() != 93u64 { return 35i32; } } Option::None => { return 36i32; } }
+        let okk: i64 = 4i64; let badv: i64 = 1i64;
+        match n.try_insert(DView::from(&okk), DView::from(&badv)) { Result::Ok(_) => { return 37i32; } Result::Err(e) => { match e { InsertError::ValueType => {} _ => { return 38i32; } } } }
+        if n.len() != 100u64 { return 42i32; }   // a refused insert leaves the map as it was
+        if !n.dv_remove(DView::from(&q)) { return 39i32; }
+        match n.get(DView::from(&q)) { Option::Some(_) => { return 40i32; } Option::None => {} }
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL dview_map: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}
