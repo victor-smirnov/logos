@@ -359,12 +359,20 @@ fn cell_to_value_expr(raw: &str, vty: &str) -> ExprBlob {
 }
 
 fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
-    let vol: bool = str_eq(policy, SPLIT_VOLUME);
+    // `vsplit` = the Canon split verdict; `vol` = the VALUE is VLE (`str`).
+    // One question each — a `str` key splits by volume over FSE values.
+    let vsplit: bool = str_eq(policy, SPLIT_VOLUME);
+    let vol: bool = str_eq(vty, "str");
+    let splitfn: ExprBlob = if vsplit { quote_expr! { unsafe { btss_split_index_volume(self.a()) } } }
+                            else { quote_expr! { self.count() / 2u32 } };
     // Each quote blob carries its own `use` imports (no side Emitter pass). CoW
     // flavor carries the 16-byte node header via logos.mem.bt.node; plain uses
     // logos.lang.mem.
     let nm:  Ident = Ident::new(name);
-    let kid: Ident = Ident::new(kty);
+    // A `str` KEY (M4b): a VLE key column, kept in order by the writers and
+    // searched by `btss_lower_bound_bytes`; the surface type is `&str`.
+    let kstr: bool = str_eq(kty, "str");
+    let kid: ExprBlob = parse_type(if kstr { "&str" } else { kty });
     // The value type as LOGOS spells it: Canon's `str` value column (the VLE
     // flavour) is a borrowed `&str` at the surface.
     let vid: ExprBlob = parse_type(if str_eq(vty, "str") { "&str" } else { vty });
@@ -411,10 +419,6 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
                 btss_split_col(self.a(), dst.a(), slot, at);
             }
             pub fn count(self: &#nm) -> u32 { return unsafe { btss_count(self.a()) }; }
-            pub fn key_at(self: &#nm, i: u32) -> #(kid) { return unsafe { self.kc().get(0u32, i as u64) as #(kid) }; }
-            pub fn lower_bound(self: &#nm, key: #(kid)) -> u32 {
-                return unsafe { #(lbfn)(self.a(), key as #(lbdom)) };
-            }
             pub fn split_into(self: &mut #nm, dst: &mut #nm) {
                 let at: u32 = self.split_index();
                 unsafe {
@@ -425,6 +429,47 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
         }
     };
     unsafe { logos_emit_item_blob_subst(&common); }
+    // key_at / lower_bound — by the KEY's column kind.
+    if kstr {
+        let kb: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.btss;
+            use logos.lang.str;
+            use logos.lang.slice;
+            impl #nm {
+                // The key's bytes inside the block: a view conjured from the
+                // block pointer, so its region is the method's own (as val_at).
+                pub fn key_at<'a>(self: &#nm, i: u32) -> &'a str {
+                    let b: &[u8] = unsafe { btss_row_bytes(self.a(), 0u32, i) };
+                    return unsafe { str_from_raw(b.as_ptr(), b.len()) };
+                }
+                pub fn lower_bound(self: &#nm, key: &str) -> u32 {
+                    return unsafe { btss_lower_bound_bytes(self.a(), slice_from_raw::<u8>(key.as_ptr(), key.len())) };
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&kb); }
+    } else {
+        let kb: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.btss;
+            use logos.mem.pkd.pdtbuf;
+            impl #nm {
+                pub fn key_at(self: &#nm, i: u32) -> #(kid) { return unsafe { self.kc().get(0u32, i as u64) as #(kid) }; }
+                pub fn lower_bound(self: &#nm, key: #(kid)) -> u32 {
+                    return unsafe { #(lbfn)(self.a(), key as #(lbdom)) };
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&kb); }
+    }
+    // The key's datum push and its column format, by kind.
+    let kpush: ExprBlob = if kstr {
+        quote_block! { ck.spans.push_span(slice_from_raw::<u8>(key.as_ptr(), key.len())); }
+    } else {
+        quote_block! { ck.cells.push(key as u64); }
+    };
+    let klen: ExprBlob = if kstr { quote_expr! { (key.len() as u32) } } else { quote_expr! { 8u32 } };
+    let kvle: ExprBlob = parse_expr(if kstr { "true" } else { "false" });
+    let kord: ExprBlob = parse_expr(if kstr { "false" } else { "true" });
 
     // ── ADR 0023 S4: the leaf's MUTATION mechanics are generated ALGEBRA
     // kernels. The Canon verdict lowers to the schema's wire spelling and
@@ -433,7 +478,8 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
     let mut aname: String = String::new();
     aname.push_str(name);
     aname.push_str("Alg");
-    let spec: &str = if vol { "fse8o,vle" } else { "fse8o,fse8" };
+    let spec: &str = if kstr { if vol { "vle,vle" } else { "vle,fse8" } }
+                     else { if vol { "fse8o,vle" } else { "fse8o,fse8" } };
     let mut kl: ItemList = alg_kernel_with_entry(aname.as_str(), spec,
                                                  "if hit { ET_SET } else { ET_INS }");
     loop {
@@ -492,7 +538,7 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
                 }
                 pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
                     let vlen: u32 = val.len() as u32;
-                    if 8u32 + vlen > 1024u32 {
+                    if #(klen) + vlen > 1024u32 {
                         return false;
                     }
                     unsafe {
@@ -505,7 +551,7 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
                         let mut d: LeafBatchDatum = leaf_batch_datum_new();
                         let mut ck: DatumCol = datum_col_new();
                         if !hit {
-                            ck.cells.push(key as u64);
+                            #(kpush);
                         }
                         d.cols.push(ck);
                         let mut cv: DatumCol = datum_col_new();
@@ -530,7 +576,7 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
                                 let mut d: LeafBatchDatum = leaf_batch_datum_new();
                                 let mut ck: DatumCol = datum_col_new();
                                 if !hit {
-                                    ck.cells.push(key as u64);
+                                    #(kpush);
                                 }
                                 d.cols.push(ck);
                                 let mut cv: DatumCol = datum_col_new();
@@ -553,7 +599,7 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
                 }
                 /// Split index: VOLUME-balanced — the Canon verdict for a VLE-column node.
                 pub fn split_index(self: &#nm) -> u32 {
-                    return unsafe { btss_split_index_volume(self.a()) };
+                    return #(splitfn);
                 }
             }
         };
@@ -569,6 +615,7 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
             use logos.mem.collections.vec;
             use logos.mem.bt.alg;
             use logos.lang.option;
+            use logos.lang.slice;      // a `str` key's datum span
             impl #nm {
                 pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
                     unsafe {
@@ -581,7 +628,7 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
                         let mut d: LeafBatchDatum = leaf_batch_datum_new();
                         let mut ck: DatumCol = datum_col_new();
                         if !hit {
-                            ck.cells.push(key as u64);
+                            #(kpush);
                         }
                         d.cols.push(ck);
                         let mut cv: DatumCol = datum_col_new();
@@ -606,7 +653,7 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
                                 let mut d: LeafBatchDatum = leaf_batch_datum_new();
                                 let mut ck: DatumCol = datum_col_new();
                                 if !hit {
-                                    ck.cells.push(key as u64);
+                                    #(kpush);
                                 }
                                 d.cols.push(ck);
                                 let mut cv: DatumCol = datum_col_new();
@@ -628,7 +675,7 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
                     #nm::fmt_slot(a, 1u32, false, false);
                 }
                 /// Split index: FAST (count-balanced) — the Canon verdict for an all-FSE node.
-                pub fn split_index(self: &#nm) -> u32 { return self.count() / 2u32; }
+                pub fn split_index(self: &#nm) -> u32 { return #(splitfn); }
             }
         };
         unsafe { logos_emit_item_blob_subst(&vb); }
@@ -662,7 +709,7 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
                     unsafe {
                         let base: *mut u8 = #nd::alloc(#(lbs), 2u32, snp);
                         let a: *mut PkdAlloc = #nd::pkd(base);
-                        #nm::fmt_slot(a, 0u32, false, true);
+                        #nm::fmt_slot(a, 0u32, #(kvle), #(kord));
                         #nm::fmt_vc(a);
                         return #nm { mem: base, cap: #(lbs) };
                     }
@@ -731,7 +778,7 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
                     unsafe {
                         let base: *mut u8 = alloc(#(lbsi));
                         let a: *mut PkdAlloc = pkd_format(base, #(lbs), 2u32);
-                        #nm::fmt_slot(a, 0u32, false, true);
+                        #nm::fmt_slot(a, 0u32, #(kvle), #(kord));
                         #nm::fmt_vc(a);
                         return #nm { mem: base, cap: #(lbs) };
                     }
@@ -763,7 +810,13 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
     // emission, so the Idents need no separate backing. Each blob carries its own
     // `use` imports (quote_item! bodies do — no side Emitter pass).
     let nm:  Ident = Ident::new(name);
-    let kid: Ident = Ident::new(kty);
+    // A `str` KEY (M4b): the separator column is VLE (unordered — the writers
+    // keep the order), separators are `&str` views, and a row is priced for the
+    // longest key a leaf admits (`can_insert_child` is not told the separator).
+    let kstr: bool = str_eq(kty, "str");
+    let kid: ExprBlob = parse_type(if kstr { "&str" } else { kty });
+    let kvle0: ExprBlob = parse_expr(if kstr { "true" } else { "false" });
+    let kord0: ExprBlob = parse_expr(if kstr { "false" } else { "true" });
     // Store-configuration plane (S2): node form + geometry baked from StoreCfg.
     let nd: Ident = Ident::new(MEM_STORE_NODE);
     let scfg: StoreCfg = mem_store_cfg(STORE_CFG_DEFAULT);
@@ -795,6 +848,10 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
             static unsafe fn fmt_col(a: *mut PkdAlloc, slot: u32, ordered: bool) {
                 btss_fmt_slot(a, slot, false, ordered);
             }
+            // The separator column (slot 0), by the key's kind.
+            static unsafe fn fmt_sep(a: *mut PkdAlloc) {
+                btss_fmt_slot(a, 0u32, #(kvle0), #(kord0));
+            }
             // One-cell two-phase append/insert (priced by the caller).
             unsafe fn put_cell(self: &#nm, slot: u32, pos: u32, v: u64) {
                 btss_put_cell(self.a(), slot, pos, v);
@@ -803,7 +860,6 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
                 btss_split_col(self.a(), dst.a(), slot, at);
             }
             pub fn child_count(self: &#nm) -> u32 { return unsafe { self.sep().size() as u32 }; }
-            pub fn sep_at(self: &#nm, i: u32) -> #(kid) { return unsafe { self.sep().get(0u32, i as u64) as #(kid) }; }
             pub fn size_at(self: &#nm, i: u32) -> u64 { return unsafe { self.szc().get(0u32, i as u64) }; }
             pub fn child_addr(self: &#nm, i: u32) -> *mut u8 { return unsafe { self.ptrc().get(0u32, i as u64) as *mut u8 }; }
             pub fn set_child_addr(self: &mut #nm, i: u32, ptr: *mut u8) {
@@ -832,20 +888,6 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
                 }
             }
             pub fn total_size(self: &#nm) -> u64 { return self.size_prefix(self.child_count()); }
-            pub fn find_child(self: &#nm, key: #(kid)) -> u32 {
-                unsafe {
-                    let b: PdtBuf = self.sep();
-                    let n: u32 = b.size() as u32;
-                    let v: &[u64] = b.values(0u32);
-                    let mut i: u32 = 0u32;
-                    while i < n {
-                        if v[i as i64] as #(kid) >= key {
-                            return i;
-                        } i = i + 1u32;
-                    }
-                    return if n > 0u32 { n - 1u32 } else { 0u32 };
-                }
-            }
             pub fn rank(self: &#nm, key: #(kid), lb: fn(*mut u8, #(kid)) -> u32) -> u64 {
                 let n: u32 = self.child_count();
                 if n == 0u32 {
@@ -868,32 +910,6 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
                 let ci: u32 = self.find_child(key);
                 return probe(self.child_addr(ci), key, sentinel);
             }
-            pub fn push_child(self: &mut #nm, sep: #(kid), sz: u64, ptr: *mut u8) {
-                unsafe {
-                    let n: u32 = self.child_count();
-                    self.put_cell(0u32, n, sep as u64);
-                    self.put_cell(1u32, n, sz);
-                    self.put_cell(2u32, n, ptr as u64);
-                }
-            }
-            pub fn insert_child(self: &mut #nm, pos: u32, sep: #(kid), sz: u64, ptr: *mut u8) {
-                unsafe {
-                    self.put_cell(0u32, pos, sep as u64);
-                    self.put_cell(1u32, pos, sz);
-                    self.put_cell(2u32, pos, ptr as u64);
-                }
-            }
-            pub fn update_child(self: &mut #nm, i: u32, sep: #(kid), sz: u64) {
-                unsafe {
-                    let mut sb: PdtBuf = self.sep();
-                    sb.set(0u32, i as u64, sep as u64);
-                    let mut zb: PdtBuf = self.szc();
-                    zb.set(0u32, i as u64, sz);
-                }
-            }
-            pub fn can_insert_child(self: &#nm) -> bool {
-                return unsafe { btss_fits_row(self.a(), 3u32) };
-            }
             pub fn split_into(self: &mut #nm, dst: &mut #nm) -> #(kid) {
                 let at: u32 = self.child_count() / 2u32;
                 unsafe {
@@ -906,6 +922,105 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
         }
     };
     unsafe { logos_emit_item_blob_subst(&common); }
+    // The key-kind half: separator read / search / write / admission.
+    if kstr {
+        let kb: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.btss;
+            use logos.mem.pkd.pdtbuf;
+            use logos.lang.str;
+            use logos.lang.slice;
+            use logos.lang.result;
+            impl #nm {
+                pub fn sep_at<'a>(self: &#nm, i: u32) -> &'a str {
+                    let b: &[u8] = unsafe { btss_row_bytes(self.a(), 0u32, i) };
+                    return unsafe { str_from_raw(b.as_ptr(), b.len()) };
+                }
+                // The first child whose separator (its subtree's MAX key) is
+                // >= key; the last child when key exceeds them all.
+                pub fn find_child(self: &#nm, key: &str) -> u32 {
+                    let n: u32 = self.child_count();
+                    let i: u32 = unsafe { btss_lower_bound_bytes(self.a(), slice_from_raw::<u8>(key.as_ptr(), key.len())) };
+                    if i < n { return i; }
+                    return if n > 0u32 { n - 1u32 } else { 0u32 };
+                }
+                pub fn push_child(self: &mut #nm, sep: &str, sz: u64, ptr: *mut u8) {
+                    let n: u32 = self.child_count();
+                    self.insert_child(n, sep, sz, ptr);
+                }
+                pub fn insert_child(self: &mut #nm, pos: u32, sep: &str, sz: u64, ptr: *mut u8) {
+                    unsafe {
+                        btss_put_span(self.a(), 0u32, pos, slice_from_raw::<u8>(sep.as_ptr(), sep.len()));
+                        self.put_cell(1u32, pos, sz);
+                        self.put_cell(2u32, pos, ptr as u64);
+                    }
+                }
+                pub fn update_child(self: &mut #nm, i: u32, sep: &str, sz: u64) {
+                    unsafe {
+                        let ok: bool = btss_set_span(self.a(), 0u32, i, slice_from_raw::<u8>(sep.as_ptr(), sep.len()));
+                        assert(ok, "branch: a separator update does not fit (the row reserve is the longest key)");
+                        let mut zb: PdtBuf = self.szc();
+                        zb.set(0u32, i as u64, sz);
+                    }
+                }
+                // Priced for the longest key a leaf admits, so an update that
+                // lengthens any separator always fits as well.
+                pub fn can_insert_child(self: &#nm) -> bool {
+                    let pad: [u8; 512] = [0u8; 512];
+                    return unsafe { btss_fits_row_span(self.a(), 3u32, slice_from_raw::<u8>(&pad as *const u8, STR_KEY_RESERVE)) };
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&kb); }
+    } else {
+        let kb: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.btss;
+            use logos.mem.pkd.pdtbuf;
+            impl #nm {
+                pub fn sep_at(self: &#nm, i: u32) -> #(kid) { return unsafe { self.sep().get(0u32, i as u64) as #(kid) }; }
+                pub fn find_child(self: &#nm, key: #(kid)) -> u32 {
+                    unsafe {
+                        let b: PdtBuf = self.sep();
+                        let n: u32 = b.size() as u32;
+                        let v: &[u64] = b.values(0u32);
+                        let mut i: u32 = 0u32;
+                        while i < n {
+                            if v[i as i64] as #(kid) >= key {
+                                return i;
+                            } i = i + 1u32;
+                        }
+                        return if n > 0u32 { n - 1u32 } else { 0u32 };
+                    }
+                }
+                pub fn push_child(self: &mut #nm, sep: #(kid), sz: u64, ptr: *mut u8) {
+                    unsafe {
+                        let n: u32 = self.child_count();
+                        self.put_cell(0u32, n, sep as u64);
+                        self.put_cell(1u32, n, sz);
+                        self.put_cell(2u32, n, ptr as u64);
+                    }
+                }
+                pub fn insert_child(self: &mut #nm, pos: u32, sep: #(kid), sz: u64, ptr: *mut u8) {
+                    unsafe {
+                        self.put_cell(0u32, pos, sep as u64);
+                        self.put_cell(1u32, pos, sz);
+                        self.put_cell(2u32, pos, ptr as u64);
+                    }
+                }
+                pub fn update_child(self: &mut #nm, i: u32, sep: #(kid), sz: u64) {
+                    unsafe {
+                        let mut sb: PdtBuf = self.sep();
+                        sb.set(0u32, i as u64, sep as u64);
+                        let mut zb: PdtBuf = self.szc();
+                        zb.set(0u32, i as u64, sz);
+                    }
+                }
+                pub fn can_insert_child(self: &#nm) -> bool {
+                    return unsafe { btss_fits_row(self.a(), 3u32) };
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&kb); }
+    }
 
     // The FLAVOR-specific impl block (a second `impl #nm`): CoW carries the node
     // header (node_alloc/node_pkd/node_free + cow_clone bumping each shared
@@ -926,7 +1041,7 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
                         // convention.
                         #nd::set_child_slot(base, 2u32);
                         let a: *mut PkdAlloc = #nd::pkd(base);
-                        #nm::fmt_col(a, 0u32, true);
+                        #nm::fmt_sep(a);
                         #nm::fmt_col(a, 1u32, false);
                         #nm::fmt_col(a, 2u32, false);
                         return #nm { mem: base, cap: #(bbs) };
@@ -969,7 +1084,7 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
                     unsafe {
                         let base: *mut u8 = alloc(#(bbsi));
                         let a: *mut PkdAlloc = pkd_format(base, #(bbs), 3u32);
-                        #nm::fmt_col(a, 0u32, true);
+                        #nm::fmt_sep(a);
                         #nm::fmt_col(a, 1u32, false);
                         #nm::fmt_col(a, 2u32, false);
                         return #nm { mem: base, cap: #(bbs) };
@@ -1013,7 +1128,7 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
 // one-line bodies below do not self-recurse.
 fn emit_bt_leaf_impl(lname: &str, kty: &str, vty: &str, vol: bool) {
     let nm:  Ident = Ident::new(lname);
-    let kid: Ident = Ident::new(kty);
+    let kid: ExprBlob = parse_type(if str_eq(kty, "str") { "&str" } else { kty });   // a `str` key is `&str` (M4b)
     // VIn = declared value type verbatim (volume declares `val: str`); VOut is
     // the read-side type — by value for fast (FSE), a &[u8] view for volume (VLE).
     let vi: ExprBlob = parse_type(if str_eq(vty, "str") { "&str" } else { vty });
@@ -1042,7 +1157,7 @@ fn emit_bt_leaf_impl(lname: &str, kty: &str, vty: &str, vol: bool) {
 // The branch analog — value-agnostic, so only K threads through.
 fn emit_bt_branch_impl(bname: &str, kty: &str) {
     let nm:  Ident = Ident::new(bname);
-    let kid: Ident = Ident::new(kty);
+    let kid: ExprBlob = parse_type(if str_eq(kty, "str") { "&str" } else { kty });   // a `str` key is `&str` (M4b)
     let b: QuoteItemBlob = quote_item! {
         use logos.mem.bt.map;
         impl BtBranch<#(kid), 1> for #nm {
@@ -1093,7 +1208,7 @@ fn emit_tree(tname: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol: b
     let tid: Ident = Ident::new(tname);
     let lid: Ident = Ident::new(lname);
     let bid: Ident = Ident::new(bname);
-    let kid: Ident = Ident::new(kty);
+    let kid: ExprBlob = parse_type(if str_eq(kty, "str") { "&str" } else { kty });   // a `str` key is `&str` (M4b)
     let vi: ExprBlob = parse_type(if str_eq(vty, "str") { "&str" } else { vty });
     let vo: ExprBlob = if vol { parse_type("&[u8]") } else { parse_type(vty) };
 
@@ -1199,7 +1314,8 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
     let nd: Ident = Ident::new(MEM_STORE_NODE);
     let scfg: StoreCfg = mem_store_cfg(STORE_CFG_DEFAULT);
     let bid: Ident = Ident::new(bname);
-    let kid: Ident = Ident::new(kty);
+    let kid: ExprBlob = parse_type(if str_eq(kty, "str") { "&str" } else { kty });   // a `str` key is `&str` (M4b)
+    let kstr: bool = str_eq(kty, "str");
     let vi: ExprBlob = parse_type(if str_eq(vty, "str") { "&str" } else { vty });
     let vo: ExprBlob = if vol { parse_type("&[u8]") } else { parse_type(vty) };
 
@@ -1419,6 +1535,8 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
     }
 
     // ── the BATCH surface (slice 2): make_buffer / insert_batch ────────────
+    // (and `remove`): the u64-cell splice. A `str` key has neither yet — M4b S3.
+    if !kstr {
     // The container hands out the staging buffer (typed push casts at THIS
     // boundary — the same K/V discipline as try_insert); insert_batch runs
     // the CoW splice with the family's SIGNEDNESS verdict. A rejected batch
@@ -1553,6 +1671,7 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
         };
         unsafe { logos_emit_item_blob_subst(&bp); }
     }
+    }
 
     // ── seek by entry NUMBER (the stream-size feature; Memoria's classic
     // BTSS semantics): every container doubles as an ARRAY of its entries.
@@ -1677,7 +1796,7 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
     //
     // FSE values only for now: a volume family's value is a `&[u8]`, which
     // projects as a `str` rel column — a second shape, not a harder one.
-    if !vol {
+    if !vol && !kstr {   // a `str` key projects later (M4b S4)
         let mut size_s: String = String::new();
         size_s.push_str("__ctr_size_"); size_s.push_str(name);
         let sizefn: Ident = Ident::new(size_s.as_str());
@@ -2452,6 +2571,24 @@ fn emit_cfg_doc(name: &str, cs: &ContainerSpec) -> bool {
     cfgnm_s.push_str("Cfg");
     let cfgnm: Ident = Ident::new(cfgnm_s.as_str());
     let gp: ExprBlob = parse_type_params(cs.generics);
+    // A `str` KEY (M4b) takes the same `"str"` VLE tag a `str` value does.
+    if str_eq(kty, "str") {
+        if str_eq(vty, "str") {
+            let b: QuoteItemBlob = quote_item! {
+                use logos.lang.writ.wstatic;
+                pub const #cfgnm #(gp): WritStatic = @{ "kind": "ordered_map", "key": "str", "value": "str" };
+            };
+            unsafe { logos_emit_item_blob_subst(&b); }
+        } else {
+            let vt: ExprBlob = parse_type(vty);
+            let b: QuoteItemBlob = quote_item! {
+                use logos.lang.writ.wstatic;
+                pub const #cfgnm #(gp): WritStatic = @{ "kind": "ordered_map", "key": "str", "value": <type:#(vt)> };
+            };
+            unsafe { logos_emit_item_blob_subst(&b); }
+        }
+        return true;
+    }
     let kt: ExprBlob = parse_type(kty);
     if str_eq(vty, "str") {
         let b: QuoteItemBlob = quote_item! {
@@ -3927,10 +4064,15 @@ pub fn __container_factory(hash_hex: &str, cfg_src: &str) -> ItemList {
     fam.push_str(hash_hex);
     let mut sp: String = String::new();
     if str_eq(kind, KIND_ORDERED_MAP) {
-        let kty: &str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"key\""));
+        let kp: i64 = cfg_value_pos(cfg_src, "\"key\"");
+        let mut kty: &str = cfg_read_type_slot(cfg_src, kp);
         if kty.len() == 0i64 {
-            error("container factory: CFG document has no readable `key` type slot (emit_cfg_doc format skew?)");
-            return out;
+            // Not a type slot — must be the `"str"` VLE tag (a byte-string key).
+            kty = cfg_read_quoted(cfg_src, kp);
+            if !str_eq(kty, "str") {
+                error("container factory: CFG `key` slot is neither <type:K> nor the \"str\" VLE tag (emit_cfg_doc format skew?)");
+                return out;
+            }
         }
         let vp: i64 = cfg_value_pos(cfg_src, "\"value\"");
         let mut vty: &str = cfg_read_type_slot(cfg_src, vp);
@@ -4384,7 +4526,10 @@ fn container_item_run(name: &str, spec: &str, emit_cfg: bool, cfg_src: &str) {
         // value by value; a volume (VLE) leaf returns it BY VIEW (&[u8]). The
         // `vol` flavor threads that value-return difference through emit_tree /
         // emit_cow_map (the branch routes by key only — value-agnostic).
-        let vol: bool = !leaf_fast;
+        // The VALUE's form (a `str` value is VLE, read back as `&[u8]`) — no
+        // longer the same question as the split policy once a `str` KEY makes
+        // a family volume-split over FSE values (M4b).
+        let vol: bool = str_eq(vty, "str");
         let node_cow: bool = saw_cow;
         let leaf_policy: &str = if leaf_fast { SPLIT_FAST } else { SPLIT_VOLUME };
         let mut ln: String = String::new(); ln.push_str(name); ln.push_str("Leaf");

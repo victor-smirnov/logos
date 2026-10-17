@@ -21,6 +21,10 @@ use logos.lang.panic;
 use logos.lang.slice;            // slice_from_raw — a row's bytes as a view
 use logos.lang.mem;              // compare_bytes
 
+/// The longest `str` key an ordered_map admits, in bytes — and so the
+/// separator a bytes-keyed branch reserves room for per child row.
+pub const STR_KEY_RESERVE: i64 = 255i64;
+
 /// Format slot `slot` of a leaf as a single-column PdtBuf at the capacity-0
 /// geometry, wired to the node allocator (the nested-block discipline).
 /// `vle` picks the value shape; `ordered` marks the MAX-measure key column.
@@ -111,15 +115,14 @@ pub unsafe fn btss_split_index_volume(a: *mut PkdAlloc) -> u32 {
     if n <= 1u32 {
         return n;
     }
-    let vb8: PdtBuf = pdtbuf_adopt((*a).get::<u8>(1u32));
-    let total: u32 = btss_key_weight(a, n) + (vb8.row_offset(0u32, 0u32, n as u64) as u32);
+    let total: u32 = btss_key_weight(a, n) + btss_val_weight(a, n);
     let half: u32 = total / 2u32;
     let mut lo: u32 = 1u32;
     let mut hi: u32 = n - 1u32;
     let mut at: u32 = 1u32;
     while lo <= hi {
         let mid: u32 = lo + (hi - lo) / 2u32;
-        let cv: u32 = btss_key_weight(a, mid) + (vb8.row_offset(0u32, 0u32, mid as u64) as u32);
+        let cv: u32 = btss_key_weight(a, mid) + btss_val_weight(a, mid);
         if cv <= half {
             at = mid;
             lo = mid + 1u32;
@@ -138,6 +141,14 @@ pub unsafe fn btss_split_index_volume(a: *mut PkdAlloc) -> u32 {
 pub unsafe fn btss_key_weight(a: *mut PkdAlloc, m: u32) -> u32 {
     let kb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(0u32));
     if kb.vle_dim_count() > 0u32 { return kb.row_offset(0u32, 0u32, m as u64) as u32; }
+    return m * 8u32;
+}
+
+/// The byte weight of the first `m` values: the VLE payload before row `m`,
+/// or 8 per FSE cell (a `str`-keyed family is volume-split over FSE values).
+pub unsafe fn btss_val_weight(a: *mut PkdAlloc, m: u32) -> u32 {
+    let vb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(1u32));
+    if vb.vle_dim_count() > 0u32 { return vb.row_offset(0u32, 0u32, m as u64) as u32; }
     return m * 8u32;
 }
 
@@ -238,6 +249,65 @@ pub unsafe fn btss_fits_row(a: *mut PkdAlloc, slots: u32) -> bool {
             Result::Err(_e) => {
                 return false;
             }
+        };
+        total = total + us.grow_bytes();
+        c = c + 1u32;
+    }
+    return total <= (*a).free_space();
+}
+
+/// A one-row two-phase insert of `v`'s bytes into the VLE column `slot`
+/// (priced by the caller, like `btss_put_cell`). The bytes are COPIED into the
+/// carrier before the commit, so `v` may view another block — a child's
+/// separator — or even this column.
+pub unsafe fn btss_put_span(a: *mut PkdAlloc, slot: u32, pos: u32, v: &[u8]) {
+    let mut vals: PdtVals = pdt_vals_new();
+    vals.push_span(v);
+    let b: PdtBuf = pdtbuf_adopt((*a).get::<u8>(slot));
+    let us: PdtUpdate = match b.prepare_insert_vals(pos as u64, 1u64, PDT_CAP_KEEP, &vals) {
+        Result::Ok(u) => u,
+        Result::Err(_e) => {
+            assert(false, "btss: VLE row insert does not fit (unpriced caller)");
+            return;
+        }
+    };
+    let mut b2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(slot));
+    b2.commit_insert_vals(&us, &vals);
+}
+
+/// Replace row `pos` of the VLE column `slot` with `v`'s bytes. Copied first,
+/// as in `btss_put_span`. False (column untouched) when the new bytes do not fit.
+pub unsafe fn btss_set_span(a: *mut PkdAlloc, slot: u32, pos: u32, v: &[u8]) -> bool {
+    let mut vals: PdtVals = pdt_vals_new();
+    vals.push_span(v);
+    let b: PdtBuf = pdtbuf_adopt((*a).get::<u8>(slot));
+    let us: PdtUpdate = match b.prepare_update_vals(pos as u64, 1u64, PDT_CAP_KEEP, &vals) {
+        Result::Ok(u) => u,
+        Result::Err(_e) => { return false; }
+    };
+    let mut b2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(slot));
+    b2.commit_update_vals(&us, &vals);
+    return true;
+}
+
+/// `btss_fits_row` for a row whose column 0 is VLE carrying `k0` bytes (a
+/// bytes-keyed branch: separator + count + child): every grow priced by the
+/// prepare that would commit it.
+pub unsafe fn btss_fits_row_span(a: *mut PkdAlloc, slots: u32, k0: &[u8]) -> bool {
+    let mut vals: PdtVals = pdt_vals_new();
+    vals.push_span(k0);
+    let b0: PdtBuf = pdtbuf_adopt((*a).get::<u8>(0u32));
+    let u0: PdtUpdate = match b0.prepare_insert_vals(b0.size(), 1u64, PDT_CAP_KEEP, &vals) {
+        Result::Ok(u) => u,
+        Result::Err(_e) => { return false; }
+    };
+    let mut total: u32 = u0.grow_bytes();
+    let mut c: u32 = 1u32;
+    while c < slots {
+        let b: PdtBuf = pdtbuf_adopt((*a).get::<u8>(c));
+        let us: PdtUpdate = match b.prepare_insert(b.size(), 1u64, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => { return false; }
         };
         total = total + us.grow_bytes();
         c = c + 1u32;
