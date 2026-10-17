@@ -5494,7 +5494,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         auto k = TypeRef(impl_self_ty).kind();
                         if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
                             k == LogosType::Kind::Tuple || k == LogosType::Kind::Array ||
-                            k == LogosType::Kind::UnsizedSlice)
+                            k == LogosType::Kind::UnsizedSlice || k == LogosType::Kind::Ptr)
                             self_type = impl_self_ty;
                     }
                     if (is_blanket)

@@ -204,8 +204,6 @@ guard_closure_moves_scrutinee_admits 2 tests/soundness/open/guard_closure_moves_
 
 guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_moves_ref_mut_binding_admits admits
 
-raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
-
 default_method_generics_shadow_impl_generics_refused 3 tests/soundness/open/default_method_generics_shadow_impl_generics_refused refuses
 
 rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visible_admitted admits
@@ -374,5 +372,5 @@ rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visibl
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 96
-# SYNC-HASH 5d2a3908840a7e334fdec0dd0df0f900
+# TOTAL 95
+# SYNC-HASH f29650179f62082c53a62a77e7cd95fa

@@ -1141,6 +1141,21 @@ impl<T: Ord, E: Ord> Ord for Result<T, E> {
     }
 }
 
+// Raw pointers order by ADDRESS (Rust: `impl<T: ?Sized> Ord for *const T` / `*mut T`);
+// the pointee is never read.
+impl<T> PartialOrd for *const T {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some((*self as usize).cmp(&(*other as usize))); }
+}
+impl<T> Ord for *const T {
+    fn cmp(&self, other: &Self) -> Ordering { return (*self as usize).cmp(&(*other as usize)); }
+}
+impl<T> PartialOrd for *mut T {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some((*self as usize).cmp(&(*other as usize))); }
+}
+impl<T> Ord for *mut T {
+    fn cmp(&self, other: &Self) -> Ordering { return (*self as usize).cmp(&(*other as usize)); }
+}
+
 impl<A: PartialOrd> PartialOrd for (A,) {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         return self.0.partial_cmp(&other.0);
