@@ -859,8 +859,12 @@ pub fn entry_result_ty(proj: SExpr, t: &ElTypes, annot: &str, has_annot: bool) -
             else { ty.push_str(infer_emit_ty(proj, t)); }
         }
     }
+    // The type is EMITTED text: the lattice's `str` (an inferred column, a
+    // `: str` annotation) is spelled `&str` in Logos.
+    let mut lty: String = String::new();
+    push_logos_col_ty(&mut lty, ty.as_str());
     let mut elem: String = String::new();
-    if comp { elem.push_str("Vec<"); elem.push_str(ty.as_str()); elem.push_str(">"); }
-    else { elem.push_str(ty.as_str()); }
-    return EntryTy { ty: ty, elem: elem, tuple: tuple, comp: comp };
+    if comp { elem.push_str("Vec<"); elem.push_str(lty.as_str()); elem.push_str(">"); }
+    else { elem.push_str(lty.as_str()); }
+    return EntryTy { ty: lty, elem: elem, tuple: tuple, comp: comp };
 }

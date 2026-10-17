@@ -88,7 +88,7 @@ pub deem census(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part], locs: 
     select (key, n) order by key
 }
 
-pub deem classify(subs: &[Sub], inst: &[Isa], mons: &[Mon], who: str) {
+pub deem classify(subs: &[Sub], inst: &[Isa], mons: &[Mon], who: &str) {
     rel sub_tr(a: str, b: str) {
         from subs s select (s.sub, s.sup);
         from sub_tr t join subs s on t.b == s.sub select (t.a, s.sup);

@@ -1273,8 +1273,31 @@ pub fn incr_admit(ch: &DNest, ty: &ElTypes, aggs: &Vec<CAgg>,
 /// Everything else the EL lattice admits — the integer family, `bool`, `f64` —
 /// is a self-contained value.
 pub fn incr_ty_ok(t: &str) -> bool {
-    if str_eq(t, "String") { return false; }
-    return el_ty(t).cls != EL_TY_STR();
+    // By COMPONENT, not by the whole type's class: a tuple key `(str, i64)` is
+    // class tuple, and admitting it left the handle holding views into rows
+    // the caller may free after the epoch — the borrow the scalar refusal
+    // exists for. `&str` (the Logos spelling, a result type being emitted
+    // text) is the same `str`.
+    return !ty_has_word(t, "str") && !ty_has_word(t, "String");
+}
+
+// `w` occurs in type text `t` as a whole name (not `str_x`, not `a.str`).
+fn ty_has_word(t: &str, w: &str) -> bool {
+    let n: i64 = t.len();
+    let m: i64 = w.len();
+    let mut i: i64 = 0i64;
+    while i + m <= n {
+        let mut k: i64 = 0i64;
+        while k < m && str_byte_at(t, i + k) == str_byte_at(w, k) { k = k + 1i64; }
+        if k == m && (i == 0i64 || !ty_word_byte(str_byte_at(t, i - 1i64)))
+           && (i + m == n || !ty_word_byte(str_byte_at(t, i + m))) { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn ty_word_byte(c: u8) -> bool {
+    return (c >= 97u8 && c <= 122u8) || (c >= 65u8 && c <= 90u8) || (c >= 48u8 && c <= 57u8) || c == 95u8 || c == 46u8 || c == 58u8;
 }
 
 /// May a whole ROW of this type be OWNED by a handle? The question `incr_ty_ok`

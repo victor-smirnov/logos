@@ -78,7 +78,7 @@ pub deem sd(a: &[SA]) { from a x select distinct x.a1 : i64 }
 // ── the four STRING shapes, one per compare fold ──────────────────────────────
 // `q: str` is a TYPED PARAM (the `wql_typed_params_e2e` spelling), so the fuzzed
 // string LITERAL stays a fuzzed dimension without one `deem` item per pool entry.
-pub deem ss_lt(a: &[SS], q: str) { from a x where x.s < q select x.n : i64 }
+pub deem ss_lt(a: &[SS], q: &str) { from a x where x.s < q select x.n : i64 }
 pub deem ss_join(a: &[SS], b: &[ST]) { from a x join b y on x.s == y.t select x.n * 100 + y.m : i64 }
 pub deem ss_grp(a: &[SS]) { from a x group by x.s aggregate c = count() select (key, c) }
 pub deem ss_ord(a: &[SS]) { from a x select x.s order by x.s : str }
