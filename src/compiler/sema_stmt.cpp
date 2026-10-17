@@ -3082,7 +3082,8 @@ lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
                              TypeRef(ret_type_).kind() != LogosType::Kind::ImplTrait &&
                              !contains_impl_trait_(ret_type_);   // a nested hole is not an expectation
     TypeRef ret_shape = ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Void &&
-                        !contains_impl_trait_(ret_type_) ? ret_type_ : TypeRef(nullptr);
+                        (TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait ||   // `-> impl Fn(..)`: the closure's shape
+                         !contains_impl_trait_(ret_type_)) ? ret_type_ : TypeRef(nullptr);
     if (ret_shape && ret_shape == ret_shape_of_ && ret_shape_) ret_shape = ret_shape_;
     // A nested hole's expectation is the hidden type once a return fixed it, else `_`.
     TypeRef nested_hint = nullptr;
