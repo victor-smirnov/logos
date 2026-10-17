@@ -23,7 +23,7 @@ container WeFse {
 }
 container WeVol {
     kind ordered_map;
-    entry { key: u64, val: &str }
+    entry { key: u64, val: str }
     measure max(key);
 }
 

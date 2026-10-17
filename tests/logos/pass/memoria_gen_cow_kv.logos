@@ -28,7 +28,7 @@ use logos.std.io;
 // the whole VOLUME stack (leaf/branch + cow handle) from this one decl.
 container GenVol {
     kind ordered_map;
-    entry { key: u64, val: &str }
+    entry { key: u64, val: str }
     measure max(key);
 }
 

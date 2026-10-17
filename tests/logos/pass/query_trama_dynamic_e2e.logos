@@ -21,12 +21,12 @@ use logos.mem.string;
 use logos.lang.str;
 
 pub schema Emp : code(0x0A02_0000_0000_0001) {
-    name: str = 0,
+    name: &str = 0,
     age:  i64 = 1,
 }
 
 pub schema Team : code(0x0A02_0000_0000_0002) {
-    title: str       = 0,
+    title: &str       = 0,
     emps:  WRef<Emp> = 1,
 }
 

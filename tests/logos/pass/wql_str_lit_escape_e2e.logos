@@ -68,9 +68,9 @@ fn main() -> i32 {
     if !one(hex(&doc), "e") { return 5i32; }
 
     // (b) x, backslash, y, newline: four bytes
-    let l: Vec<str> = match lit(&doc) { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    let l: Vec<&str> = match lit(&doc) { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
     if l.len() != 1i64 { return 7i32; }
-    let lv: str = l.get(0i64);
+    let lv: &str = l.get(0i64);
     if lv.len() != 4i64 { return 8i32; }
     if str_byte_at(lv, 1i64) != 92u8 || str_byte_at(lv, 3i64) != 10u8 { return 9i32; }
 

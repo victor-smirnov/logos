@@ -25,7 +25,7 @@ pub deem ranked(emps: &[Emp], depts: &[Dept], levels: &[Level]) {
     join levels l on l.skill == s
     select (e.name, d.dname, l.lvl) order by e.name }
 
-fn mk_emp(name: &str, dept: i64, s1: &str) -> Emp {
+fn mk_emp(name: &'static str, dept: i64, s1: &'static str) -> Emp {
     let mut sk: Vec<&str> = Vec::<&str>::new();
     if s1.len() > 0i64 { sk.push(s1); }
     return Emp { name: name, dept: dept, skills: sk };

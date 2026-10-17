@@ -90,7 +90,7 @@ pub deem tags_by_tag(xs: &[Item], lo: i64) {
 // its base would surface as the wrong ids rather than as a wrong order.
 pub deem ids_by_tag(xs: &[Item]) { from xs x select x.id order by x.tag : i64 }
 
-fn mk(id: i64, tag: &str, qty: i64) -> Item {
+fn mk(id: i64, tag: &'static str, qty: i64) -> Item {
     return Item { id: id, tag: tag, qty: qty };
 }
 

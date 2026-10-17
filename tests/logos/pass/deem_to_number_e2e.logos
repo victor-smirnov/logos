@@ -38,7 +38,7 @@ pub deem shift_dead(ks: &[K]) {
     from ks y select y.v order by y.v }
 
 // 0 = Ok, 1 = Parse, 2 = Overflow, 3 = another error
-fn fault_of(s: &str) -> i32 {
+fn fault_of(s: &'static str) -> i32 {
     let one: [T; 1] = [T { s: s, id: 1i64 }];
     match nums(&one[..]) {
         Result::Ok(_v) => { return 0i32; }

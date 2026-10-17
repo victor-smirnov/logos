@@ -176,9 +176,9 @@ fn expect_rows(c: &Cfg) -> Vec<WritEdgeRow> {
     let s = c.replicas.as_slice();
     let mut e: Vec<WritEdgeRow> = vec_new::<WritEdgeRow>();
     e.push((0i64, "", -1i64, idc, "struct", 0i64, 0i64, ""));
-    e.push((idc, "name", -1i64, (&c.name as *const str) as i64, "str", 0i64, 0i64, "prod"));
+    e.push((idc, "name", -1i64, (&c.name as *const &str) as i64, "str", 0i64, 0i64, "prod"));
     e.push((idc, "db", -1i64, idd, "struct", 0i64, 0i64, ""));
-    e.push((idd, "host", -1i64, (&c.db.host as *const str) as i64, "str", 0i64, 0i64, "h1"));
+    e.push((idd, "host", -1i64, (&c.db.host as *const &str) as i64, "str", 0i64, 0i64, "h1"));
     e.push((idd, "port", -1i64, (&c.db.port as *const i64) as i64, "i64", 0i64, 5432i64, ""));
     // 0.75f64 == 0x3FE8000000000000.
     e.push((idd, "load", -1i64, (&c.db.load as *const f64) as i64, "f64", 0i64,

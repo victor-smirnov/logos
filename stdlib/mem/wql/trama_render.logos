@@ -85,6 +85,14 @@ struct TLexer<'d> {
     len: i64,
 }
 
+// A lattice type name parsed as the Logos type it is emitted as: `str` is
+// spelled `&str` (`push_logos_col_ty`).
+fn parse_lty(t: &str) -> ExprBlob {
+    let mut lt: String = String::new();
+    push_logos_col_ty(&mut lt, t);
+    return parse_type(lt.as_str());
+}
+
 fn tl_is_space(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
 
 impl TLexer<'_> {
@@ -477,14 +485,14 @@ fn emit_one(e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: &str, depth: i64, h: &W
         TStmt::Set(s) => {
             // {% set var = expr %} → a typed let binding of the expression's own
             // TYPE (Rust typing: it was `: i64` for every integer). A string
-            // `set` binds a `str`.
+            // `set` binds a `&str` (the lattice `str`, spelled by `parse_lty`).
             let vname: Ident = Ident::new(s.var);
             let se: SExpr = simplify_sexpr(s.expr_expr(), h).any().view::<SExpr>();
             if !reject_tuple(se, "trama!: `{% set %}`") { return next_word(&s.next); }
             if !check_calls(se, ty, "trama!") { }
             let vt: i32 = infer_ty(se, ty);
             let tn: &str = if vt == EL_TY_STR() { "str" } else { infer_emit_ty(se, ty) };
-            let tf: ExprBlob = parse_type(tn);
+            let tf: ExprBlob = parse_lty(tn);
             let ef: ExprBlob = sexpr_blob(se, ty, ctx);
             *st = quote_block! { let #vname: #(tf) = #(ef); };
             return next_word(&s.next);
@@ -548,7 +556,7 @@ fn emit_one(e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: &str, depth: i64, h: &W
             let by_ref: bool = vty.len() > 0i64 && !is_primitive_ty(vty);
             let body: ExprBlob = emit_stmts(body_word(&f.body), ty, vtys, ctx, depth + 1i64, h);
             if by_ref {
-                let vt: ExprBlob = parse_type(vty);
+                let vt: ExprBlob = parse_lty(vty);
                 *st = quote_block! {
                     let mut #ni: i64 = 0i64;
                     while #ni < (#(itf)).len() {
@@ -558,7 +566,7 @@ fn emit_one(e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: &str, depth: i64, h: &W
                     }
                 };
             } else {
-                let vt2: ExprBlob = parse_type(if vty.len() > 0i64 { vty } else { "i64" });
+                let vt2: ExprBlob = parse_lty(if vty.len() > 0i64 { vty } else { "i64" });
                 *st = quote_block! {
                     let mut #ni: i64 = 0i64;
                     while #ni < (#(itf)).len() {

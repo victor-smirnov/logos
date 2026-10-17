@@ -19,7 +19,7 @@ pub deem all_skills(depts: &[Dept]) {
     join e.skills s
     select (d.dname, e.name, s) }
 
-fn mk_emp(name: &str, s1: &str, s2: &str) -> Emp {
+fn mk_emp(name: &'static str, s1: &'static str, s2: &'static str) -> Emp {
     let mut sk: Vec<&str> = Vec::<&str>::new();
     if s1.len() > 0i64 { sk.push(s1); }
     if s2.len() > 0i64 { sk.push(s2); }

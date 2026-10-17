@@ -74,6 +74,14 @@ fn ad_err(prefix: &str, nm: &SView, field: &SView, detail: &str) {
     error(msg.as_str());
 }
 
+// A borrowed `str` type node (`&str`, `&'a str`): REF_TYPE (129) over a POINTEE
+// (key 18) named `str`. Such a node has no NAME of its own.
+fn ad_ref_str(view: &OView, t: WAny) -> bool {
+    if t.is_null() || (view.ast_node_code(t) & (0xFFFF as u64)) != (129 as u64) { return false; }
+    let p: WAny = view.tiny_map_get(t, 18 as u8);
+    return !p.is_null() && sview_eq_str(&view.ast_node_name(p), "str");
+}
+
 #[metaprog_handler("batch_entry")]
 fn batch_entry_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
@@ -125,7 +133,7 @@ fn batch_entry_hook(target_offset: u32) -> () {
         unsafe { logos_emit_item_blob_subst(&blob); }
         return;
     }
-    if sview_eq_str(&f1t, "str") {
+    if sview_eq_str(&f1t, "str") || ad_ref_str(&view, view.ast_type_child(f1)) {
         // volume map entry
         let blob: QuoteItemBlob = quote_item! {
             use logos.mem.bt.map;
@@ -168,7 +176,7 @@ fn batch_entry_hook(target_offset: u32) -> () {
         unsafe { logos_emit_item_blob_subst(&blob); }
         return;
     }
-    ad_err("the VALUE field must be an integer (fast map), str (volume map) or Vec<u64> (multimap)",
+    ad_err("the VALUE field must be an integer (fast map), &str (volume map) or Vec<u64> (multimap)",
            &nm_sv, &f1n, "");
     return;
 }
