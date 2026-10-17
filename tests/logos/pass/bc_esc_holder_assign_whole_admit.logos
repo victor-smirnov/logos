@@ -4,15 +4,15 @@
 package bc_esc_holder_assign_whole_admit;
 use logos.mem.string;
 
-pub struct W { pub v: str }
+pub struct W<'a> { pub v: &'a str }
 
-pub fn ok(s: &str) -> W {
+pub fn ok<'a>(s: &'a str) -> W<'a> {
     let mut w: W = W { v: "" };
     w = W { v: s };
     return w;
 }
 
-pub fn ok_static() -> W {
+pub fn ok_static() -> W<'static> {
     let mut w: W = W { v: "" };
     w = W { v: "abcde" };
     return w;

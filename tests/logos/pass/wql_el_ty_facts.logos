@@ -46,13 +46,13 @@ extern fn printf(fmt: *const u8, ...) -> i32;
 fn emit(b: &mut String) {
     b.push_u8(10u8);
     b.push_u8(0u8);
-    let f: str = "%s";
+    let f: &str = "%s";
     unsafe { printf(f.as_ptr(), b.as_ptr()); }
 }
 
-fn yn(v: bool) -> str { if v { return "y"; } return "n"; }
+fn yn(v: bool) -> &str { if v { return "y"; } return "n"; }
 
-fn ord_name(o: i32) -> str {
+fn ord_name(o: i32) -> &str {
     if o == EL_ORD_OK()      { return "OK"; }
     if o == EL_ORD_PARTIAL() { return "PARTIAL"; }
     if o == EL_ORD_WRAP()    { return "WRAP"; }
@@ -60,16 +60,16 @@ fn ord_name(o: i32) -> str {
     return "UNNAMED";
 }
 
-fn id_name(i: i32) -> str {
+fn id_name(i: i32) -> &str {
     if i == EL_ID_OK()     { return "OK"; }
     if i == EL_ID_NO_EQ()  { return "NO_EQ"; }
     if i == EL_ID_NO_INJ() { return "NO_INJ"; }
     return "UNNAMED";
 }
 
-fn dash(s: str) -> str { if s.len() == 0i64 { return "-"; } return s; }
+fn dash(s: &str) -> &str { if s.len() == 0i64 { return "-"; } return s; }
 
-fn row(name: str) {
+fn row(name: &str) {
     let t: ElTy = el_ty(name);
     let mut b: String = String::new();
     b.push_str(name);

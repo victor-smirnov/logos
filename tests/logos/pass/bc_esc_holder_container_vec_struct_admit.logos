@@ -4,15 +4,15 @@
 package bc_esc_holder_container_vec_struct_admit;
 use logos.mem.string;
 
-pub struct H { pub v: str }
+pub struct H<'a> { pub v: &'a str }
 
-pub fn ok(s: &str) -> Vec<H> {
+pub fn ok<'a>(s: &'a str) -> Vec<H<'a>> {
     let mut v: Vec<H> = Vec::<H>::new();
     v.push(H { v: s });
     return v;
 }
 
-pub fn ok_static() -> Vec<H> {
+pub fn ok_static() -> Vec<H<'static>> {
     let mut v: Vec<H> = Vec::<H>::new();
     v.push(H { v: "abcde" });
     return v;

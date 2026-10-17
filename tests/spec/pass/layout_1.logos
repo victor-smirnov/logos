@@ -25,7 +25,7 @@ impl Speak for Tracked { fn say(&self) -> i64 { return self.v; } }
 fn take_box(b: Box<dyn Speak>) -> i64 { return b.say(); }
 
 // struct with inline fat (slice) field + scalar field
-struct Holder { tag: i64, sl: str }
+struct Holder { tag: i64, sl: &'static str }
 
 // struct with inline aggregate (struct) field
 struct Outer { inner: Concrete, k: i64 }

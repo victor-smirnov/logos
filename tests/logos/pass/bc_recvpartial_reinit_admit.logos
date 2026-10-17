@@ -8,7 +8,7 @@
 // landed; each fired the site and stayed green.
 package bc_recvpartial_reinit_admit;
 
-struct P { s: str, x: i64 }
+struct P { s: &'static str, x: i64 }
 impl Drop for P { fn drop(self: &mut P) {} }
 impl P { fn look(self: &P) -> i64 { return self.x; } }
 

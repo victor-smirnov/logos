@@ -84,7 +84,7 @@ use logos.mem.string;
 /// The longest common PREFIX of two `str`s, in bytes. Bytewise on purpose: the
 /// property under test is that two literals were edited together, and a byte is
 /// the unit an edit moves.
-fn lcp(a: str, b: str) -> i64 {
+fn lcp(a: &str, b: &str) -> i64 {
     let mut n: i64 = 0i64;
     while n < a.len() && n < b.len() {
         if str_byte_at(a, n) != str_byte_at(b, n) { return n; }
@@ -94,7 +94,7 @@ fn lcp(a: str, b: str) -> i64 {
 }
 
 /// The longest common SUFFIX of two `str`s, in bytes.
-fn lcs(a: str, b: str) -> i64 {
+fn lcs(a: &str, b: &str) -> i64 {
     let mut n: i64 = 0i64;
     while n < a.len() && n < b.len() {
         if str_byte_at(a, a.len() - 1i64 - n) != str_byte_at(b, b.len() - 1i64 - n) { return n; }
@@ -105,8 +105,8 @@ fn lcs(a: str, b: str) -> i64 {
 
 fn main() -> i32 {
     // ── EL_ORD_WRAP — u64 / usize. Codes 10-16.
-    let ws: str = el_ord_why_code(EL_ORD_WRAP(), EL_WHY_SORT());
-    let wn: str = el_ord_why_code(EL_ORD_WRAP(), EL_WHY_NORM());
+    let ws: &str = el_ord_why_code(EL_ORD_WRAP(), EL_WHY_SORT());
+    let wn: &str = el_ord_why_code(EL_ORD_WRAP(), EL_WHY_NORM());
     if str_eq(ws, wn)                  { return 10i32; }   // the split exists
     if !str_contains(ws, "order by")   { return 11i32; }   // the sort's cost, kept
     if str_contains(wn, "order by")    { return 12i32; }   // and NOT claimed here
@@ -118,8 +118,8 @@ fn main() -> i32 {
     if lcp(ws, wn) + lcs(ws, wn) >= wn.len() { return 16i32; }
 
     // ── EL_ORD_TRUNC — u128 / i128. Codes 20-26.
-    let ts: str = el_ord_why_code(EL_ORD_TRUNC(), EL_WHY_SORT());
-    let tn: str = el_ord_why_code(EL_ORD_TRUNC(), EL_WHY_NORM());
+    let ts: &str = el_ord_why_code(EL_ORD_TRUNC(), EL_WHY_SORT());
+    let tn: &str = el_ord_why_code(EL_ORD_TRUNC(), EL_WHY_NORM());
     if str_eq(ts, tn)                  { return 20i32; }
     if !str_contains(ts, "order by")   { return 21i32; }
     if str_contains(tn, "order by")    { return 22i32; }

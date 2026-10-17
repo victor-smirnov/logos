@@ -40,7 +40,7 @@ fn hex_val(b: u8) -> u64 {
     return ((b - 97u8) as u64) + 10u64;
 }
 
-fn next_tok(s: str, pos: &mut i64) -> u64 {
+fn next_tok(s: &str, pos: &mut i64) -> u64 {
     let n: i64 = s.len();
     let mut i: i64 = *pos;
     while i < n && is_ws(s[i]) {
@@ -121,7 +121,7 @@ fn edge_checks() -> i32 {
 
 // ── one oracle case ─────────────────────────────────────────────────────────
 
-fn check_case(bps: u32, runs: &Vec<SsrleRun>, nunits: u64, s: str, pos: &mut i64) -> i32 {
+fn check_case(bps: u32, runs: &Vec<SsrleRun>, nunits: u64, s: &str, pos: &mut i64) -> i32 {
     // 1. the size oracle
     let computed: u64 = ssrle_compute_size(bps, runs, 0u64);
     if computed != nunits {
@@ -181,7 +181,7 @@ fn run_all() -> i32 {
         Result::Ok(c) => { c }
         Result::Err(_) => { return 100i32; }
     };
-    let s: str = content.as_str();
+    let s: &str = content.as_str();
     let mut pos: i64 = 0i64;
     let mut cases: i64 = 0i64;
     let mut going: bool = true;

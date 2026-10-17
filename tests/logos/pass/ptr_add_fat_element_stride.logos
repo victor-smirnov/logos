@@ -16,10 +16,10 @@ fn chk<T>(p: *const T, sz: u64) -> i32 {
     return bad;
 }
 fn main() -> i32 {
-    let s: [str; 2] = ["a", "b"];
+    let s: [&str; 2] = ["a", "b"];
     let b: [Box<dyn A>; 2] = [Box::new(D { v: 1 }) as Box<dyn A>, Box::new(D { v: 2 }) as Box<dyn A>];
     let n: [i64; 2] = [1, 2];
-    let r1 = chk(&s[0] as *const str, 16u64);
+    let r1 = chk(&s[0] as *const &str, 16u64);
     let r2 = chk(&b[0] as *const Box<dyn A>, 16u64);
     let r3 = chk(&n[0] as *const i64, 8u64);
     return r1 + r2 * 4 + r3 * 16;

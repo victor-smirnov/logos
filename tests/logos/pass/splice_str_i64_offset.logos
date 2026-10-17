@@ -20,7 +20,7 @@ use logos.std.compiler.metaprog;
 use logos.mem.string;
 use logos.lang.str;
 
-struct Item { pub name: str, pub dept: i64 }
+struct Item { pub name: &'static str, pub dept: i64 }
 
 // #[token_macro] handler: emits, via the raw-source splice path, a function
 //   pub fn pick(ws: &[Item]) -> i64 { sum of .dept over the slice }

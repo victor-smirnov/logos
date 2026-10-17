@@ -33,7 +33,7 @@ pub deem in_rel(es: &[Emp], ds: &[Dept]) {
     rel per(f: i64, n: i64) { from es x full join ds y on y.id == x.dept group by unwrap_or(y.floor, -1) aggregate n = count() select (key, n); }
     from per p select (p.f, p.n) order by p.f
 }
-fn show(t: str, v: &Vec<(i64, i64)>) { print!("{}", t); let mut i: i64 = 0i64; while i < v.len() { print!(" {}:{}", v.get(i).0, v.get(i).1); i = i + 1i64; } println!(""); }
+fn show(t: &str, v: &Vec<(i64, i64)>) { print!("{}", t); let mut i: i64 = 0i64; while i < v.len() { print!(" {}:{}", v.get(i).0, v.get(i).1); i = i + 1i64; } println!(""); }
 fn main() -> i32 {
     let es: [Emp; 4] = [ Emp { id: 1, dept: 10 }, Emp { id: 2, dept: 99 }, Emp { id: 3, dept: 20 }, Emp { id: 4, dept: 10 } ];
     let ds: [Dept; 4] = [ Dept { id: 10, floor: 4 }, Dept { id: 20, floor: 7 }, Dept { id: 30, floor: 4 }, Dept { id: 40, floor: 9 } ];

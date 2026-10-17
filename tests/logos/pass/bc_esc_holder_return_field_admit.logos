@@ -15,14 +15,14 @@
 package bc_esc_holder_return_field_admit;
 use logos.mem.string;
 
-pub struct W { pub v: str }
+pub struct W<'a> { pub v: &'a str }
 
 pub fn ok(s: &str) -> &str {
     let w: W = W { v: s };
     return w.v;
 }
 
-pub fn ok_static() -> &str {
+pub fn ok_static() -> &'static str {
     let w: W = W { v: "abcde" };
     return w.v;
 }

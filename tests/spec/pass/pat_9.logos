@@ -4,7 +4,7 @@ package pat_9;
 
 struct Pt { x: i64, y: i64 }
 
-enum Num { I(i64), B(bool), S(str) }
+enum Num { I(i64), B(bool), S(&'static str) }
 
 enum Wrap { Struct(Pt), Tup((i64, i64)) }
 

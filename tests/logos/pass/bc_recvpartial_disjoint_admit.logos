@@ -9,14 +9,14 @@
 // green — COST 0 is not a safety claim, so the counter-examples are the claim.
 package bc_recvpartial_disjoint_admit;
 
-struct P { s: str, x: i64 }
+struct P { s: &'static str, x: i64 }
 impl Drop for P { fn drop(self: &mut P) {} }
 impl P { fn look(self: &P) -> i64 { return self.x; } }
 
 struct L { origin: P, middle: P }
 impl L { fn look(self: &L) -> i64 { return self.origin.x; } }
 
-struct Inner { s: str, t: str }
+struct Inner { s: &'static str, t: &'static str }
 impl Drop for Inner { fn drop(self: &mut Inner) {} }
 struct Mid { a: Inner, b: Inner }
 impl Mid { fn look(self: &Mid) -> i64 { return 4i64; } }

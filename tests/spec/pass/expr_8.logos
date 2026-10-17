@@ -204,7 +204,7 @@ fn main() -> i64 {
     // @rule expr.writ-map-comp.desugar
     // @{key: value for x in iter} desugars to a writ builder (Rc<Writ>) map.
     {
-        let keys: [str; 3] = ["a", "b", "c"];
+        let keys: [&str; 3] = ["a", "b", "c"];
         let idx: [i32; 3] = [0, 1, 2];
         let doc: Rc<Writ> = @{keys[x as i64]: x * 100 for x in idx};
         unsafe {

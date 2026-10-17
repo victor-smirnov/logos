@@ -16,7 +16,7 @@ use logos.lang.writ.anyval;
 use logos.lang.writ.wstring;
 use logos.lang.str;
 
-fn fact_ctr(doc: &Writ, arr: &mut WArray<WAny>, name: str, kind: str) {
+fn fact_ctr(doc: &Writ, arr: &mut WArray<WAny>, name: &str, kind: &str) {
     let m: &mut WMap<WString, WAny> = doc.map(8i64);
     m.set("name", name);
     m.set("pub", true);
@@ -26,8 +26,8 @@ fn fact_ctr(doc: &Writ, arr: &mut WArray<WAny>, name: str, kind: str) {
     arr.push(WAny::from(&*m));
 }
 
-fn fact_col(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, idx: i64, name: str,
-            ty: str, prm: bool) {
+fn fact_col(doc: &Writ, arr: &mut WArray<WAny>, ctr: &str, idx: i64, name: &str,
+            ty: &str, prm: bool) {
     let m: &mut WMap<WString, WAny> = doc.map(8i64);
     m.set("ctr", ctr);
     m.set("idx", idx);
@@ -37,7 +37,7 @@ fn fact_col(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, idx: i64, name: str,
     arr.push(WAny::from(&*m));
 }
 
-fn vd_count(vd: &Writ, key: str) -> i64 {
+fn vd_count(vd: &Writ, key: &str) -> i64 {
     let root: WAny = vd.root();
     if root.is_null() || !root.is_map() { return 0i64 - 1i64; }
     let rm: &WMap<WString, WAny> = root.as_map();
@@ -48,7 +48,7 @@ fn vd_count(vd: &Writ, key: str) -> i64 {
 }
 
 // True iff `split_policy` carries a row {ctr, policy}.
-fn has_split(vd: &Writ, ctr: str, policy: str) -> bool {
+fn has_split(vd: &Writ, ctr: &str, policy: &str) -> bool {
     let root: WAny = vd.root();
     if root.is_null() || !root.is_map() { return false; }
     let rm: &WMap<WString, WAny> = root.as_map();

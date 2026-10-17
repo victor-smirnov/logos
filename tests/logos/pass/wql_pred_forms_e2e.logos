@@ -8,7 +8,7 @@ use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.result;
 use logos.std.fmt;
-struct Person { pub id: i64, pub name: str, pub dept: str, pub age: i64, pub active: bool }
+struct Person { pub id: i64, pub name: &'static str, pub dept: &'static str, pub age: i64, pub active: bool }
 
 pub deem young_or_old(ps: &[Person]) { from ps p where p.age < 25 || p.age > 50 select p.id order by p.id }
 pub deem not_senior_active(ps: &[Person]) { from ps p where !(p.age >= 30 && p.active) select p.id order by p.id }

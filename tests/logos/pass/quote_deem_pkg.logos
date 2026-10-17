@@ -16,7 +16,7 @@ use logos.std.wql.wql;            // loads the deem handler (an emitted `use` on
 
 pub struct R { pub a: i64 }
 
-fn gen(name: str, query: str) -> ItemList {
+fn gen(name: &str, query: &str) -> ItemList {
     let dn: Ident = Ident::new(name);
     let ps: ExprBlob = parse_params("rs: &[R]");
     let qb: ExprBlob = parse_raw(query);

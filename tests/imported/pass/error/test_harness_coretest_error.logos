@@ -28,8 +28,8 @@ use logos.lang.error;
 use logos.lang.option;
 
 struct DbErr      { code: i32 }
-struct ServiceErr { msg: str, cause: DbErr }
-struct HandlerErr { route: str, cause: ServiceErr }
+struct ServiceErr { msg: &'static str, cause: DbErr }
+struct HandlerErr { route: &'static str, cause: ServiceErr }
 
 impl Error for DbErr {
     fn source(&self) -> Option<&dyn Error> { return Option::<&dyn Error>::None; }

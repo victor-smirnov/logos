@@ -78,7 +78,7 @@ pub deem ji24(xs: &[P24], ys: &[P24])    { from xs m join ys n on m.k == n.k sel
 // The control — refused for a ground that did not move, so still the LOOP tier.
 pub deem jstr(xs: &[SKey], ys: &[SKey])  { from xs p join ys q on p.k == q.k select p.id * 1000 + q.id }
 
-fn mk(s: str) -> String { let mut a: String = String::new(); a.push_str(s); return a; }
+fn mk(s: &str) -> String { let mut a: String = String::new(); a.push_str(s); return a; }
 
 /// The hash the backend emits for this type, through the same `Hasher` a
 /// `HashMap` uses. Generic, so it can only reach the value by the trait method.

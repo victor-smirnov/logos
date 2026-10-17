@@ -4,17 +4,17 @@
 package bc_esc_holder_container_outparam_admit;
 use logos.mem.string;
 
-pub struct H { pub v: str }
+pub struct H<'a> { pub v: &'a str }
 
-pub fn stash(v: &mut Vec<H>, h: H) { v.push(h); }
+pub fn stash<'a>(v: &mut Vec<H<'a>>, h: H<'a>) { v.push(h); }
 
-pub fn ok(s: &str) -> Vec<H> {
+pub fn ok<'a>(s: &'a str) -> Vec<H<'a>> {
     let mut v: Vec<H> = Vec::<H>::new();
     stash(&mut v, H { v: s });
     return v;
 }
 
-pub fn ok_static() -> Vec<H> {
+pub fn ok_static() -> Vec<H<'static>> {
     let mut v: Vec<H> = Vec::<H>::new();
     stash(&mut v, H { v: "abcde" });
     return v;

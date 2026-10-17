@@ -19,7 +19,7 @@ pub trait Tr {
     fn keep(&self, s: String) -> i64;
 }
 
-pub struct K { pub s: str }
+pub struct K { pub s: &'static str }
 
 impl Tr for K {
     fn pick(&self, probe: &str) -> &str { return self.s; }

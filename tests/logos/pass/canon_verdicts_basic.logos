@@ -20,7 +20,7 @@ use logos.lang.writ.anyval;
 use logos.lang.writ.wstring;
 use logos.lang.str;
 
-fn fact_ctr(doc: &Writ, arr: &mut WArray<WAny>, name: str, kind: str) {
+fn fact_ctr(doc: &Writ, arr: &mut WArray<WAny>, name: &str, kind: &str) {
     let m: &mut WMap<WString, WAny> = doc.map(8i64);
     m.set("name", name);
     m.set("pub", true);
@@ -30,8 +30,8 @@ fn fact_ctr(doc: &Writ, arr: &mut WArray<WAny>, name: str, kind: str) {
     arr.push(WAny::from(&*m));
 }
 
-fn fact_col(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, idx: i64, name: str,
-            ty: str, prm: bool) {
+fn fact_col(doc: &Writ, arr: &mut WArray<WAny>, ctr: &str, idx: i64, name: &str,
+            ty: &str, prm: bool) {
     let m: &mut WMap<WString, WAny> = doc.map(8i64);
     m.set("ctr", ctr);
     m.set("idx", idx);
@@ -41,7 +41,7 @@ fn fact_col(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, idx: i64, name: str,
     arr.push(WAny::from(&*m));
 }
 
-fn fact_meas(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, mfn: str, arg: str) {
+fn fact_meas(doc: &Writ, arr: &mut WArray<WAny>, ctr: &str, mfn: &str, arg: &str) {
     let m: &mut WMap<WString, WAny> = doc.map(8i64);
     m.set("ctr", ctr);
     m.set("mfn", mfn);
@@ -50,7 +50,7 @@ fn fact_meas(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, mfn: str, arg: str) {
 }
 
 // BTFL 8c: stream + ops fact rows (the SEC_STREAMS / SEC_OPS shapes).
-fn fact_stream(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, idx: i64, name: str) {
+fn fact_stream(doc: &Writ, arr: &mut WArray<WAny>, ctr: &str, idx: i64, name: &str) {
     let m: &mut WMap<WString, WAny> = doc.map(8i64);
     m.set("ctr", ctr);
     m.set("idx", idx);
@@ -58,8 +58,8 @@ fn fact_stream(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, idx: i64, name: str
     arr.push(WAny::from(&*m));
 }
 
-fn fact_op(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, stream: str, verb: str,
-           ahead: str, ainner: str) {
+fn fact_op(doc: &Writ, arr: &mut WArray<WAny>, ctr: &str, stream: &str, verb: &str,
+           ahead: &str, ainner: &str) {
     let m: &mut WMap<WString, WAny> = doc.map(8i64);
     m.set("ctr", ctr);
     m.set("stream", stream);
@@ -70,7 +70,7 @@ fn fact_op(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, stream: str, verb: str,
 }
 
 // layout verdict probe: (ctr, stream) row carries exactly this layout.
-fn has_layout(vd: &Writ, ctr: str, stream: str, layout: str) -> bool {
+fn has_layout(vd: &Writ, ctr: &str, stream: &str, layout: &str) -> bool {
     let root: WAny = vd.root();
     if !root.is_map() { return false; }
     let rm: &WMap<WString, WAny> = root.as_map();
@@ -98,7 +98,7 @@ fn has_layout(vd: &Writ, ctr: str, stream: str, layout: str) -> bool {
 }
 
 // Row count of a top-level verdict array; −1 = shape violation.
-fn vd_count(vd: &Writ, key: str) -> i64 {
+fn vd_count(vd: &Writ, key: &str) -> i64 {
     let root: WAny = vd.root();
     if root.is_null() || !root.is_map() { return 0i64 - 1i64; }
     let rm: &WMap<WString, WAny> = root.as_map();
@@ -119,8 +119,8 @@ fn vd_ok(vd: &Writ) -> bool {
 
 // True iff an array row matches THREE string attrs (a wildcard is expressed
 // by passing the row's own value — callers assert exact rows).
-fn vd_has3(vd: &Writ, arr_key: str, k1: str, v1: str, k2: str, v2: str,
-           k3: str, v3: str) -> bool {
+fn vd_has3(vd: &Writ, arr_key: &str, k1: &str, v1: &str, k2: &str, v2: &str,
+           k3: &str, v3: &str) -> bool {
     let root: WAny = vd.root();
     if root.is_null() || !root.is_map() { return false; }
     let rm: &WMap<WString, WAny> = root.as_map();
@@ -143,12 +143,12 @@ fn vd_has3(vd: &Writ, arr_key: str, k1: str, v1: str, k2: str, v2: str,
     return false;
 }
 
-fn has_cap(vd: &Writ, ctr: str, cap: str, col: str) -> bool {
+fn has_cap(vd: &Writ, ctr: &str, cap: &str, col: &str) -> bool {
     return vd_has3(vd, "caps", "ctr", ctr, "cap", cap, "col", col);
 }
 
 // Any-col capability probe (e.g. "no can_seek at all for this ctr").
-fn has_cap_any(vd: &Writ, ctr: str, cap: str) -> bool {
+fn has_cap_any(vd: &Writ, ctr: &str, cap: &str) -> bool {
     let root: WAny = vd.root();
     if root.is_null() || !root.is_map() { return false; }
     let rm: &WMap<WString, WAny> = root.as_map();
@@ -169,13 +169,13 @@ fn has_cap_any(vd: &Writ, ctr: str, cap: str) -> bool {
     return false;
 }
 
-fn has_mode(vd: &Writ, ctr: str, col: str, mode: str) -> bool {
+fn has_mode(vd: &Writ, ctr: &str, col: &str, mode: &str) -> bool {
     return vd_has3(vd, "col_modes", "ctr", ctr, "col", col, "mode", mode);
 }
 
 // The missing_measure error row: exact ctr/code/detail + reason CONTAINS the
 // measure the diagnostic must name.
-fn has_missing(vd: &Writ, ctr: str, detail: str, reason_needle: str) -> bool {
+fn has_missing(vd: &Writ, ctr: &str, detail: &str, reason_needle: &str) -> bool {
     let root: WAny = vd.root();
     if root.is_null() || !root.is_map() { return false; }
     let rm: &WMap<WString, WAny> = root.as_map();
@@ -201,7 +201,7 @@ fn has_missing(vd: &Writ, ctr: str, detail: str, reason_needle: str) -> bool {
 }
 
 // Generic error-row probe: (ctr, code) present with reason containing needle.
-fn has_err(vd: &Writ, ctr: str, code: str, reason_needle: str) -> bool {
+fn has_err(vd: &Writ, ctr: &str, code: &str, reason_needle: &str) -> bool {
     let root: WAny = vd.root();
     if !root.is_map() { return false; }
     let rm: &WMap<WString, WAny> = root.as_map();
@@ -225,7 +225,7 @@ fn has_err(vd: &Writ, ctr: str, code: str, reason_needle: str) -> bool {
 }
 
 // col_proj verdict probe: (ctr, col) row with exactly this relty + proj.
-fn has_proj(vd: &Writ, ctr: str, col: str, relty: str, proj: str) -> bool {
+fn has_proj(vd: &Writ, ctr: &str, col: &str, relty: &str, proj: &str) -> bool {
     let root: WAny = vd.root();
     if !root.is_map() { return false; }
     let rm: &WMap<WString, WAny> = root.as_map();
