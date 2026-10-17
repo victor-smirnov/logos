@@ -48,7 +48,7 @@ pub fn resolve_logos_lib_dir() -> String {
         Option::Some(v) => { return v; }
         Option::None => {}
     }
-    let candidates: [str; 2] = ["./build/lib/logos", "/usr/local/lib/logos"];
+    let candidates: [&str; 2] = ["./build/lib/logos", "/usr/local/lib/logos"];
     let mut i: i64 = 0 as i64;
     while i < 2 as i64 {
         let c: &str = candidates[i];

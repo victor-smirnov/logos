@@ -497,7 +497,7 @@ pub fn test_link_inputs(targets: &Vec<Target>, profile: &str, lib_dir: &String) 
     let mut out: Vec<String> = vec_new::<String>();
     collect_lib_archives(targets, profile, &mut out);
     let lv: &str = lib_dir.as_str();
-    let names: [str; 7] = ["liblogos-std.a", "liblogos-lcm.a", "liblogos-mem.a",
+    let names: [&str; 7] = ["liblogos-std.a", "liblogos-lcm.a", "liblogos-mem.a",
                            "liblogos-lang.a", "liblstdlib_fibers.a",
                            "liblstdlib_rt.a", "liblstdlib_uring.a"];
     let mut i: i64 = 0 as i64;
