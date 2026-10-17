@@ -1,9 +1,8 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/lifetimes/matcher-trait-equality-13323.rs
-// Modifications: `String` fields → `str`; `s.to_string()` → store the `str`
-// directly; `Box<EqualTo<T>>` constructor → direct `EqualTo<T>` value (Logos
+// Modifications: `Box<EqualTo<T>>` constructor → direct `EqualTo<T>` value (Logos
 // has no Box); `T: Eq` + `self.expected.eq(&actual)` → a `==` comparison on the
-// concrete `str` instantiation (the generic Eq bound + Box are the incidental
+// concrete `&str` instantiation (the generic Eq bound + Box are the incidental
 // parts); `assert!`/`assert_that` kept. Exercises a struct returning `&str`
 // borrows of its field through lifetime-annotated methods, plus a generic
 // `Matcher<T>` trait dispatched on a concrete instantiation.
@@ -14,15 +13,15 @@ use logos.mem.string;
 use logos.lang.str;
 
 struct StrWrap {
-    s: str
+    s: String
 }
 
 impl StrWrap {
     fn new(s: &str) -> StrWrap {
-        return StrWrap { s: s };
+        return StrWrap { s: String::from(s) };
     }
     fn get_s(&self) -> &str {
-        return self.s;
+        return self.s.as_str();
     }
 }
 
@@ -40,7 +39,7 @@ impl MyStruct {
 }
 
 struct EqualTo {
-    expected: str
+    expected: &'static str
 }
 
 impl EqualTo {

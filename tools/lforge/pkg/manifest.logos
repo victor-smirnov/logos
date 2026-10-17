@@ -79,7 +79,7 @@ fn parse_target(t_av: WAny) -> Result<Target, ManifestError> {
         Result::Ok(s)  => { s }
     };
     let mut k: TargetKind = TargetKind::Bin;
-    let kv: str = kind_s.as_str();
+    let kv: &str = kind_s.as_str();
     if str_eq_local(kv, "lib") {
         k = TargetKind::Lib;
     } else if !str_eq_local(kv, "bin") {
@@ -107,13 +107,13 @@ fn parse_target(t_av: WAny) -> Result<Target, ManifestError> {
     });
 }
 
-fn wio_get(root: WAny, key: str) -> WAny {
+fn wio_get(root: WAny, key: &str) -> WAny {
     if !root.is_map() { return unsafe { WAny::ref_to(0i64 as *const u8) }; }
     let m: &WMap<WString, WAny> = root.as_map();
     return m.get(key);
 }
 
-pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
+pub fn parse_manifest(text: &str) -> Result<Manifest, ManifestError> {
     let ctr: Rc<Writ> = writ_rc(32768);
     let h: &Writ = ctr.deref();
     let root: WAny = parse(h, text);
@@ -230,7 +230,7 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
     });
 }
 
-pub fn read_manifest(p: str) -> Result<Manifest, ManifestError> {
+pub fn read_manifest(p: &str) -> Result<Manifest, ManifestError> {
     match read_to_string(p) {
         Result::Err(_) => { return Result::Err(err_msg("lforge.writ: cannot read")); }
         Result::Ok(s)  => { return parse_manifest(s.as_str()); }

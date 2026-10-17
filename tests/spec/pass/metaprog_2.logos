@@ -51,7 +51,7 @@ metacall emit_one();
 #[datatype] struct Meta {
     n: i32,
     ratio: f64,
-    label: str,
+    label: &'static str,
 }
 
 #[annotation]

@@ -54,7 +54,7 @@ fn contains(v: &Vec<u64>, x: u64) -> bool {
     return false;
 }
 
-fn has_name(v: &Vec<String>, x: str) -> bool {
+fn has_name(v: &Vec<String>, x: &str) -> bool {
     let n: i64 = v.len();
     let mut i: i64 = 0i64;
     while i < n { if v.borrow(i).eq_str(x) { return true; } i = i + 1i64; }

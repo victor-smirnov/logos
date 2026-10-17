@@ -8,7 +8,7 @@
 package bc_esc_generic_recv_thru_param_refuse;
 pub trait Tr { fn thru(&self, s: &str) -> &str; }
 pub struct K { pub z: i64 }
-impl Tr for K { fn thru(&self, s: str) -> str { return s; } }
+impl Tr for K { fn thru(&self, s: &str) -> &str { return "k"; } }
 pub fn thru_param<'a, T: Tr>(t: &T, p: &'a str) -> &'a str { return t.thru(p); }
 pub fn via_where<'a, T>(t: &T, p: &'a str) -> &'a str where T: Tr { return t.thru(p); }
 fn main() -> i32 {

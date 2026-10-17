@@ -204,9 +204,9 @@ guard_closure_moves_scrutinee_admits 2 tests/soundness/open/guard_closure_moves_
 
 guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_moves_ref_mut_binding_admits admits
 
-raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
-
 default_method_generics_shadow_impl_generics_refused 3 tests/soundness/open/default_method_generics_shadow_impl_generics_refused refuses
+
+hashmap_get_unsafe_raw_api_refused 3 tests/soundness/open/hashmap_get_unsafe_raw_api_refused refuses
 
 rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visible_admitted admits
 
@@ -375,4 +375,4 @@ rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visibl
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
 # TOTAL 96
-# SYNC-HASH 5d2a3908840a7e334fdec0dd0df0f900
+# SYNC-HASH 9a4342986204f2643213f168fcf1f8e1

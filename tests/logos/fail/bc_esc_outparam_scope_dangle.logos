@@ -19,9 +19,9 @@
 package bc_esc_outparam_scope_dangle;
 use logos.mem.string;
 
-pub struct K { pub f: str }
+pub struct K<'a> { pub f: &'a str }
 
-pub fn set2(k: &mut K, s: &str) { k.f = s; }
+pub fn set2<'a>(k: &mut K<'a>, s: &'a str) { k.f = s; }
 
 fn main() -> i32 {
     let mut k: K = K { f: "" };

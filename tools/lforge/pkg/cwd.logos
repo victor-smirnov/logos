@@ -16,14 +16,14 @@ pub fn save_cwd() -> String {
     }
 }
 
-pub fn chdir_str(path: str) -> i32 {
+pub fn chdir_str(path: &str) -> i32 {
     return set_current_dir(path);
 }
 
 // Concatenate cwd + "/" + rel into an absolute path (no normalisation —
 // the kernel handles `.` / `..` fine and lockfile/cache canonicalisation
 // is a future-step concern).
-pub fn make_absolute(rel: str) -> String {
+pub fn make_absolute(rel: &str) -> String {
     if is_absolute(rel) {
         let mut out: String = String::new();
         out.push_str(rel);

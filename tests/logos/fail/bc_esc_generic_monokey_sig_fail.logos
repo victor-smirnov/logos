@@ -23,7 +23,7 @@ use logos.mem.string;
 pub trait Tr { fn thru(&self, s: &str) -> &str; }
 
 pub struct K { pub z: i64 }
-pub struct M { pub s: str }
+pub struct M { pub s: &'static str }
 
 impl Tr for K {
     fn thru(&self, s: &str) -> &str { return s; }

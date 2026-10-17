@@ -1,0 +1,17 @@
+// A generic INHERENT impl's const reads the impl's parameters (`impl<const M: usize> Buf<M>
+// { const LEN: usize = M; }`): `Buf::<4>::LEN` is its accessor at Self = Buf<4>, as a generic
+// trait impl's const already was. Matrix 14_51; stdout equals rustc 1.98.1.
+package generic_inherent_const_reads_impl_param;
+use logos.std.fmt;
+struct Buf<const M: usize> { d: [i64; M] }
+impl<const M: usize> Buf<M> {
+    const LEN: usize = M;
+    const TWICE: usize = M * 2;
+    fn len(&self) -> usize { return Self::LEN; }
+}
+struct Plain { a: i64 }
+impl Plain { const K: i64 = 7; }
+fn main() {
+    let b = Buf::<3> { d: [1, 2, 3] };
+    println!("{} {} {} {} {}", Buf::<4>::LEN, Buf::<5>::TWICE, b.len(), Plain::K, Buf::<2>::LEN + Buf::<6>::LEN);
+}

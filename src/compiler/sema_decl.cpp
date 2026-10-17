@@ -3188,6 +3188,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     }
     if (!seed_self && impl_is_blanket && !impl_tps.empty())
         seed_self = make_typevar(target);  // blanket on a bound type-var
+    // `impl<T> Ord for *const T`: the pointer target is a pattern, not a name
+    // lower_fn can look up; its methods' `Self` is that pattern.
+    if (!seed_self && ptr_target_pattern) seed_self = ptr_target_pattern;
     bool _restore_tuple_self = false;
     TypeRef _saved_tuple_self = nullptr;
     bool _had_tuple_self = false;

@@ -2,6 +2,6 @@
 
 package lforge.version;
 
-pub fn lforge_version() -> str {
+pub fn lforge_version() -> &str {
     return "lforge 0.1.0";
 }

@@ -10965,7 +10965,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // `(*p).m()`, in unsafe.
     if (TypeRef rp(expr_type(recv)); rp && rp.kind() == LogosType::Kind::Ptr) {
         auto pk = probe_method_(rp, method_name);
-        if (!(pk.fi && pk.derefs == 0 && pk.autoref == 0)) {
+        if (!(pk.fi && pk.derefs == 0)) {
             error(std::format("no method named `{}` found for raw pointer `{}` (E0599): "
                               "a raw pointer is not dereferenced implicitly — write `(*p).{}(..)`",
                               method_name, type_str(rp), method_name));
@@ -11002,11 +11002,15 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // The actual impl method will be resolved during monomorphization.
     // Handle both T and *mut T / *const T / &T / &mut T receivers.
     TypeRef recv_inner = expr_type(recv);
-    if (recv_inner && TypeRef(recv_inner).kind() == LogosType::Kind::Ptr) {
+    // A method of the POINTER type itself (`impl<T> Ord for *const T`'s `cmp`) is
+    // not a call through the pointer: no peel, no unsafe (rustc's probe).
+    const bool ptr_owns_method = recv_inner && TypeRef(recv_inner).kind() == LogosType::Kind::Ptr &&
+        [&] { auto pk = probe_method_(recv_inner, method_name); return pk.fi && pk.derefs == 0; }();
+    if (recv_inner && TypeRef(recv_inner).kind() == LogosType::Kind::Ptr && !ptr_owns_method) {
         if (!inside_unsafe_)
             error("method call through raw pointer requires unsafe context");
         recv_inner = TypeRef(recv_inner).pointee();
-    } else if (recv_inner && is_ref_like(TypeRef(recv_inner).kind()) && TypeRef(recv_inner).pointee()) {
+    } else if (recv_inner && !ptr_owns_method && is_ref_like(TypeRef(recv_inner).kind()) && TypeRef(recv_inner).pointee()) {
         recv_inner = TypeRef(recv_inner).pointee();
     }
     // Gap-3: an associated-type projection `G::R` dispatches its methods via
@@ -11914,6 +11918,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         auto tname = type_str_regions_erased(expr_type(recv))   /* impl keys carry no regions */;
         auto mangled_prim = tname + "__" + std::string(method_name);
         bool generic_via_pointee = false;   // fi_ptr found generically by a `&T` receiver's pointee name
+        // The pick is a method of the raw-pointer type itself (`impl<T> Ord for
+        // *const T`): the pointer is the receiver, autoref'd like any value.
+        bool ptr_owned_pick = false;
         const SemaFuncInfo* fi_ptr = nullptr;
         // ADR 0030 S8 row 4 — THE probe picks (as on the struct path). A generic
         // pick is autoref'd by the emission below, after inference reads `Self`
@@ -11928,7 +11935,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             for (auto* c : adj_ok ? pk.tied : std::vector<const SemaFuncInfo*>{}) {
                 if (c->is_vararg || c->param_types.size() != arg_exprs.size() + 1) continue;
                 const bool generic = !c->type_params.empty();
-                if (generic && pk.derefs == 0 && pk.autoref > 0 && is_ref_like(rk)) continue;
+                if (generic && pk.derefs == 0 && pk.autoref > 0 &&
+                    (rk == LogosType::Kind::Ref || rk == LogosType::Kind::MutRef)) continue;
                 bool ok = true;
                 for (size_t a = 1; ok && !generic && a < c->param_types.size(); ++a) {
                     TypeRef at = expr_type(arg_exprs[a - 1]);
@@ -11940,9 +11948,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (!ok && pk.tied.size() != 1) continue;
                 fi_ptr = c;
                 mangled_prim = pk.key;
+                ptr_owned_pick = rk == LogosType::Kind::Ptr && pk.derefs == 0;
                 // A generic method reached through a reference reads `Self` and the
                 // type's own arguments off the referent.
-                if (generic && is_ref_like(TypeRef(expr_type(recv)).kind()) && pk.derefs == 0)
+                if (generic && is_ref_like(TypeRef(expr_type(recv)).kind()) && pk.derefs == 0 && !ptr_owned_pick)
                     generic_via_pointee = true;
                 // An unsuffixed literal argument takes the chosen parameter's width.
                 for (size_t a = 0; !generic && a < arg_exprs.size(); ++a) {
@@ -12027,7 +12036,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         TypeRef f0 = fi_ptr->param_types[0];
                         TypeRef a0 = expr_type(recv);
                         if (is_ref_like(TypeRef(f0).kind()) && TypeRef(f0).pointee() &&
-                            !is_ref_like(TypeRef(a0).kind()) && TypeRef(a0).kind() != LogosType::Kind::Ptr)
+                            ((!is_ref_like(TypeRef(a0).kind()) && TypeRef(a0).kind() != LogosType::Kind::Ptr) ||
+                             (ptr_owned_pick && TypeRef(f0).kind() != LogosType::Kind::Ptr)))
                             f0 = TypeRef(f0).pointee();
                         StrMap<TypeRef> rb;
                         unify_types(f0, a0, rb);
@@ -12050,8 +12060,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (!fi_ptr->param_types.empty()) {
                     auto formal0 = fi_ptr->param_types[0];
                     if (formal0 && is_ref_like(TypeRef(formal0).kind()) && expr_type(recv) &&
-                        !is_ref_like(TypeRef(expr_type(recv)).kind()) &&
-                        TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr) {
+                        (!is_ref_like(TypeRef(expr_type(recv)).kind()) ||
+                         (ptr_owned_pick && TypeRef(expr_type(recv)).kind() == LogosType::Kind::Ptr &&
+                      TypeRef(formal0).kind() != LogosType::Kind::Ptr))) {
                         bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                         auto __ty_recv = make_ref(is_mut, expr_type(recv));
 
@@ -12072,8 +12083,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (!fi_ptr->param_types.empty()) {
                 auto formal0 = fi_ptr->param_types[0];
                 if (formal0 && is_ref_like(TypeRef(formal0).kind()) && expr_type(recv) &&
-                    !is_ref_like(TypeRef(expr_type(recv)).kind()) &&
-                    TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr) {
+                    (!is_ref_like(TypeRef(expr_type(recv)).kind()) ||
+                     (ptr_owned_pick && TypeRef(expr_type(recv)).kind() == LogosType::Kind::Ptr &&
+                      TypeRef(formal0).kind() != LogosType::Kind::Ptr))) {
                     bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                     auto __ty_recv = make_ref(is_mut, expr_type(recv));
 
@@ -19175,6 +19187,23 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         // Look through all traits implemented by class_name for a matching constant.
         std::string cname_str = std::string(class_name);
         std::string mname_str = std::string(method_name);
+        // A GENERIC inherent impl's const (`impl<const M: usize> Buf<M> { const LEN:
+        // usize = M; }`) depends on the impl's parameters: `Buf::<4>::LEN` is its
+        // accessor `kassoc_LEN` called at Self = Buf<4> (const_accessor_fn_).
+        if (node.has_key(la::TYPE_PARAMS) && node.has_key(la::RECEIVER)) {
+            TypeRef cs = lookup_type_by_name(cname_str);
+            if (cs && TypeRef(cs).kind() == LogosType::Kind::Struct) {
+                cs = make_generic_struct(std::string(TypeRef(cs).struct_name()), collect_type_args(node), {},
+                                         std::string(TypeRef(cs).pkg_name()));
+                if (!methods_of_(cs, "kassoc_" + mname_str).empty()) {
+                    const uint32_t ln = node_line_;
+                    auto renamed = synth_with_key(node, la::NAME.code, synth_str("kassoc_" + mname_str));
+                    auto call = synth_with_key(map_of(renamed), la::ARGS.code,
+                                               synth_node(la::BLOCK.code, ln, {{la::ITEMS.code, synth_array({})}}));
+                    return lower_static_call(map_of(call));
+                }
+            }
+        }
         // B97: try inherent assoc-const first (`impl S { const C: T = ... }`).
         // For turbofish path `S::<T>::C`, the type-args don't change the lookup
         // key — inherent consts aren't per-instantiation, they're per-type-name.

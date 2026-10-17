@@ -38,7 +38,7 @@
 // the struct lands in its real 24-byte slot.
 package mlirgen_place_slot_decline;
 
-pub struct W { pub s: str, pub n: i64 }
+pub struct W { pub s: &'static str, pub n: i64 }
 
 unsafe fn main() -> i32 {
     let __slotmiss_canary_st: W;

@@ -48,7 +48,7 @@ pub fn logosc_mtime(logosc: &String) -> i64 {
 
 // sha256 of NUL-separated record over (project, sha, module, profile,
 // logosc_mtime decimal, then \1-separated dep_keys). Returns hex.
-pub fn compute_key(project: str, sha: str, module: str, profile: str,
+pub fn compute_key(project: &str, sha: &str, module: &str, profile: &str,
                           mtime_ns_val: i64, dep_keys: &Vec<String>) -> String {
     let mut buf: String = String::new();
     buf.push_str(project); buf.push_u8(0 as u8);
@@ -69,7 +69,7 @@ pub fn compute_key(project: str, sha: str, module: str, profile: str,
     return out;
 }
 
-pub fn cache_dir_for(key: str) -> String {
+pub fn cache_dir_for(key: &str) -> String {
     let root: String = cache_root();
     if root.len() == 0 as i64 { return String::new(); }
     let mut out: String = String::new();
@@ -79,7 +79,7 @@ pub fn cache_dir_for(key: str) -> String {
 }
 
 // Returns absolute path of the cached archive on hit, or empty string on miss.
-pub fn cache_lookup(key: str, archive_basename: str) -> String {
+pub fn cache_lookup(key: &str, archive_basename: &str) -> String {
     let dir: String = cache_dir_for(key);
     if dir.len() == 0 as i64 { return String::new(); }
     let mut p: String = String::new();
@@ -92,8 +92,8 @@ pub fn cache_lookup(key: str, archive_basename: str) -> String {
 // Copy <src_archive> into <cache>/<archive_basename>; write meta.writ.
 // Returns 0 on success, non-zero on failure (caller should treat the dep
 // as "built but uncached" rather than fail the whole build).
-pub fn cache_populate(key: str, src_archive: &String, archive_basename: str,
-                             project: str, sha: str, module: str, profile: str,
+pub fn cache_populate(key: &str, src_archive: &String, archive_basename: &str,
+                             project: &str, sha: &str, module: &str, profile: &str,
                              mtime_ns_val: i64) -> i32 {
     let dir: String = cache_dir_for(key);
     if dir.len() == 0 as i64 { return 0 - 1; }

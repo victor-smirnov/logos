@@ -110,7 +110,7 @@ fn kind_of(ms: &MemorySnapshot, ctr_id: u64) -> String {
 // and the printer is generic over both columns rather than duplicated per
 // shape: `Display` is implemented for every integer width, and the blanket
 // `impl<T: Display> ToString for T` turns that into `.to_string()`.
-fn report<K: Display + Copy, V: Display + Copy>(label: str, rows: &Vec<(K, V)>) {
+fn report<K: Display + Copy, V: Display + Copy>(label: &str, rows: &Vec<(K, V)>) {
     let mut line: String = String::new();
     line.push_str("  ");
     line.push_str(label);

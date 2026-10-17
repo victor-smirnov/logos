@@ -34,7 +34,7 @@
 // The file stays on the admit shelf and keeps its row in
 // tests/logos/bc_admits_blocked.ledger; it is not a hole and never was.
 package borrowck_move_out_of_struct_with_dtor;
-struct Inner { v: i64, s: str }
+struct Inner { v: i64, s: &'static str }
 impl Drop for Inner { fn drop(self: &mut Inner) {} }
 struct S { f: Inner }
 impl Drop for S { fn drop(self: &mut S) {} }

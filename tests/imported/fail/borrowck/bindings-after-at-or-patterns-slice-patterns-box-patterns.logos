@@ -6,7 +6,7 @@
 // upstream: borrowck/bindings-after-at-...rs, bindings_after_at_or_patterns_move
 // (E0382 borrow of moved value after an `@` binding moved it)
 package bindings_after_at_or_patterns_slice_patterns_box_patterns;
-struct P { s: str }
+struct P { s: &'static str }
 impl Drop for P { fn drop(self: &mut P) {} }
 enum T { Foo(P), Bar }
 fn main() -> i32 {

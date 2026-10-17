@@ -134,12 +134,10 @@ impl<T: Eq> Eq for &mut T {}
 // / `*mut T`) — the pointee is never read.
 impl<T> PartialEq for *const T {
     fn eq(&self, other: &Self) -> bool { return (*self as usize) == (*other as usize); }
-    fn ne(&self, other: &Self) -> bool { return (*self as usize) != (*other as usize); }
 }
 impl<T> Eq for *const T {}
 impl<T> PartialEq for *mut T {
     fn eq(&self, other: &Self) -> bool { return (*self as usize) == (*other as usize); }
-    fn ne(&self, other: &Self) -> bool { return (*self as usize) != (*other as usize); }
 }
 impl<T> Eq for *mut T {}
 

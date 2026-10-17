@@ -11,14 +11,14 @@
 package bc_esc_holder_return_dyn_dangle;
 use logos.mem.string;
 
-pub struct W { pub v: str }
+pub struct W<'a> { pub v: &'a str }
 
-pub trait Tr { fn wrap(&self, s: &str) -> W; }
+pub trait Tr { fn wrap<'a>(&self, s: &'a str) -> W<'a>; }
 
 pub struct K { pub z: i64 }
 
 impl Tr for K {
-    fn wrap(&self, s: &str) -> W { return W { v: s }; }
+    fn wrap<'a>(&self, s: &'a str) -> W<'a> { return W { v: s }; }
 }
 
 pub fn bad(t: &dyn Tr) -> &str {

@@ -37,17 +37,17 @@ pub trait Tr {
     fn pick(&self, probe: &str) -> &str;
     fn keep(&self, s: String) -> i64;
     fn n(&self) -> i64;
-    fn stash(&self, s: &str, out: &mut str);
+    fn stash<'a>(&self, s: &'a str, out: &mut &'a str);
 }
 
-pub struct K { pub z: i64, pub s: str }
+pub struct K { pub z: i64, pub s: &'static str }
 
 impl Tr for K {
     fn thru(&self, s: &str) -> &str { return self.s; }   // `return s` is E0621-class under elision rule 3 (#461)
     fn pick(&self, probe: &str) -> &str { return self.s; }
     fn keep(&self, s: String) -> i64 { return s.len(); }
     fn n(&self) -> i64 { return self.z; }
-    fn stash(&self, s: &str, out: &mut str) { *out = s; }
+    fn stash<'a>(&self, s: &'a str, out: &mut &'a str) { *out = s; }
 }
 
 // The result comes from `self`, and the frame-local borrow handed in as the

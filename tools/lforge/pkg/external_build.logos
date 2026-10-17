@@ -26,15 +26,15 @@ use lforge.build_cache;
 
 // B5: lookup a replace entry by canonicalised project display id. Returns
 // the absolute substitute path on hit, or empty String on miss.
-fn replace_lookup(replaces: &Vec<ReplaceEntry>, project_canonical: str) -> String {
+fn replace_lookup(replaces: &Vec<ReplaceEntry>, project_canonical: &str) -> String {
     let n: i64 = replaces.length();
     let mut i: i64 = 0 as i64;
     while i < n {
         let e: &ReplaceEntry = replaces.borrow(i);
-        let pv: str = e.project.as_str();
+        let pv: &str = e.project.as_str();
         let pair: (String, String) = canonical_url(pv);
         let disp: String = pair.0;
-        let dview: str = disp.as_str();
+        let dview: &str = disp.as_str();
         if str_eq_local(dview, project_canonical) {
             let mut out: String = String::new();
             out.push_str(e.path.as_str());
@@ -45,7 +45,7 @@ fn replace_lookup(replaces: &Vec<ReplaceEntry>, project_canonical: str) -> Strin
     return String::new();
 }
 
-pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
+pub fn build_external(dep: &ExternalDep, profile: &str, logosc: &String,
                              lock_in: &Vec<LockEntry>,
                              lock_out: &mut Vec<LockEntry>,
                              visited: &mut Vec<String>,
@@ -61,10 +61,10 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     // set in the first place. Replaces don't apply to local-path deps.
     let mut effective_path: String = String::new();
     if dep.path.len() == 0 as i64 && dep.project.len() > 0 as i64 && replaces.length() > 0 as i64 {
-        let proj_view: str = dep.project.as_str();
+        let proj_view: &str = dep.project.as_str();
         let pair: (String, String) = canonical_url(proj_view);
         let disp: String = pair.0;
-        let dview: str = disp.as_str();
+        let dview: &str = disp.as_str();
         let hit: String = replace_lookup(replaces, dview);
         if hit.len() > 0 as i64 {
             effective_path.push_str(hit.as_str());
@@ -100,9 +100,9 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
         if dep.tag.len() > 0 as i64 {
             resolved_tag.push_str(dep.tag.as_str());
         }
-        let dview: str = resolved_display.as_str();
-        let tview: str = resolved_tag.as_str();
-        let sview: str = resolved_sha.as_str();
+        let dview: &str = resolved_display.as_str();
+        let tview: &str = resolved_tag.as_str();
+        let sview: &str = resolved_sha.as_str();
         let verdict: i32 = check_git_winner(&(*winners), dview, tview, sview);
         if verdict == 2 as i32 || verdict == 1 as i32 {
             // 1 = same SHA already a winner (transitive dup). 2 = higher
@@ -133,12 +133,12 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     // path. Returns empty Vec — modules already produced earlier in the
     // walk are visible via the parent's externals accumulator.
     let abs_path: String = make_absolute(resolved_path.as_str());
-    let abs_view: str = abs_path.as_str();
+    let abs_view: &str = abs_path.as_str();
     let vn: i64 = (*visited).length();
     let mut vi: i64 = 0 as i64;
     while vi < vn {
         let s: &String = (*visited).borrow(vi);
-        let sv: str = s.as_str();
+        let sv: &str = s.as_str();
         if str_eq_local(sv, abs_view) {
             return Result::Ok(vec_new::<ExternalLib>());
         }
@@ -148,7 +148,7 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     abs_copy.push_str(abs_path.as_str());
     visited.push(abs_copy);
 
-    let path_view: str = resolved_path.as_str();
+    let path_view: &str = resolved_path.as_str();
     if chdir_str(path_view) != 0 {
         let mut msg: String = String::new();
         msg.push_str("lforge: cannot chdir into external dep ");
@@ -223,7 +223,7 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     let mut i: i64 = 0 as i64;
     while i < mn {
         let nm: &String = dep.modules.borrow(i);
-        let nm_view: str = nm.as_str();
+        let nm_view: &str = nm.as_str();
 
         // Cache lookup before we even consult the local manifest. Hits
         // skip find_target_index + build_lib entirely.
@@ -232,12 +232,12 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
         archive_basename.push_str("lib");
         archive_basename.push_str(nm_view);
         archive_basename.push_str(".a");
-        let ab_view: str = archive_basename.as_str();
+        let ab_view: &str = archive_basename.as_str();
         if cache_eligible {
-            let dview: str = resolved_display.as_str();
-            let sview: str = resolved_sha.as_str();
+            let dview: &str = resolved_display.as_str();
+            let sview: &str = resolved_sha.as_str();
             ck = compute_key(dview, sview, nm_view, profile, lc_mtime, &sub_dep_keys);
-            let ck_view: str = ck.as_str();
+            let ck_view: &str = ck.as_str();
             let hit_path: String = cache_lookup(ck_view, ab_view);
             if hit_path.len() > 0 as i64 {
                 let mut nm_copy: String = String::new();
@@ -303,9 +303,9 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
         // the per-source archive — caching is an optimisation, not load-
         // bearing for correctness.
         if cache_eligible {
-            let dview: str = resolved_display.as_str();
-            let sview: str = resolved_sha.as_str();
-            let ck_view: str = ck.as_str();
+            let dview: &str = resolved_display.as_str();
+            let sview: &str = resolved_sha.as_str();
+            let ck_view: &str = ck.as_str();
             let prc: i32 = cache_populate(ck_view, &abs_arch, ab_view,
                                           dview, sview, nm_view, profile, lc_mtime);
             if prc != 0 {
@@ -333,7 +333,7 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     }
 }
 
-pub fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc: &String,
+pub fn build_all_externals(deps: &Vec<ExternalDep>, profile: &str, logosc: &String,
                                   lock_in: &Vec<LockEntry>,
                                   lock_out: &mut Vec<LockEntry>,
                                   visited:  &mut Vec<String>,

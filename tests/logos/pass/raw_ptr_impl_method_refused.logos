@@ -1,0 +1,10 @@
+// Closed squeue raw_ptr_impl_method_refused (#727): a method of an impl for a raw pointer type dispatches on the pointer itself (probe pick derefs==0, autoref of the pointer; no peel, no unsafe).
+package raw_ptr_impl_method_refused;
+use logos.std.fmt;
+trait Tr { fn m(&self) -> i64; fn twice(&self) -> i64 { self.m() * 2 } }
+impl<T> Tr for *const T { fn m(&self) -> i64 { 7 } }
+fn main() {
+    let x: i64 = 5;
+    let p: *const i64 = &x as *const i64;
+    println!("{} {}", p.m(), p.twice());
+}

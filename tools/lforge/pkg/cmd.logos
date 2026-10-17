@@ -34,10 +34,10 @@ pub fn get_logosc_version(logosc: &String) -> String {
     let rc:  i32 = res.0;
     let out: String = res.1;
     if rc != 0 { return String::new(); }
-    let view: str = out.as_str();
+    let view: &str = out.as_str();
     // First line, after the prefix "logosc ".
     let mut start: i64 = 0 as i64;
-    let prefix: str = "logosc ";
+    let prefix: &str = "logosc ";
     let n: i64 = view.len();
     if n >= 7 as i64 {
         let mut ok: bool = true;
@@ -71,8 +71,8 @@ pub fn check_requires_logos(m: &Manifest) -> i32 {
         println_str(2, "lforge: warning: could not determine logosc version; skipping requires_logos check");
         return 0;
     }
-    let hv: str = have.as_str();
-    let nv: str = m.requires_logos.as_str();
+    let hv: &str = have.as_str();
+    let nv: &str = m.requires_logos.as_str();
     let cmp: i32 = cmp_tags(hv, nv);
     if cmp < 0 as i32 {
         print_str(2, "lforge: error: this manifest requires logosc >= ");
@@ -91,7 +91,7 @@ pub fn check_requires_logos(m: &Manifest) -> i32 {
 // `.lforge/<profile>/dump/<target>/<callee>__<file>_<line>/post_quote.logos`.
 // (Selector filtering is a v2 — the current build dumps every metacall in
 // each target's compilation; the directory layout makes greping easy.)
-pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_lock: bool,
+pub fn cmd_build_selected(m: &Manifest, profile: &str, selected_idx: i64, use_lock: bool,
                                  dump_metacall_sel: &String) -> i32 {
     unsafe {
         let logosc: String = resolve_logosc_path();
@@ -184,7 +184,7 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
                     let mut di: i64 = 0 as i64;
                     while di < dn {
                         let nm: &String = dp.borrow(di);
-                        let nm_view: str = nm.as_str();
+                        let nm_view: &str = nm.as_str();
                         let didx: i64 = find_target_index(&m.targets, nm_view);
                         if didx >= 0 as i64 && want[didx] == 0 as u8 {
                             want[didx] = 1 as u8;
@@ -243,14 +243,14 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
     }
 }
 
-pub fn cmd_build(m: &Manifest, profile: str) -> i32 {
+pub fn cmd_build(m: &Manifest, profile: &str) -> i32 {
     let empty: String = String::new();
     return cmd_build_selected(m, profile, 0 as i64 - 1 as i64, true, &empty);
 }
 
 // `lforge update` — re-resolve every git dep ignoring the lockfile, then
 // rewrite it. Equivalent to `cmd_build` with use_lock=false.
-pub fn cmd_update(m: &Manifest, profile: str) -> i32 {
+pub fn cmd_update(m: &Manifest, profile: &str) -> i32 {
     let empty: String = String::new();
     return cmd_build_selected(m, profile, 0 as i64 - 1 as i64, false, &empty);
 }
@@ -276,8 +276,8 @@ pub fn first_bin_name(m: &Manifest) -> String {
 
 // Build (selected target if name non-empty) and run the bin target. If no
 // name is given, runs the first bin target in declared order.
-pub fn cmd_run_named(m: &Manifest, profile: str,
-                            target_name: str, run_args: &Vec<String>) -> i32 { unsafe {    // Pick the bin name (and selected build index).
+pub fn cmd_run_named(m: &Manifest, profile: &str,
+                            target_name: &str, run_args: &Vec<String>) -> i32 { unsafe {    // Pick the bin name (and selected build index).
     let mut bin_nm: String = String::new();
     let mut sel_idx: i64 = 0 as i64 - 1 as i64;
     if target_name.len() > 0 as i64 {
@@ -330,7 +330,7 @@ pub fn cmd_clean() -> i32 {
 // Default prefix is /usr/local. Override with `--prefix <path>` (or
 // `--prefix=<path>`).
 
-fn install_one(src: &String, dst: &String, mode: str) -> i32 {
+fn install_one(src: &String, dst: &String, mode: &str) -> i32 {
     unsafe {
         let mut argv: Vec<String> = vec_new::<String>();
     push_arg(&mut argv, "install");
@@ -352,13 +352,13 @@ fn read_prefix() -> String {
     return s;
 }
 
-pub fn cmd_install(m: &Manifest, profile: str) -> i32 {
+pub fn cmd_install(m: &Manifest, profile: &str) -> i32 {
     // Build first.
     let rc: i32 = cmd_build(m, profile);
     if rc != 0 { return rc; }
 
     let prefix: String = read_prefix();
-    let pview: str = prefix.as_str();
+    let pview: &str = prefix.as_str();
 
     let mut bin_dir: String = String::new();
     bin_dir.push_str(pview); append_path(&mut bin_dir, "bin");
@@ -370,7 +370,7 @@ pub fn cmd_install(m: &Manifest, profile: str) -> i32 {
     while i < nt {
         let t: &Target = m.targets.borrow(i);
         i = i + 1 as i64;
-        let nm_view: str = t.name.as_str();
+        let nm_view: &str = t.name.as_str();
         match t.kind {
             TargetKind::Bin => {
                 let src: String = bin_path(profile, nm_view);
@@ -424,7 +424,7 @@ pub fn cmd_install(m: &Manifest, profile: str) -> i32 {
 // The test's COMPILE command (logosc → .o). Split out of build_test_bin so a
 // whole suite's compiles can go through the job pool instead of one at a time.
 pub fn test_compile_argv(test_logos: &String, test_name: &String,
-                         targets: &Vec<Target>, profile: str,
+                         targets: &Vec<Target>, profile: &str,
                          logosc: &String) -> Vec<String> {
     let mut argv: Vec<String> = vec_new::<String>();
     let obj_path: String = test_obj_path(test_name, profile);
@@ -459,14 +459,14 @@ pub fn test_compile_argv(test_logos: &String, test_name: &String,
 }
 
 /// Where a test's object and binary live.
-pub fn test_obj_path(test_name: &String, profile: str) -> String {
+pub fn test_obj_path(test_name: &String, profile: &str) -> String {
     let mut p: String = String::new();
     p.push_str(".lforge/"); p.push_str(profile); p.push_str("/test/");
     p.push_str(test_name.as_str()); p.push_str(".o");
     return p;
 }
 
-pub fn test_bin_path(test_name: &String, profile: str) -> String {
+pub fn test_bin_path(test_name: &String, profile: &str) -> String {
     let mut p: String = String::new();
     p.push_str(".lforge/"); p.push_str(profile); p.push_str("/test/");
     p.push_str(test_name.as_str());
@@ -474,7 +474,7 @@ pub fn test_bin_path(test_name: &String, profile: str) -> String {
 }
 
 // Every lib target's archive — tests are top-level consumers of all of them.
-fn collect_lib_archives(targets: &Vec<Target>, profile: str, out: &mut Vec<String>) {
+fn collect_lib_archives(targets: &Vec<Target>, profile: &str, out: &mut Vec<String>) {
     let nt: i64 = targets.length();
     let mut ti: i64 = 0 as i64;
     while ti < nt {
@@ -493,11 +493,11 @@ fn collect_lib_archives(targets: &Vec<Target>, profile: str, out: &mut Vec<Strin
 /// The stdlib + project archives a test links against, newest-mtime of which
 /// decides whether its binary is stale (the stale-link trap: a fresh source
 /// with an old archive must still relink).
-pub fn test_link_inputs(targets: &Vec<Target>, profile: str, lib_dir: &String) -> Vec<String> {
+pub fn test_link_inputs(targets: &Vec<Target>, profile: &str, lib_dir: &String) -> Vec<String> {
     let mut out: Vec<String> = vec_new::<String>();
     collect_lib_archives(targets, profile, &mut out);
-    let lv: str = lib_dir.as_str();
-    let names: [str; 7] = ["liblogos-std.a", "liblogos-lcm.a", "liblogos-mem.a",
+    let lv: &str = lib_dir.as_str();
+    let names: [&str; 7] = ["liblogos-std.a", "liblogos-lcm.a", "liblogos-mem.a",
                            "liblogos-lang.a", "liblstdlib_fibers.a",
                            "liblstdlib_rt.a", "liblstdlib_uring.a"];
     let mut i: i64 = 0 as i64;
@@ -513,14 +513,14 @@ pub fn test_link_inputs(targets: &Vec<Target>, profile: str, lib_dir: &String) -
 fn build_test_bin(test_logos: &String,
                           test_name:  &String,
                           targets:    &Vec<Target>,
-                          profile:    str,
+                          profile:    &str,
                           logosc:     &String,
                           lib_dir:    &String) -> i32 { unsafe {    // Output dirs.
     let mut td: String = String::new();
     td.push_str(".lforge/");
     td.push_str(profile);
     td.push_str("/test");
-    let td_view: str = td.as_str();
+    let td_view: &str = td.as_str();
     match mkdir_p(td_view) {
         Result::Err(_) => { return 1; }
         Result::Ok(_)  => { }
@@ -546,7 +546,7 @@ fn build_test_bin(test_logos: &String,
         let tt: &Target = targets.borrow(ti);
         match tt.kind {
             TargetKind::Lib => {
-                let nm_view: str = tt.name.as_str();
+                let nm_view: &str = tt.name.as_str();
                 let p: String = lib_archive_path(profile, nm_view);
                 all_lib_archs.push(p);
             }
@@ -593,7 +593,7 @@ fn build_test_bin(test_logos: &String,
 /// The test's LINK command (cc → binary), pool-runnable like the compile.
 ///
 // cc <obj> --start-group [<lib>...] <stdlib_archives> --end-group … -o <bin>
-pub fn test_link_argv(test_name: &String, targets: &Vec<Target>, profile: str,
+pub fn test_link_argv(test_name: &String, targets: &Vec<Target>, profile: &str,
                       lib_dir: &String) -> Vec<String> {
     let obj_path: String = test_obj_path(test_name, profile);
     let bin_p: String = test_bin_path(test_name, profile);
@@ -619,7 +619,7 @@ pub fn test_link_argv(test_name: &String, targets: &Vec<Target>, profile: str,
         push_string_arg(&mut largv, s);
         lk = lk + 1 as i64;
     }
-    let lib_view: str = lib_dir.as_str();
+    let lib_view: &str = lib_dir.as_str();
     let mut p1: String = String::new();
     p1.push_str(lib_view); append_path(&mut p1, "liblogos-std.a"); largv.push(p1);
     let mut p1c: String = String::new();
@@ -645,12 +645,12 @@ pub fn test_link_argv(test_name: &String, targets: &Vec<Target>, profile: str,
 }
 
 // Strip a path's trailing extension. "tests/foo.logos" → "tests/foo".
-fn strip_dot_logos(s: str) -> String {
+fn strip_dot_logos(s: &str) -> String {
     let mut out: String = String::new();
     let n: i64 = s.len();
     let mut stripped: bool = false;
     if n >= 6 as i64 {
-        let suffix: str = ".logos";
+        let suffix: &str = ".logos";
         let off: i64 = n - 6 as i64;
         let mut ok: bool = true;
         let mut k: i64 = 0 as i64;
@@ -670,7 +670,7 @@ fn strip_dot_logos(s: str) -> String {
 }
 
 // Extract base file name from a path: "a/b/c.logos" → "c.logos".
-fn basename_view(p: str) -> str {
+fn basename_view(p: &str) -> &str {
     let n: i64 = p.len();
     let mut start: i64 = 0 as i64;
     let mut i: i64 = n - 1 as i64;
@@ -681,7 +681,7 @@ fn basename_view(p: str) -> str {
     return unsafe { str_from_raw((p.as_ptr() as i64 + start) as *const u8, n - start) };
 }
 
-pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
+pub fn cmd_test(m: &Manifest, profile: &str) -> i32 {
     unsafe {
         // 1. Build all lib targets first; bin targets are not needed for tests.
     let logosc:  String = resolve_logosc_path();
@@ -734,7 +734,7 @@ pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
             let de: &DirEntry = entries.borrow(ei);
             ei = ei + 1 as i64;
             if de.is_dir { continue; }
-            let pview: str = de.name.as_str();
+            let pview: &str = de.name.as_str();
             if !str_ends_with(pview, ".logos") { continue; }
             let stem: String = strip_dot_logos(basename_view(pview));
             let mut pp: String = String::new();

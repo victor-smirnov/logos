@@ -4,7 +4,7 @@
 // upstream: borrowck/issue-51415.rs (E0507 cannot move out of a shared reference bound
 // by a closure's pattern)
 package issue_51415;
-struct S { s: str }
+struct S { s: &'static str }
 impl Drop for S { fn drop(self: &mut S) {} }
 fn find<F: Fn(&S) -> bool>(v: &S, f: F) -> bool { return f(v); }
 fn main() -> i32 {

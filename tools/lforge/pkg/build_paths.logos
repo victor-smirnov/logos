@@ -27,7 +27,7 @@ use logos.lang.rc;
 // (/proc/self/exe — resolves the alternatives/versioned symlink chain to the
 // real file in the slot tree). Empty if it doesn't exist. So lforge-<slot> binds
 // to its OWN slot's logosc, not whatever `logosc` happens to be the PATH default.
-fn sibling_tool(name: str) -> String {
+fn sibling_tool(name: &str) -> String {
     match current_exe() {
         Option::None => { return String::new(); }
         Option::Some(exe) => {
@@ -48,10 +48,10 @@ pub fn resolve_logos_lib_dir() -> String {
         Option::Some(v) => { return v; }
         Option::None => {}
     }
-    let candidates: [str; 2] = ["./build/lib/logos", "/usr/local/lib/logos"];
+    let candidates: [&str; 2] = ["./build/lib/logos", "/usr/local/lib/logos"];
     let mut i: i64 = 0 as i64;
     while i < 2 as i64 {
-        let c: str = candidates[i];
+        let c: &str = candidates[i];
         if is_dir(c) {
             let mut out: String = String::new();
             out.push_str(c);
@@ -70,7 +70,7 @@ pub fn resolve_logos_lib_dir() -> String {
     let res: (i32, String) = run_child_capture_stdout(&argv);
     if res.0 == 0 as i32 {
         let raw: String = res.1;
-        let view: str = raw.as_str();
+        let view: &str = raw.as_str();
         let ctr: Rc<Writ> = writ_rc(8192 as i64);
         let h: &Writ = ctr.deref();
         let root: WAny = parse(h, view);
@@ -99,7 +99,7 @@ pub fn resolve_logosc_path() -> String {
 
 // ── Build output paths ────────────────────────────────────────────────────
 
-pub fn out_dir_for(profile: str) -> String {
+pub fn out_dir_for(profile: &str) -> String {
     let mut d: String = String::new();
     d.push_str(".lforge/");
     d.push_str(profile);
@@ -111,7 +111,7 @@ pub fn out_dir_for(profile: str) -> String {
 // lands here as a readable .gen.logos file, and (debug profile) DWARF points
 // at it — the debugger lists generated code from this directory. Distinct
 // from gen_dir_for (the --dump-metaprog display-dump dir, `/_gen`).
-pub fn gensrc_dir_for(profile: str) -> String {
+pub fn gensrc_dir_for(profile: &str) -> String {
     let mut d: String = String::new();
     d.push_str(".lforge/");
     d.push_str(profile);
@@ -123,7 +123,7 @@ pub fn gensrc_dir_for(profile: str) -> String {
 // produced this profile's outputs. On the next build, a mismatch forces a full
 // rebuild (the toolchain changed → existing .o/.a/bin may be invalid even though
 // the sources didn't change). Lives beside out/ so it's cleaned with the profile.
-pub fn toolchain_stamp_path(profile: str) -> String {
+pub fn toolchain_stamp_path(profile: &str) -> String {
     let mut d: String = String::new();
     d.push_str(".lforge/");
     d.push_str(profile);
@@ -131,7 +131,7 @@ pub fn toolchain_stamp_path(profile: str) -> String {
     return d;
 }
 
-pub fn gen_dir_for(profile: str) -> String {
+pub fn gen_dir_for(profile: &str) -> String {
     let mut d: String = String::new();
     d.push_str(".lforge/");
     d.push_str(profile);
@@ -140,7 +140,7 @@ pub fn gen_dir_for(profile: str) -> String {
 }
 
 // Path of the .a archive a lib target produces.
-pub fn lib_archive_path(profile: str, lib_name: str) -> String {
+pub fn lib_archive_path(profile: &str, lib_name: &str) -> String {
     let mut p: String = out_dir_for(profile);
     p.push_str("/lib");
     p.push_str(lib_name);
@@ -149,7 +149,7 @@ pub fn lib_archive_path(profile: str, lib_name: str) -> String {
 }
 
 // Path of the bin executable a bin target produces.
-pub fn bin_path(profile: str, bin_name: str) -> String {
+pub fn bin_path(profile: &str, bin_name: &str) -> String {
     let mut p: String = out_dir_for(profile);
     p.push_u8(47 as u8);
     p.push_str(bin_name);
@@ -160,14 +160,14 @@ pub fn bin_path(profile: str, bin_name: str) -> String {
 // same name (consumer's t.deps already declared the name; the project that
 // defines a lib with that name wins). Order preserved from the bin target's
 // manifest.
-pub fn dep_archive_paths(targets: &Vec<Target>, deps: &Vec<String>, profile: str,
+pub fn dep_archive_paths(targets: &Vec<Target>, deps: &Vec<String>, profile: &str,
                                 externals: &Vec<ExternalLib>) -> Vec<String> {
     let mut out: Vec<String> = vec_new::<String>();
     let dn: i64 = deps.length();
     let mut i: i64 = 0 as i64;
     while i < dn {
         let nm: &String = deps.borrow(i);
-        let nm_view: str = nm.as_str();
+        let nm_view: &str = nm.as_str();
         let ei: i64 = external_lookup(externals, nm_view);
         if ei >= 0 as i64 {
             let lb: &ExternalLib = externals.borrow(ei);
@@ -189,7 +189,7 @@ pub fn dep_archive_paths(targets: &Vec<Target>, deps: &Vec<String>, profile: str
 // mtime of every input file, the action is fresh and we skip the spawn.
 // Matches the cmake/ninja default behavior (which is what users expect).
 
-pub fn collect_logos_files(dir: str) -> Vec<String> {
+pub fn collect_logos_files(dir: &str) -> Vec<String> {
     let mut out: Vec<String> = vec_new::<String>();
     if is_dir(dir) {
         let entries: Vec<DirEntry> = walk_dir(dir);
@@ -199,7 +199,7 @@ pub fn collect_logos_files(dir: str) -> Vec<String> {
             let de: &DirEntry = entries.borrow(i);
             i = i + 1 as i64;
             if de.is_dir { continue; }
-            let pview: str = de.name.as_str();
+            let pview: &str = de.name.as_str();
             if !str_ends_with(pview, ".logos") { continue; }
             let mut p: String = String::new();
             p.push_str(pview);
@@ -227,7 +227,7 @@ pub fn newest_mtime(paths: &Vec<String>) -> i64 {
 }
 
 // True if `out_path` exists and its mtime is >= every input mtime.
-pub fn output_is_fresh(out_path: str, max_input_mt: i64) -> bool {
+pub fn output_is_fresh(out_path: &str, max_input_mt: i64) -> bool {
     if !exists(out_path) { return false; }
     match mtime_ns(out_path) {
         Result::Ok(t)  => { return t >= max_input_mt; }

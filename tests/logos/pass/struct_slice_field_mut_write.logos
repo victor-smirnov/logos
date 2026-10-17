@@ -4,7 +4,7 @@
 // path to `*&self.rest = v` (SDerefWrite), which previously stored only the
 // data ptr and left `len` stale — the split-iterator early-termination bug.
 package test;
-struct Cursor { rest: str, done: bool }
+struct Cursor { rest: &'static str, done: bool }
 impl Cursor {
     // Advance past the first `,`, yielding the head segment; sets done at end.
     fn step(self: &mut Cursor) -> Option<&str> {

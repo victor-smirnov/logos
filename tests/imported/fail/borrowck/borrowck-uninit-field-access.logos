@@ -4,7 +4,7 @@
 // whole-value use, and the partial-move map was never asked about it.
 // upstream: borrowck/borrowck-uninit-field-access.rs, third case (E0382 use of whole after partial moves)
 package borrowck_uninit_field_access;
-struct Point { s: str, x: i64 }
+struct Point { s: &'static str, x: i64 }
 impl Drop for Point { fn drop(self: &mut Point) {} }
 struct Line { origin: Point, middle: Point }
 impl Line { fn consume(self: Self) { } }

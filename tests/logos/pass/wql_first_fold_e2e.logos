@@ -12,7 +12,7 @@ use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.str;
 
-struct Person { pub name: str, pub age: i64 }
+struct Person { pub name: &'static str, pub age: i64 }
 
 // where false + first → the plan provably yields no rows; constant None.
 pub deem nobody_first(people: &[Person]) { from people p where 1 == 2 select first p.age }

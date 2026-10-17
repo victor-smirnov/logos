@@ -23,7 +23,7 @@ pub fn home_dir() -> String {
     }
 }
 
-pub fn find_byte(s: str, b: u8) -> i64 {
+pub fn find_byte(s: &str, b: u8) -> i64 {
     unsafe {
         let n: i64 = s.len();
     let mut i: i64 = 0 as i64;
@@ -35,13 +35,13 @@ pub fn find_byte(s: str, b: u8) -> i64 {
     }
 }
 
-pub fn slice_from_off(s: str, off: i64) -> str {
+pub fn slice_from_off(s: &str, off: i64) -> &str {
     let p: *const u8 = (s.as_ptr() as i64 + off) as *const u8;
     let n: i64 = s.len() - off;
     return unsafe { str_from_raw(p, n) };
 }
 
-pub fn ends_with_dot_git(s: str) -> bool {
+pub fn ends_with_dot_git(s: &str) -> bool {
     return str_ends_with(s, ".git");
 }
 
@@ -56,7 +56,7 @@ pub fn strip_dot_git_inplace(s: &mut String) {
 //   user@host:path SCP-style   -- use as-is, replace `:` with `/` in display
 // Always: ensure fetch ends with `.git`; display drops `.git` and scheme.
 // Find first occurrence of "://" — returns offset of the ':' or -1.
-pub fn find_scheme_sep(s: str) -> i64 {
+pub fn find_scheme_sep(s: &str) -> i64 {
     unsafe {
         let n: i64 = s.len();
     if n < 3 as i64 { return 0 as i64 - 1 as i64; }
@@ -72,7 +72,7 @@ pub fn find_scheme_sep(s: str) -> i64 {
     }
 }
 
-pub fn canonical_url(project: str) -> (String, String) {
+pub fn canonical_url(project: &str) -> (String, String) {
     unsafe {
         let mut display: String = String::new();
     let mut fetch:   String = String::new();
@@ -82,7 +82,7 @@ pub fn canonical_url(project: str) -> (String, String) {
 
     if scheme_off >= 0 as i64 {
         // <scheme>://<rest>
-        let after: str = slice_from_off(project, scheme_off + 3 as i64);
+        let after: &str = slice_from_off(project, scheme_off + 3 as i64);
         // For ssh:// strip optional user@ from display.
         let is_ssh: bool = str_starts_with(project, "ssh://");
         if is_ssh {
@@ -102,7 +102,7 @@ pub fn canonical_url(project: str) -> (String, String) {
         let cl_off: i64 = find_byte(project, 58 as u8);
         let is_scp: bool = at_off >= 0 as i64 && cl_off > at_off && is_gh == false;
         if is_scp {
-            let after_at: str = slice_from_off(project, at_off + 1 as i64);
+            let after_at: &str = slice_from_off(project, at_off + 1 as i64);
             let cn: i64 = after_at.len();
             let mut k: i64 = 0 as i64;
             while k < cn {
@@ -121,7 +121,7 @@ pub fn canonical_url(project: str) -> (String, String) {
     }
 
     strip_dot_git_inplace(&mut display);
-    let fview: str = fetch.as_str();
+    let fview: &str = fetch.as_str();
     let has_g: bool = ends_with_dot_git(fview);
     let is_file_scheme: bool = str_starts_with(project, "file://");
     if has_g == false && is_file_scheme == false { fetch.push_str(".git"); }
@@ -131,7 +131,7 @@ pub fn canonical_url(project: str) -> (String, String) {
 }
 
 // `/`, `:`, `@` -> `_` so the display id can be used as a directory name.
-pub fn display_to_dirname(display: str) -> String {
+pub fn display_to_dirname(display: &str) -> String {
     unsafe {
         let mut out: String = String::new();
     let n: i64 = display.len();
@@ -160,7 +160,7 @@ pub fn lforge_cache_src_dir() -> String {
     return out;
 }
 
-pub fn looks_like_sha(s: str) -> bool {
+pub fn looks_like_sha(s: &str) -> bool {
     unsafe {
         let n: i64 = s.len();
     if n < 7 as i64    { return false; }
@@ -180,7 +180,7 @@ pub fn looks_like_sha(s: str) -> bool {
 
 // Resolve a `git ls-remote <url> <ref>` output line to its SHA. `ref` may
 // be a tag, branch, or already-a-SHA (echoed back).
-pub fn git_resolve_sha(fetch_url: str, ref_str: str) -> Result<String, i32> {
+pub fn git_resolve_sha(fetch_url: &str, ref_str: &str) -> Result<String, i32> {
     unsafe {
         if looks_like_sha(ref_str) {
         let mut s: String = String::new();
@@ -209,7 +209,7 @@ pub fn git_resolve_sha(fetch_url: str, ref_str: str) -> Result<String, i32> {
         println_str(2, ref_str);
         return Result::Err(rc);
     }
-    let view: str = out.as_str();
+    let view: &str = out.as_str();
     let nl: i64 = find_byte(view, 10 as u8);
     let mut end: i64 = view.len();
     if nl >= 0 as i64 { end = nl; }
@@ -231,7 +231,7 @@ pub fn git_resolve_sha(fetch_url: str, ref_str: str) -> Result<String, i32> {
 
 // Clone fetch_url into dest_dir then checkout the given SHA. dest_dir
 // must not exist.
-pub fn git_clone_at_sha(fetch_url: str, sha: str, dest_dir: str) -> i32 {
+pub fn git_clone_at_sha(fetch_url: &str, sha: &str, dest_dir: &str) -> i32 {
     unsafe {
         let mut a1: Vec<String> = vec_new::<String>();
     push_arg(&mut a1, "git");
@@ -264,7 +264,7 @@ pub fn git_clone_at_sha(fetch_url: str, sha: str, dest_dir: str) -> i32 {
 // `lock_out` so the freshly written lockfile reflects the build.
 pub fn resolve_git_dep(dep:  &ExternalDep,
                               lock_in:  &Vec<LockEntry>,
-                              lock_out: &mut Vec<LockEntry>) -> Result<(String, String, String), i32> { unsafe {    let proj_view: str = dep.project.as_str();
+                              lock_out: &mut Vec<LockEntry>) -> Result<(String, String, String), i32> { unsafe {    let proj_view: &str = dep.project.as_str();
     let pair: (String, String) = canonical_url(proj_view);
     let display: String = pair.0;
     let fetch:   String = pair.1;
@@ -278,14 +278,14 @@ pub fn resolve_git_dep(dep:  &ExternalDep,
         ref_s.push_str(dep.sha.as_str());
     }
 
-    let display_view: str = display.as_str();
+    let display_view: &str = display.as_str();
     let mut sha: String = String::new();
     if dep.tag.len() > 0 as i64 {
         sha = lookup_lock_sha(lock_in, display_view, dep.tag.as_str());
     }
     if sha.len() == 0 as i64 {
-        let fetch_view: str = fetch.as_str();
-        let ref_view:   str = ref_s.as_str();
+        let fetch_view: &str = fetch.as_str();
+        let ref_view:   &str = ref_s.as_str();
         sha = match git_resolve_sha(fetch_view, ref_view) {
             Result::Err(rc) => { return Result::Err(rc); }
             Result::Ok(s)  => { s }
@@ -303,7 +303,7 @@ pub fn resolve_git_dep(dep:  &ExternalDep,
     let mut parent: String = String::new();
     parent.push_str(cache_root.as_str());
     append_path(&mut parent, dirname.as_str());
-    let pview: str = parent.as_str();
+    let pview: &str = parent.as_str();
     match mkdir_p(pview) {
         Result::Err(_) => { println_str(2, "lforge: cannot create cache parent dir"); return Result::Err(1); }
         Result::Ok(_)  => { }
@@ -321,7 +321,7 @@ pub fn resolve_git_dep(dep:  &ExternalDep,
     let cache_hit: bool = is_file(manifest_path.as_str());
 
     if cache_hit == false {
-        let full_view: str = full.as_str();
+        let full_view: &str = full.as_str();
         if is_dir(full_view) {
             match rm_rf(full_view) {
                 Result::Err(_) => {
@@ -331,7 +331,7 @@ pub fn resolve_git_dep(dep:  &ExternalDep,
                 Result::Ok(_) => { }
             }
         }
-        let fetch_view: str = fetch.as_str();
+        let fetch_view: &str = fetch.as_str();
         print_str(1, "lforge: fetching ");
         print_str(1, display_view);
         print_str(1, " @ ");

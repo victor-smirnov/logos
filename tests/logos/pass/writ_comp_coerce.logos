@@ -17,7 +17,7 @@ fn main() -> i32 {
     let lb: Rc<Writ> = @[(x % 2) == 0 for x in xs];
 
     // Map with string values — auto-coerced to WString in the zone.
-    let keys: [str; 3] = ["a", "b", "c"];
+    let keys: [&str; 3] = ["a", "b", "c"];
     let idx:  [i32; 3] = [0, 1, 2];
     let md: Rc<Writ> = @{keys[x as i64]: "val" for x in idx};
 

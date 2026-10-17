@@ -25,7 +25,7 @@ use logos.std.wql.why;
 use logos.mem.collections.vec;
 use logos.lang.result;
 
-struct Person { pub name: str, pub age: i64 }
+struct Person { pub name: &'static str, pub age: i64 }
 
 pub deem t_true(ps: &[Person])     { from ps p where true select p }
 pub deem t_false(ps: &[Person])    { from ps p where false select p.age }

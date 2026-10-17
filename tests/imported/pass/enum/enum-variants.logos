@@ -12,7 +12,7 @@ use logos.mem.string;
 use logos.lang.str;
 
 enum Animal {
-    Dog(str, f64),
+    Dog(&'static str, f64),
 }
 
 fn main() -> i32 {

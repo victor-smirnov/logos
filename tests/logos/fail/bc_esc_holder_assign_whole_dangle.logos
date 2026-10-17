@@ -11,9 +11,9 @@
 package bc_esc_holder_assign_whole_dangle;
 use logos.mem.string;
 
-pub struct W { pub v: str }
+pub struct W<'a> { pub v: &'a str }
 
-pub fn bad() -> W {
+pub fn bad() -> W<'static> {
     let o: String = String::from("hello");
     let mut w: W = W { v: "" };
     w = W { v: o.as_str() };

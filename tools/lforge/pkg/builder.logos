@@ -24,7 +24,7 @@ use lforge.spawn_helpers;
 // debug info; -O0 is logosc's default), release = -O3 (optimized, no debug
 // info). Without this, lforge profiles only changed OUTPUT PATHS — builds were
 // non-debuggable at the Logos level and release was never optimized.
-pub fn profile_compile_flags(profile: str, argv: &mut Vec<String>) {
+pub fn profile_compile_flags(profile: &str, argv: &mut Vec<String>) {
     if str_eq_local(profile, "release") {
         // -O3 (matching cargo's release default of opt-level 3, NOT rustc -O's
         // opt-level 2): the more aggressive loop unroll/interleave thresholds
@@ -60,18 +60,18 @@ fn largv_push_abs(argv: &mut Vec<String>, p: &String) {
     argv.push(a);
 }
 
-pub fn build_lib(t: &Target, profile: str, logosc: &String,
+pub fn build_lib(t: &Target, profile: &str, logosc: &String,
                         lib_dir: &String,
                         externals: &Vec<ExternalLib>,
                         dump_dir: &String,
                         dump_filter: &String,
                         force: bool) -> i32 {
-    let lib_name_view: str = t.name.as_str();
+    let lib_name_view: &str = t.name.as_str();
 
     // ── Walk Logos source dir, if any ────────────────────────────────────
     let mut sources: Vec<String> = vec_new::<String>();
     if t.src.len() > 0 as i64 {
-        let src_view: str = t.src.as_str();
+        let src_view: &str = t.src.as_str();
         sources = collect_logos_files(src_view);
     }
     let n_src: i64 = sources.length();
@@ -87,14 +87,14 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     }
 
     let pf_dir: String = per_file_dir(profile, lib_name_view);
-    let pf_dir_view: str = pf_dir.as_str();
+    let pf_dir_view: &str = pf_dir.as_str();
     match mkdir_p(pf_dir_view) {
         Result::Err(_) => { println_str(2, "lforge: cannot create _files dir"); return 1; }
         Result::Ok(_)  => { }
     }
 
     let od: String = out_dir_for(profile);
-    let od_view: str = od.as_str();
+    let od_view: &str = od.as_str();
     match mkdir_p(od_view) {
         Result::Err(_) => { println_str(2, "lforge: cannot create out dir"); return 1; }
         Result::Ok(_)  => { }
@@ -105,7 +105,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     let mut man_path: String = String::new();
     if n_src > 0 as i64 {
         let gd: String = gen_dir_for(profile);
-        let gd_view: str = gd.as_str();
+        let gd_view: &str = gd.as_str();
         match mkdir_p(gd_view) {
             Result::Err(_) => { println_str(2, "lforge: cannot create _gen dir"); return 1; }
             Result::Ok(_)  => { }
@@ -156,7 +156,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     while i < n_src {
         let src_p: &String = sources.borrow(i);
         i = i + 1 as i64;
-        let src_view2: str = src_p.as_str();
+        let src_view2: &str = src_p.as_str();
 
         let prefix: String = per_file_prefix(&pf_dir, src_p);
         let mut obj_path: String = String::new();
@@ -263,7 +263,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         while k < cnt {
             let src_p: &String = lst.borrow(k);
             k = k + 1 as i64;
-            let src_view2: str = src_p.as_str();
+            let src_view2: &str = src_p.as_str();
 
             let obj_path: String = native_obj_path(&pf_dir, src_p);
             let src_mt: i64 = match mtime_ns(src_view2) {
@@ -316,7 +316,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     }
 
     // ── Re-archive if anything was rebuilt or the .a is missing/stale ───
-    let arch_view: str = arch.as_str();
+    let arch_view: &str = arch.as_str();
     let mut need_ar: bool = rebuilt_count > 0;
     if !need_ar {
         // Check archive freshness against every per-file artifact —
@@ -420,7 +420,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
 
 pub fn build_bin(t: &Target, 
                         targets: &Vec<Target>,
-                        profile: str,
+                        profile: &str,
                         logosc: &String,
                         lib_dir: &String,
                         externals: &Vec<ExternalLib>,
@@ -433,7 +433,7 @@ pub fn build_bin(t: &Target,
     }
     
     let od: String = out_dir_for(profile);
-    let od_view: str = od.as_str();
+    let od_view: &str = od.as_str();
     match mkdir_p(od_view) {
         Result::Err(_) => { println_str(2, "lforge: cannot create out dir"); return 1; }
         Result::Ok(_)  => { }
@@ -441,7 +441,7 @@ pub fn build_bin(t: &Target,
 
     // Incremental skip: if the linked binary is newer than every input
     // (the bin's own .logos files + every dep .a archive), skip the action.
-    let src_view: str = t.src.as_str();
+    let src_view: &str = t.src.as_str();
     let mut all_inputs: Vec<String> = collect_logos_files(src_view);
     let dep_archs_for_check: Vec<String> = dep_archive_paths(targets, &t.deps, profile, externals);
     let dnc: i64 = dep_archs_for_check.length();
@@ -455,7 +455,7 @@ pub fn build_bin(t: &Target,
     }
     let max_mt: i64 = newest_mtime(&all_inputs);
     let bp_check: String = bin_path(profile, t.name.as_str());
-    let bp_check_view: str = bp_check.as_str();
+    let bp_check_view: &str = bp_check.as_str();
     if !force && output_is_fresh(bp_check_view, max_mt) {
         let mut msg: String = String::new();
         msg.push_str("lforge: bin ");
@@ -498,12 +498,12 @@ pub fn build_bin(t: &Target,
     let mut ei: i64 = 0 as i64;
     while ei < en {
         let lb: &ExternalLib = externals.borrow(ei);
-        let lbv: str = lb.archive_path.as_str();
+        let lbv: &str = lb.archive_path.as_str();
         let mut already: bool = false;
         let mut ai: i64 = 0 as i64;
         while ai < all_archs.length() {
             let s: &String = all_archs.borrow(ai);
-            let sv: str = s.as_str();
+            let sv: &str = s.as_str();
             if str_eq_local(sv, lbv) { already = true; ai = all_archs.length(); }
             else                     { ai = ai + 1 as i64; }
         }
@@ -570,7 +570,7 @@ pub fn build_bin(t: &Target,
         push_string_arg(&mut largv, s);
         k = k + 1 as i64;
     }
-    let lib_view: str = lib_dir.as_str();
+    let lib_view: &str = lib_dir.as_str();
     // ALL FOUR modular stdlib layers (lang→mem→lcm→std), each carrying only
     // its own codegen (emit_module's layer dedup forward-declares whatever a
     // lower layer already defines). They cross-reference (std→mem→lang + mono

@@ -6,7 +6,7 @@ package test;
 
 pub trait Speak { fn level(&self) -> i32; }
 struct Inner { v: i32 }
-struct Outer { name: str, inner: Inner }
+struct Outer { name: &'static str, inner: Inner }
 
 impl Speak for Inner { fn level(&self) -> i32 { return 7; } }
 impl Speak for Outer { fn level(&self) -> i32 { return 1; } }

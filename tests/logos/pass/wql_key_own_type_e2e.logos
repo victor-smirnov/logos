@@ -71,7 +71,7 @@ pub deem ju16(xs: &[Narrow], ys: &[Narrow]) { from xs x join ys y on x.h == y.h 
 pub deem ji16(xs: &[Narrow], ys: &[Narrow]) { from xs x join ys y on x.g == y.g select (x.id, y.id) }
 pub deem jisz(xs: &[Narrow], ys: &[Narrow]) { from xs x join ys y on x.z == y.z select (x.id, y.id) }
 
-fn mk(s: str) -> String { let mut a: String = String::new(); a.push_str(s); return a; }
+fn mk(s: &str) -> String { let mut a: String = String::new(); a.push_str(s); return a; }
 
 fn main() -> i32 {
     let rs: [Rec; 3] = [

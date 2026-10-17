@@ -9,7 +9,7 @@ use logos.lang.writ.static_view;
 use logos.lang.rc;
 
 fn main() -> i32 {
-    let keys: [str; 10] =
+    let keys: [&str; 10] =
         ["k0","k1","k2","k3","k4","k5","k6","k7","k8","k9"];
     let idx: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 

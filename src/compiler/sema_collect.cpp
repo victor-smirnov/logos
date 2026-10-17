@@ -4631,9 +4631,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 auto cname = std::string(str_of(m.get(la::NAME.code)));
                 std::string assoc_doc = std::move(pending_doc_);
                 pending_doc_.clear();
-                // A generic trait impl's const may depend on the impl's
-                // parameters: its accessor is a method of the impl, per Self.
-                if (!trait_name.empty() && !impl_tps.empty() && !is_blanket &&
+                // A generic impl's const (trait or inherent) may depend on the
+                // impl's parameters: its accessor is a method of the impl, per Self.
+                if (!impl_tps.empty() && !is_blanket &&
                     m.has_key(la::VALUE) && m.has_key(la::TYPE))
                     collect_fn(const_accessor_fn_(m.ptr(), cname, m.get(la::TYPE.code), m.get(la::VALUE.code),
                                                   get_line(m)),
@@ -5494,7 +5494,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         auto k = TypeRef(impl_self_ty).kind();
                         if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
                             k == LogosType::Kind::Tuple || k == LogosType::Kind::Array ||
-                            k == LogosType::Kind::UnsizedSlice)
+                            k == LogosType::Kind::UnsizedSlice || k == LogosType::Kind::Ptr)
                             self_type = impl_self_ty;
                     }
                     if (is_blanket)

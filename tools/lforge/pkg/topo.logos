@@ -13,7 +13,7 @@ use logos.mem.collections.vec;
 use lforge.schema_types;
 use lforge.util;
 
-pub fn find_target_index(targets: &Vec<Target>, name: str) -> i64 {
+pub fn find_target_index(targets: &Vec<Target>, name: &str) -> i64 {
     let n: i64 = targets.length();
     let mut i: i64 = 0;
     while i < n {
@@ -24,7 +24,7 @@ pub fn find_target_index(targets: &Vec<Target>, name: str) -> i64 {
     return 0 - 1;
 }
 
-pub fn external_lookup(externals: &Vec<ExternalLib>, name: str) -> i64 {
+pub fn external_lookup(externals: &Vec<ExternalLib>, name: &str) -> i64 {
     let n: i64 = externals.length();
     let mut i: i64 = 0;
     while i < n {
@@ -75,13 +75,13 @@ pub fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) -> Result
             if cur_dep < dn {
                 let dp: &Vec<String> = &t.deps;
                 let dnm: &String = dp.borrow(cur_dep);
-                let dnms: str = dnm.as_str();
+                let dnms: &str = dnm.as_str();
                 // Inline resolve dep name → target index.
                 let mut didx: i64 = 0 as i64 - 1 as i64;
                 let mut ri: i64 = 0 as i64;
                 while ri < n {
                     let rt: &Target = targets.borrow(ri);
-                    let rtnm: str = rt.name.as_str();
+                    let rtnm: &str = rt.name.as_str();
                     if str_eq_local(rtnm, dnms) { didx = ri; ri = n; }
                     else { ri = ri + 1 as i64; }
                 }

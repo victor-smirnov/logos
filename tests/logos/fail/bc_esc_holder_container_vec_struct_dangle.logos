@@ -12,9 +12,9 @@
 package bc_esc_holder_container_vec_struct_dangle;
 use logos.mem.string;
 
-pub struct H { pub v: str }
+pub struct H<'a> { pub v: &'a str }
 
-pub fn bad() -> Vec<H> {
+pub fn bad() -> Vec<H<'static>> {
     let o: String = String::from("hello");
     let mut v: Vec<H> = Vec::<H>::new();
     v.push(H { v: o.as_str() });

@@ -14,7 +14,7 @@
 package bc_esc_holder_outparam_param_borrow_admit;
 use logos.mem.string;
 
-pub struct W { pub v: str }
+pub struct W { pub v: &'static str }
 
 pub fn ok(s: &str, out: &mut W) { out.v = s; }
 

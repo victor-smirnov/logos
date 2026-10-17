@@ -1,0 +1,38 @@
+package raw_ptr_ord_hash_by_address;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.hash;
+use logos.mem.collections.hashmap;
+
+// Raw pointers compare and hash by ADDRESS, never by pointee (Rust:
+// `impl<T: ?Sized> Ord/Hash for *const T`). The pointees are chosen so that
+// pointee order is the REVERSE of address order: a pointee-reading answer differs.
+#[derive_hash]
+#[derive_partial_eq]
+#[derive_eq]
+#[derive_partial_ord]
+#[derive_ord]
+struct H { p: *const i64, tag: u8 }
+
+fn main() {
+    let xs: [i64; 3] = [30, 20, 10];
+    let a: *const i64 = &xs[0] as *const i64;
+    let b: *const i64 = &xs[1] as *const i64;
+    let c: *const i64 = &xs[2] as *const i64;
+    // Method calls on the pointer itself need no unsafe: nothing is read.
+    println!("{} {} {}", a < b, a.cmp(&c) == Ordering::Less, b.partial_cmp(&a) == Option::Some(Ordering::Greater));
+    println!("{} {} {}", a.max(c) == c, c.min(a) == a, a != b);
+    println!("{}", b.clamp(a, a) == a);
+    let mut m: *mut i64 = &xs[1] as *const i64 as *mut i64;
+    println!("{}", m.cmp(&m) == Ordering::Equal);
+    m = &xs[2] as *const i64 as *mut i64;
+    let ha = H { p: a, tag: 9 };
+    let hc = H { p: c, tag: 1 };
+    println!("{} {}", ha < hc, ha.cmp(&hc) == Ordering::Less);
+    let mut seen: HashMap<*const i64, i64> = HashMap::new();
+    seen.insert(a, 1);
+    seen.insert(c, 3);
+    seen.insert(a, 5);
+    println!("{} {} {}", seen.len(), seen.remove(&a).unwrap(), seen.contains_key(&c));
+    let _ = m;
+}

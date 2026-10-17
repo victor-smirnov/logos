@@ -54,7 +54,7 @@ use logos.mem.string;
 use logos.lang.result;
 use logos.lang.option;
 
-fn eq(a: str, b: str) -> bool { return str_eq(a, b); }
+fn eq(a: &str, b: &str) -> bool { return str_eq(a, b); }
 
 fn main() -> i32 {
     // ── A. every signed width, and every unsigned width that WIDENS ─────────

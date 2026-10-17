@@ -25,7 +25,7 @@ pub deem by_w(es: &[Emp], ds: &[Dept]) {
     from es e left join ds d on d.id == e.dept select e.id order by d.w }
 pub deem by_w_desc(es: &[Emp], ds: &[Dept]) {
     from es e left join ds d on d.id == e.dept select e.id order by d.w desc }
-fn show(tag: str, r: &Vec<i64>) {
+fn show(tag: &str, r: &Vec<i64>) {
     print!("{}", tag);
     let mut i: i64 = 0i64;
     while i < r.len() { print!(" {}", r.get(i)); i = i + 1i64; }

@@ -22,14 +22,14 @@ use logos.lang.result;
 use logos.lang.option;
 
 // Read a string field from a fact map; "" when absent/non-string.
-fn field_str<'a>(m: &'a WMap<WString, WAny>, key: str) -> &'a str {
+fn field_str<'a>(m: &'a WMap<WString, WAny>, key: &str) -> &'a str {
     let v = m.get(key);
     if v.is_string() { return v.as_string().as_str(); }
     return "";
 }
 
 // Write a JSON array of every impl `type` whose `trait` == trait_name.
-fn write_implementors(jw: &mut JsonWriter, impls: &WArray<WAny>, trait_name: str) {
+fn write_implementors(jw: &mut JsonWriter, impls: &WArray<WAny>, trait_name: &str) {
     jw.begin_array();
     let n = impls.len();
     let mut i = 0i64;
@@ -44,7 +44,7 @@ fn write_implementors(jw: &mut JsonWriter, impls: &WArray<WAny>, trait_name: str
 }
 
 // Write a JSON array of every impl `trait` whose `type` == type_name.
-fn write_implements(jw: &mut JsonWriter, impls: &WArray<WAny>, type_name: str) {
+fn write_implements(jw: &mut JsonWriter, impls: &WArray<WAny>, type_name: &str) {
     jw.begin_array();
     let n = impls.len();
     let mut i = 0i64;
@@ -58,7 +58,7 @@ fn write_implements(jw: &mut JsonWriter, impls: &WArray<WAny>, type_name: str) {
     jw.end_array();
 }
 
-fn convert(text: str) -> String {
+fn convert(text: &str) -> String {
     let w = parse_writ(text);
     let root = w.root();
     let rm = root.as_map();

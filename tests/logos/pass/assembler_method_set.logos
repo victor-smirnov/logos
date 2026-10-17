@@ -41,19 +41,19 @@ use logos.lang.writ.static_view;
 use logos.lang.writ.anyval;
 
 pub trait HasId    { fn id()    -> i64; }
-pub trait HasName  { fn name()  -> &str; }
+pub trait HasName  { fn name()  -> &'static str; }
 pub trait HasCount { fn count() -> i64; }
 
 pub struct PartA {}
 impl HasId   for PartA { fn id()    -> i64 { return 1i64; } }
-impl HasName for PartA { fn name()  -> str { return "alpha-a"; } }
+impl HasName for PartA { fn name()  -> &'static str { return "alpha-a"; } }
 
 pub struct PartB {}
-impl HasName  for PartB { fn name()  -> str { return "beta-b"; } }
+impl HasName  for PartB { fn name()  -> &'static str { return "beta-b"; } }
 impl HasCount for PartB { fn count() -> i64 { return 7i64; } }
 
 fn dele_id<P:    HasId>()    -> i64 { return P::id(); }
-fn dele_name<P:  HasName>()  -> &str { return P::name(); }
+fn dele_name<P:  HasName>()  -> &'static str { return P::name(); }
 fn dele_count<P: HasCount>() -> i64 { return P::count(); }
 
 fn assemble<const CFG: WritStatic>() -> QuoteItemBlob {
@@ -117,7 +117,7 @@ fn assemble<const CFG: WritStatic>() -> QuoteItemBlob {
             pub struct Assembled {}
             impl Assembled {
                 pub fn id()    -> i64 { return dele_id::<#id_part>(); }
-                pub fn name()  -> &str { return dele_name::<#name_part>(); }
+                pub fn name()  -> &'static str { return dele_name::<#name_part>(); }
                 pub fn count() -> i64 { return dele_count::<#count_part>(); }
             }
         };

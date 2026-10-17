@@ -6,7 +6,7 @@
 // the measured cost at zero.
 package bc_recvpartial_byval_recv_fail;
 
-struct P { s: str, x: i64 }
+struct P { s: &'static str, x: i64 }
 impl Drop for P { fn drop(self: &mut P) {} }
 struct L { origin: P, middle: P }
 impl L { fn consume(self: L) {} }
