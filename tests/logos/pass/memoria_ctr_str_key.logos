@@ -1,0 +1,167 @@
+// ctr_str_key — an ordered_map keyed by `str` (ADR 0039 M4b): the key column
+// is VLE, kept in byte order by the writers, and branch separators are byte
+// strings. Enough keys (long ones too) to split leaves AND branches, inserted
+// out of order; then point reads, a miss, replace-on-hit, the walk in key
+// order against a sorted model, ordered landing, and fork isolation.
+//
+// The order is Rust's `str` order: bytewise, a proper prefix first.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.option;
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.std.io;
+
+container Names {
+    kind ordered_map;
+    entry { key: str, val: u64 }
+    measure max(key);
+}
+
+const NAMES: u64 = 1u64;
+const N: i64 = 700i64;
+const MISS: u64 = 18446744073709551615u64;
+
+// Key i: a decimal body behind a prefix whose length varies with i, so keys
+// share prefixes, differ in length, and some run long (up to ~120 bytes).
+fn key_of(i: i64) -> String {
+    let mut s: String = String::new();
+    let pad: i64 = (i * 7i64) % 23i64;
+    let mut k: i64 = 0i64;
+    while k < pad { s.push_str("ab"); k = k + 1i64; }
+    s.push_str("/");
+    s.push_i64(i);
+    if i % 5i64 == 0i64 { s.push_str("-a-long-suffix-that-makes-this-key-much-longer-than-the-rest-of-them"); }
+    return s;
+}
+
+fn run_all() -> i32 {
+    // The model: every key, owned, sorted by Rust's str order.
+    let mut keys: Vec<String> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < N { keys.push(key_of(i)); i = i + 1i64; }
+    let mut order: Vec<i64> = Vec::new();
+    i = 0i64;
+    while i < N { order.push(i); i = i + 1i64; }
+    // insertion sort of indices by key (N is small)
+    let mut a: i64 = 1i64;
+    while a < N {
+        let v: i64 = order.get(a);
+        let mut b: i64 = a;
+        while b > 0i64 && str_cmp(keys.borrow(order.get(b - 1i64)).as_str(), keys.borrow(v).as_str()) > 0i32 {
+            order.set(b, order.get(b - 1i64));
+            b = b - 1i64;
+        }
+        order.set(b, v);
+        a = a + 1i64;
+    }
+
+    let mut store: Arc<MemoryStore> = store_new();
+    let s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let mut m = create_ctr::<typeof(Names)>(&s1, NAMES);
+        if m.size() != 0u64 { return 1i32; }
+        // out of order: a stride through the indices
+        let mut j: i64 = 0i64;
+        let mut p: i64 = 0i64;
+        while j < N {
+            m.insert(keys.borrow(p).as_str(), p as u64);
+            p = (p + 389i64) % N;
+            j = j + 1i64;
+        }
+        if m.size() != N as u64 { return 2i32; }
+        // point reads, a miss
+        j = 0i64;
+        while j < N {
+            if m.get_or(keys.borrow(j).as_str(), MISS) != j as u64 { return 3i32; }
+            j = j + 1i64;
+        }
+        if m.get_or("no-such-key", MISS) != MISS { return 4i32; }
+        if m.get_or("", MISS) != MISS { return 5i32; }
+        // replace-on-hit keeps the count
+        m.insert(keys.borrow(17i64).as_str(), 999u64);
+        if m.size() != N as u64 || m.get_or(keys.borrow(17i64).as_str(), MISS) != 999u64 { return 6i32; }
+        m.insert(keys.borrow(17i64).as_str(), 17u64);
+        // the walk in key order, against the sorted model
+        let mut cu = m.seek(0u64);
+        let mut r: i64 = 0i64;
+        while cu.valid() {
+            let want: i64 = order.get(r);
+            if !str_eq(cu.key(), keys.borrow(want).as_str()) { return 7i32; }
+            if cu.value() != want as u64 { return 8i32; }
+            r = r + 1i64;
+            cu = m.next(&cu);
+        }
+        if r != N { return 9i32; }
+        // ordered landing: seek_key of each key lands on it; of a key just
+        // after one, on the next in order
+        r = 0i64;
+        while r < N {
+            let k: &str = keys.borrow(order.get(r)).as_str();
+            let c = m.seek_key(k);
+            if !c.valid() || !str_eq(c.key(), k) { return 10i32; }
+            r = r + 37i64;
+        }
+        // remove every third key (in key order): absent after, the rest walk in order
+        r = 0i64;
+        while r < N {
+            if r % 3i64 == 0i64 {
+                if !m.remove(keys.borrow(order.get(r)).as_str()) { return 11i32; }
+            }
+            r = r + 1i64;
+        }
+        if m.remove("no-such-key") { return 12i32; }
+        let kept: i64 = N - (N + 2i64) / 3i64;
+        if m.size() != kept as u64 { return 13i32; }
+        let mut cw = m.seek(0u64);
+        r = 0i64;
+        while cw.valid() {
+            while r % 3i64 == 0i64 { r = r + 1i64; }
+            if !str_eq(cw.key(), keys.borrow(order.get(r)).as_str()) { return 14i32; }
+            r = r + 1i64;
+            cw = m.next(&cw);
+        }
+        // drain to zero (merges down to a root collapse), then refill
+        while m.size() > 0u64 {
+            let k0: String = String::from_str(m.seek(0u64).key());
+            if !m.remove(k0.as_str()) { return 15i32; }
+        }
+        if m.seek(0u64).valid() { return 16i32; }
+        j = 0i64;
+        while j < N { m.insert(keys.borrow(j).as_str(), j as u64); j = j + 1i64; }
+        if m.size() != N as u64 || m.get_or(keys.borrow(5i64).as_str(), MISS) != 5u64 { return 17i32; }
+    }
+    s1.commit();
+
+    // fork isolation: a child's writes do not reach the committed parent
+    let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let mut m2 = open_ctr::<typeof(Names)>(&s2, NAMES);
+        m2.insert("zzz-only-in-the-child", 1u64);
+        m2.insert(keys.borrow(3i64).as_str(), 333u64);
+        if m2.size() != (N + 1i64) as u64 { return 20i32; }
+    }
+    {
+        let p = open_ctr::<typeof(Names)>(&s1, NAMES);
+        if p.size() != N as u64 { return 21i32; }
+        if p.get_or("zzz-only-in-the-child", MISS) != MISS { return 22i32; }
+        if p.get_or(keys.borrow(3i64).as_str(), MISS) != 3u64 { return 23i32; }
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_str_key: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

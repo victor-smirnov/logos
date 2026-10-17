@@ -705,15 +705,22 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
             use logos.lang.result;
             impl #nm {
                 pub static fn new() -> #nm { return #nm::new_in(0u64); }
-                pub static fn new_in(snp: u64) -> #nm {
+                pub static fn new_in(snp: u64) -> #nm { return #nm::new_in_size(snp, #(lbs)); }
+                // A node of `bytes` block bytes. A split SIBLING takes the
+                // splitting node's own size (`new_sibling`): a root block grown
+                // for its schema document holds more data than a standard leaf,
+                // and half of it must fit the sibling — or the retried insert
+                // after a volume split does not land.
+                pub static fn new_in_size(snp: u64, bytes: u32) -> #nm {
                     unsafe {
-                        let base: *mut u8 = #nd::alloc(#(lbs), 2u32, snp);
+                        let base: *mut u8 = #nd::alloc(bytes, 2u32, snp);
                         let a: *mut PkdAlloc = #nd::pkd(base);
                         #nm::fmt_slot(a, 0u32, #(kvle), #(kord));
                         #nm::fmt_vc(a);
-                        return #nm { mem: base, cap: #(lbs) };
+                        return #nm { mem: base, cap: (*a).block_size() };
                     }
                 }
+                pub fn node_bytes(self: &#nm) -> u32 { return unsafe { #nd::block_size(self.mem) }; }
                 pub static fn adopt(mem: *mut u8) -> #nm { 
                     return #nm { 
                         mem: mem, 
@@ -733,15 +740,17 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
             let cc: QuoteItemBlob = quote_item! {
                 use logos.lang.slice;
                 use logos.lang.str;
+                use logos.lang.panic;
                 impl #nm {
                     pub fn cow_clone(self: &#nm, snp: u64) -> #nm {
-                        let mut c: #nm = #nm::new_in(snp);
+                        let mut c: #nm = #nm::new_in_size(snp, self.node_bytes());   // the same capacity: a grown block's rows must all fit
                         let n: u32 = self.count();
                         let mut i: u32 = 0u32;
                         while i < n {
                             let v: &[u8] = self.val_at(i);
                             let vs: &str = unsafe { str_from_raw(v.as_ptr(), v.len()) };
-                            let _ = c.try_insert(self.key_at(i), vs);
+                            let landed: bool = c.try_insert(self.key_at(i), vs);
+                            assert(landed, "leaf cow_clone: a row does not fit the private copy");
                             i = i + 1u32;
                         }
                         return c;
@@ -751,13 +760,15 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
             unsafe { logos_emit_item_blob_subst(&cc); }
         } else {
             let cc: QuoteItemBlob = quote_item! {
+                use logos.lang.panic;
                 impl #nm {
                     pub fn cow_clone(self: &#nm, snp: u64) -> #nm {
-                        let mut c: #nm = #nm::new_in(snp);
+                        let mut c: #nm = #nm::new_in_size(snp, self.node_bytes());   // the same capacity: a grown block's rows must all fit
                         let n: u32 = self.count();
                         let mut i: u32 = 0u32;
                         while i < n { 
-                            let _ = c.try_insert(self.key_at(i), self.val_at(i)); 
+                            let landed: bool = c.try_insert(self.key_at(i), self.val_at(i));
+                            assert(landed, "leaf cow_clone: a row does not fit the private copy");
                             i = i + 1u32; 
                         }
                         return c;
@@ -1033,9 +1044,12 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
             use logos.lang.result;
             impl #nm {
                 pub static fn new() -> #nm { return #nm::new_in(0u64); }
-                pub static fn new_in(snp: u64) -> #nm {
+                pub static fn new_in(snp: u64) -> #nm { return #nm::new_in_size(snp, #(bbs)); }
+                // As the leaf's: a split sibling takes the splitting node's size.
+                pub fn node_bytes(self: &#nm) -> u32 { return unsafe { #nd::block_size(self.mem) }; }
+                pub static fn new_in_size(snp: u64, bytes: u32) -> #nm {
                     unsafe {
-                        let base: *mut u8 = #nd::alloc(#(bbs), 3u32, snp);
+                        let base: *mut u8 = #nd::alloc(bytes, 3u32, snp);
                         // A BRANCH: declare where its child refs live, so the
                         // container-agnostic tree walk needs no global slot
                         // convention.
@@ -1044,7 +1058,7 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
                         #nm::fmt_sep(a);
                         #nm::fmt_col(a, 1u32, false);
                         #nm::fmt_col(a, 2u32, false);
-                        return #nm { mem: base, cap: #(bbs) };
+                        return #nm { mem: base, cap: (*a).block_size() };
                     }
                 }
                 pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (*#nd::pkd(mem)).block_size() } }; }
@@ -1059,7 +1073,7 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
                 }
                 pub fn free_block(self: #nm) { unsafe { #nd::free(self.mem); } }
                 pub fn cow_clone(self: &#nm, snp: u64) -> #nm {
-                    let mut c: #nm = #nm::new_in(snp);
+                    let mut c: #nm = #nm::new_in_size(snp, self.node_bytes());   // the same capacity: a grown block's rows must all fit
                     let n: u32 = self.child_count();
                     let mut i: u32 = 0u32;
                     while i < n {
@@ -1138,7 +1152,7 @@ fn emit_bt_leaf_impl(lname: &str, kty: &str, vty: &str, vol: bool) {
         use logos.lang.option;
         impl BtLeaf<#(kid), #(vi), #(vo)> for #nm {
             fn adopt(mem: *mut u8) -> #nm { return #nm::adopt(mem); }
-            fn new_sibling(self: &#nm, snp: u64) -> #nm { return #nm::new_in(snp); }
+            fn new_sibling(self: &#nm, snp: u64) -> #nm { return #nm::new_in_size(snp, self.node_bytes()); }
             fn block(self: &#nm) -> *mut u8 { return self.block(); }
             fn count(self: &#nm) -> u32 { return self.count(); }
             fn key_at(self: &#nm, i: u32) -> #(kid) { return self.key_at(i); }
@@ -1162,7 +1176,7 @@ fn emit_bt_branch_impl(bname: &str, kty: &str) {
         use logos.mem.bt.map;
         impl BtBranch<#(kid), 1> for #nm {
             fn adopt(mem: *mut u8) -> #nm { return #nm::adopt(mem); }
-            fn new_sibling(self: &#nm, snp: u64) -> #nm { return #nm::new_in(snp); }
+            fn new_sibling(self: &#nm, snp: u64) -> #nm { return #nm::new_in_size(snp, self.node_bytes()); }
             fn block(self: &#nm) -> *mut u8 { return self.block(); }
             fn child_count(self: &#nm) -> u32 { return self.child_count(); }
             fn sep_at(self: &#nm, i: u32) -> #(kid) { return self.sep_at(i); }
