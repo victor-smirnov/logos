@@ -1316,6 +1316,11 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
     let bid: Ident = Ident::new(bname);
     let kid: ExprBlob = parse_type(if str_eq(kty, "str") { "&str" } else { kty });   // a `str` key is `&str` (M4b)
     let kstr: bool = str_eq(kty, "str");
+    // A `str` key longer than the branch row reserve is a CONTRACT violation
+    // (the separator could not be stored), refused loudly at the surface.
+    let kguard: ExprBlob = if kstr {
+        quote_block! { assert(key.len() <= STR_KEY_RESERVE, "ordered_map: a `str` key longer than STR_KEY_RESERVE (255) bytes"); }
+    } else { quote_block! { } };
     let vi: ExprBlob = parse_type(if str_eq(vty, "str") { "&str" } else { vty });
     let vo: ExprBlob = if vol { parse_type("&[u8]") } else { parse_type(vty) };
 
@@ -1331,6 +1336,8 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
         use logos.mem.bt.ops;
         use logos.mem.sync;               // Arc — the parent hold
         use logos.lang.option;            // Option — the with_entry quad
+        use logos.mem.bt.btss;            // STR_KEY_RESERVE — a `str` key's bound
+        use logos.lang.panic;
         pub struct #nm {
             // the PARENT HOLD (Ctr ──Arc→ Snapshot): the ONE snapshot field.
             snap: Arc<dyn Snapshot>,
@@ -1364,6 +1371,7 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
             // carried this contract from day one; this brings the canon
             // family plane up to it.
             pub fn insert(self: &mut #nm, key: #(kid), val: #(vi)) {
+                #(kguard);
                 unsafe {
                     // root_of_mut privatizes this snapshot's directory path to
                     // the container FIRST (acquiring ownership of the roots on
