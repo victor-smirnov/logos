@@ -235,9 +235,28 @@ fn host_field_type(view: &OView, struct_name: &str, field: &str) -> &'static str
 /// with its arguments (`Option<i64>`, #744) as the compiler holds it — the
 /// bytes are host-owned for the compilation, so the bindings may keep the view
 /// — any other name through `resolve_alias_name`.
+/// A type node's NAME as the lattice reads it: a borrowed `str` (`&str`,
+/// `&'a str` — REF_TYPE over POINTEE `str`) is the lattice's `str`, the
+/// spelling the emitter writes back as `&str`; any other node, its own NAME
+/// ("" when it has none).
+pub fn type_node_name<'a>(view: &'a OView, t: WAny) -> &'a str {
+    if t.is_null() { return ""; }
+    if (view.ast_node_code(t) & (0xFFFF as u64)) == LA_REF_TYPE() {
+        let mut inner: WAny = view.tiny_map_get(t, 18 as u8);                  // POINTEE
+        if inner.is_null() { inner = view.ast_type_child(t); }
+        if !inner.is_null() && str_eq(sview_str(view.ast_node_name(inner)), "str") { return "str"; }
+        return "";
+    }
+    return sview_str(view.ast_node_name(t));
+}
+
 pub fn field_type_spelling<'a>(view: &'a OView, struct_name: &str, fld: WAny) -> &'a str {
     let nm: &str = sview_str(view.ast_field_type_name(fld));
     let tn: WAny = view.ast_type_child(fld);
+    // A borrowed `str` field went unstamped without this (a REF_TYPE node has
+    // no name) and dropped out of every field enumeration: a row identity lost
+    // the column. See `type_node_name`.
+    if nm.len() == 0i64 && !tn.is_null() { return type_node_name(view, tn); }
     if !tn.is_null() && (view.ast_node_code(tn) & (0xFFFF as u64)) == LA_GENERIC_INST() && !str_eq(nm, "Vec")
        && !is_module_type_alias(view, nm) {
         let fnm: &str = sview_str(view.ast_field_name(fld));
@@ -299,6 +318,7 @@ pub fn field_type_name<'a>(view: &'a OView, decl: WAny, field_name: &str) -> &'a
             // a generic instantiation in its full spelling (#744)
             let tn: WAny = view.ast_type_child(fld);
             let nm: &str = sview_str(view.ast_field_type_name(fld));
+            if nm.len() == 0i64 && !tn.is_null() { return type_node_name(view, tn); }
             if !tn.is_null() && (view.ast_node_code(tn) & (0xFFFF as u64)) == LA_GENERIC_INST() && !str_eq(nm, "Vec")
                && !is_module_type_alias(view, nm) {
                 let full: &str = host_field_type(view, sview_str(view.ast_node_name(decl)), field_name);
@@ -351,7 +371,7 @@ pub fn field_element_type_name<'a>(view: &'a OView, decl: WAny, field_name: &str
             // NAME(1) is the element struct/type name.
             let elem: WAny = view.ast_type_child(tynode);
             if elem.is_null() { return "Delemnull"; }
-            let en: &str = sview_str(view.ast_node_name(elem));
+            let en: &str = type_node_name(view, elem);
             if en.len() == 0i64 { return "Dennull"; }
             return en;
         }
@@ -378,6 +398,7 @@ pub fn has_field(view: &OView, decl: WAny, field_name: &str) -> bool {
 // AST type-node code for a generic instantiation in type position (`Vec<T>` —
 // NAME(1) = the head name, ITEMS(2) = the type-arg array).
 fn LA_GENERIC_INST() -> u64 { return 92 as u64; }
+fn LA_REF_TYPE() -> u64 { return 129 as u64; }
 
 // The declared ELEMENT type NAME of field `field_name` within struct node `decl`,
 // IF that field's type is a TRAVERSABLE collection — the wql! edge-step (slice D)
@@ -429,7 +450,7 @@ pub fn field_traversal_elem<'a>(view: &'a OView, decl: WAny, field_name: &str) -
             if is_collection_type_code(code) {
                 let elem: WAny = view.ast_type_child(tynode);
                 if elem.is_null() { return ""; }
-                return sview_str(view.ast_node_name(elem));
+                return type_node_name(view, elem);
             }
             if (code & (0xFFFF as u64)) == LA_GENERIC_INST() {
                 let head: &str = sview_str(view.ast_node_name(tynode));
@@ -438,7 +459,7 @@ pub fn field_traversal_elem<'a>(view: &'a OView, decl: WAny, field_name: &str) -
                 if args.is_null() { return ""; }
                 if view.array_len(args) != (1 as u64) { return ""; }
                 let a0: WAny = view.array_get(args, 0 as u64);
-                return sview_str(view.ast_node_name(a0));
+                return type_node_name(view, a0);
             }
             return "";
         }
@@ -610,6 +631,7 @@ fn type_leaf_text(view: &OView, ty: WAny) -> &str {
     let n: &str = sview_str(view.ast_node_name(ty));
     if n.len() > 0i64 { return n; }
     let c: u64 = view.ast_node_code(ty) & (0xFFFF as u64);
+    if c == LA_REF_TYPE() && str_eq(type_node_name(view, ty), "str") { return "&str"; }
     if c == LA_TUPLE_TYPE()          { return "(...)"; }
     if c == LA_SLICE_TYPE()          { return "&[...]"; }
     if c == LA_UNSIZED_SLICE_TYPE()  { return "[...]"; }
@@ -736,7 +758,7 @@ pub fn fn_ret_type_name(view: &OView, decl: WAny) -> &str {
     if decl.is_null() { return ""; }
     let rt: WAny = view.tiny_map_get(decl, 6 as u8);       // RET_TYPE = 6
     if rt.is_null() { return ""; }
-    return sview_str(view.ast_node_name(rt));
+    return type_node_name(view, rt);                      // `-> &str` reads as `str`
 }
 
 // A UDF the Soufflé oracle can read: every parameter a Copy value of a
@@ -756,7 +778,8 @@ pub fn udf_oracle_kinds(view: &OView, name: &str, out: &mut String) -> bool {
     while i < n {
         let inner: WAny = view.tiny_map_get(params, 2 as u8);   // ITEMS = 2
         let p: WAny = view.array_get(inner, i as u64);
-        let k: &str = udf_oracle_kind(resolve_alias_name(view, sview_str(view.ast_field_type_name(p))));
+        let pn: &str = sview_str(view.ast_field_type_name(p));
+        let k: &str = udf_oracle_kind(resolve_alias_name(view, if pn.len() > 0i64 { pn } else { type_node_name(view, view.ast_type_child(p)) }));
         if k.len() == 0i64 || str_eq(k, "S") { return false; }
         out.push_str(k);
         i = i + 1i64;

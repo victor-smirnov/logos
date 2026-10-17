@@ -20,8 +20,8 @@ use logos.mem.collections.vec;
 use logos.lang.str;
 
 struct Person {
-    pub name: str,
-    pub dept: str,
+    pub name: &'static str,
+    pub dept: &'static str,
     pub age:  i64,
 }
 
@@ -45,7 +45,7 @@ fn main() -> i32 {
         Person { name: "Cleo",  dept: "eng", age: 29i64 },
         Person { name: "Dane",  dept: "hr",  age: 52i64 },
     ];
-    let names: Vec<str> = eng_names(&people[..]).unwrap();
+    let names: Vec<&str> = eng_names(&people[..]).unwrap();
 
     // Expect ["Ada", "Cleo"] — the two eng dept names, in source order.
     if names.len() != 2i64 { return 1i32; }

@@ -21,7 +21,7 @@ use logos.mem.string;
 use logos.mem.collections.vec;
 use logos.std.wql.wql;
 
-struct Label { pub key: str, pub title: str }
+struct Label { pub key: &'static str, pub title: &'static str }
 
 // (a) exact path
 pub deem pool_min(g: &Writ) {
@@ -116,15 +116,15 @@ fn main() -> i32 {
     if b2.len() != 1i64 || b2.get(0i64) != 8443i64 { return 6i32; }
 
     // (c) db + cache (ports is an arr)
-    let c: Vec<str> = match sections(&doc)
+    let c: Vec<&str> = match sections(&doc)
     { Result::Ok(v) => { v } Result::Err(_e4) => { return 7i32; } };
     if c.len() != 2i64 { return 8i32; }
 
     // (d)
-    let d: Vec<(i64, str)> = match db_engine(&doc)
+    let d: Vec<(i64, &str)> = match db_engine(&doc)
     { Result::Ok(v) => { v } Result::Err(_e5) => { return 9i32; } };
     if d.len() != 1i64 { return 10i32; }
-    let d0: (i64, str) = d.get(0i64);
+    let d0: (i64, &str) = d.get(0i64);
     if !str_eq(d0.1, "pg") { return 11i32; }
     if d0.0 == 0i64 { return 12i32; }         // d.child = the db node handle
 
@@ -134,27 +134,27 @@ fn main() -> i32 {
     if e.len() != 1i64 || e.get(0i64) != 8443i64 { return 14i32; }
 
     // (f) kinds under db: engine=str, pool=map → two groups of 1
-    let f: Vec<(str, i64)> = match kind_hist(&doc)
+    let f: Vec<(&str, i64)> = match kind_hist(&doc)
     { Result::Ok(v) => { v } Result::Err(_e7) => { return 15i32; } };
     if f.len() != 2i64 { return 16i32; }
-    let f0: (str, i64) = f.get(0i64);
-    let f1: (str, i64) = f.get(1i64);
+    let f0: (&str, i64) = f.get(0i64);
+    let f1: (&str, i64) = f.get(1i64);
     if !str_eq(f0.0, "map") || f0.1 != 1i64 { return 17i32; }
     if !str_eq(f1.0, "str") || f1.1 != 1i64 { return 18i32; }
 
     // (g)
     let labels: [Label; 1] = [ Label { key: "max", title: "pool ceiling" } ];
-    let g: Vec<(str, i64)> = match titled(&doc, &labels[..])
+    let g: Vec<(&str, i64)> = match titled(&doc, &labels[..])
     { Result::Ok(v) => { v } Result::Err(_e8) => { return 19i32; } };
     if g.len() != 1i64 { return 20i32; }
-    let g0: (str, i64) = g.get(0i64);
+    let g0: (&str, i64) = g.get(0i64);
     if !str_eq(g0.0, "pool ceiling") || g0.1 != 16i64 { return 21i32; }
 
     // (h) ** — anywhere / trailing bind / kind-filtered harvest
-    let h1: Vec<str> = match all_engines(&doc)
+    let h1: Vec<&str> = match all_engines(&doc)
     { Result::Ok(v) => { v } Result::Err(_e9) => { return 22i32; } };
     if h1.len() != 2i64 { return 23i32; }               // db.engine + cache.engine
-    let h2: Vec<str> = match db_desc_edges(&doc)
+    let h2: Vec<&str> = match db_desc_edges(&doc)
     { Result::Ok(v) => { v } Result::Err(_ea) => { return 24i32; } };
     if h2.len() != 4i64 { return 25i32; }               // engine, pool, min, max
     let h3: Vec<i64> = match db_i64_leaves(&doc)

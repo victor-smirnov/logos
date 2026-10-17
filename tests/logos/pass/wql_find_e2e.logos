@@ -9,7 +9,7 @@ use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.str;
 
-struct Person { pub name: str, pub age: i64 }
+struct Person { pub name: &'static str, pub age: i64 }
 
 // hit: borrow of the first row with age 41 (Bob — Dan shares the age but comes
 // LATER in scan order).

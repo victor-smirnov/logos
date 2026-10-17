@@ -21,7 +21,7 @@ container GenKV {
     entry { key: u64, val: str }
 }
 
-fn beq(b: &[u8], want: str) -> bool {
+fn beq(b: &[u8], want: &str) -> bool {
     if b.len() != want.len() { return false; }
     let mut i: i64 = 0i64;
     while i < b.len() { if b[i] != str_byte_at(want, i) { return false; } i = i + 1i64; }

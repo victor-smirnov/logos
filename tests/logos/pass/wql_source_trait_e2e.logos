@@ -44,8 +44,8 @@ impl EdgeSource for MyGraph {
 // ── (e) a multi-rel vocabulary on a second user type ────────────────────────
 struct Timetable { pub id: i64 }
 
-fn tt_stops(t: &Timetable) -> Vec<(i64, str)> {
-    let mut v: Vec<(i64, str)> = vec_new::<(i64, str)>();
+fn tt_stops(t: &Timetable) -> Vec<(i64, &str)> {
+    let mut v: Vec<(i64, &str)> = vec_new::<(i64, &str)>();
     v.push((10i64, "north"));
     v.push((20i64, "south"));
     return v;
@@ -75,7 +75,7 @@ pub deem reach(g: &MyGraph) {
 }
 
 // (d): user source ⋈ slice param.
-struct Label { pub id: i64, pub name: str }
+struct Label { pub id: i64, pub name: &'static str }
 pub deem labeled(g: &MyGraph, ls: &[Label]) {
     from g e join ls l on l.id == e.b select (e.a, l.name)
 }
@@ -103,13 +103,13 @@ fn main() -> i32 {
     // (d)
     let ls: [Label; 2] = [ Label { id: 4i64, name: "gate" },
                            Label { id: 5i64, name: "exit" } ];
-    let lb: Vec<(i64, str)> = match labeled(&g, &ls[..])
+    let lb: Vec<(i64, &str)> = match labeled(&g, &ls[..])
     { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
     if lb.len() != 3i64 { return 5i32; }   // 2→4, 3→4, 4→5
 
     // (e)
     let tt: Timetable = Timetable { id: 1i64 };
-    let sn: Vec<str> = match south_of_north(&tt)
+    let sn: Vec<&str> = match south_of_north(&tt)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
     if sn.len() != 1i64 { return 7i32; }
     if !str_eq(sn.get(0i64), "south") { return 8i32; }

@@ -80,7 +80,7 @@ use logos.lang.option;
 use logos.lang.num.float; // f64_data_key — the ORACLE's comparator, deliberately not the emitter's `>`
 use logos.lang.str;      // str_contains — the refusal's ground is asserted, not just its verdict
 
-struct A { pub k: i64, pub v: i64, pub f: f64, pub s: str, pub g: i64 }
+struct A { pub k: i64, pub v: i64, pub f: f64, pub s: &'static str, pub g: i64 }
 struct B { pub k: i64, pub m: i64 }
 struct C { pub m: i64, pub w: i64 }
 

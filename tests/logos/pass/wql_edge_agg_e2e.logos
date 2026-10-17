@@ -8,7 +8,7 @@ package test;
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
 
-struct Emp  { pub name: str, pub skills: Vec<str> }
+struct Emp  { pub name: &'static str, pub skills: Vec<&'static str> }
 struct Dept { pub did: i64, pub emps: Vec<Emp> }
 
 pub deem skills_per_dept(depts: &[Dept]) {
@@ -19,8 +19,8 @@ pub deem skills_per_dept(depts: &[Dept]) {
     aggregate n = count()
     select key * 10i64 + n }
 
-fn mk_emp(name: str, s1: str, s2: str) -> Emp {
-    let mut sk: Vec<str> = Vec::<str>::new();
+fn mk_emp(name: &'static str, s1: &'static str, s2: &'static str) -> Emp {
+    let mut sk: Vec<&str> = Vec::<&str>::new();
     if s1.len() > 0i64 { sk.push(s1); }
     if s2.len() > 0i64 { sk.push(s2); }
     return Emp { name: name, skills: sk };

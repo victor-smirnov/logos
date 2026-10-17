@@ -137,7 +137,7 @@ fn classify_field_type(view: &OView, fld: WAny) -> FieldTy {
         }
         return FieldTy { ty: "any", target: "", src: "" };
     }
-    let name: &str = sv_str(view.ast_node_name(tynode));
+    let name: &str = type_node_name(view, tynode);   // `&str` reads as `str`
     // ONE classification table (logos.std.wql.el), one representative per
     // class. The catalog's own copy of it had drifted — it knew `i56`/`u56`
     // and the canonical one did not.

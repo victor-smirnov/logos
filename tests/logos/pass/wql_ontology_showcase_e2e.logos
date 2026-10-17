@@ -27,11 +27,11 @@ use logos.mem.string;
 use logos.mem.collections.vec;
 use logos.lang.str;
 
-struct Sub  { pub sub: str, pub sup: str }
-struct Isa  { pub ind: str, pub cls: str }
-struct Mon  { pub sensor: str, pub target: str }
-struct Part { pub part: str, pub whole: str }
-struct Loc  { pub ind: str, pub room: str }
+struct Sub  { pub sub: &'static str, pub sup: &'static str }
+struct Isa  { pub ind: &'static str, pub cls: &'static str }
+struct Mon  { pub sensor: &'static str, pub target: &'static str }
+struct Part { pub part: &'static str, pub whole: &'static str }
+struct Loc  { pub ind: &'static str, pub room: &'static str }
 
 pub deem audit(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part], locs: &[Loc]) {
     rel sub_tr(a: str, b: str) {
@@ -151,25 +151,25 @@ fn main() -> i32 {
         Loc { ind: "vs1", room: "room101" },
     ];
     println!("== unmonitored rotating equipment ==");
-    let bad: Vec<(str, str)> = audit(&subs[..], &inst[..], &mons[..], &parts[..], &locs[..]).unwrap();
+    let bad: Vec<(&str, &str)> = audit(&subs[..], &inst[..], &mons[..], &parts[..], &locs[..]).unwrap();
     let mut i: i64 = 0i64;
     while i < bad.len() {
-        let row: (str, str) = bad.get(i);
+        let row: (&str, &str) = bad.get(i);
         println!("{} @ {}", row.0, row.1);
         i = i + 1i64;
     }
 
     println!("== asset census per building ==");
-    let cs: Vec<(str, i64)> = census(&subs[..], &inst[..], &mons[..], &parts[..], &locs[..]).unwrap();
+    let cs: Vec<(&str, i64)> = census(&subs[..], &inst[..], &mons[..], &parts[..], &locs[..]).unwrap();
     let mut j: i64 = 0i64;
     while j < cs.len() {
-        let g: (str, i64) = cs.get(j);
+        let g: (&str, i64) = cs.get(j);
         println!("{}: {}", g.0, g.1);
         j = j + 1i64;
     }
 
     println!("== inferred classes of 'sx' ==");
-    let sx: Vec<str> = classify(&subs[..], &inst[..], &mons[..], "sx").unwrap();
+    let sx: Vec<&str> = classify(&subs[..], &inst[..], &mons[..], "sx").unwrap();
     let mut k: i64 = 0i64;
     while k < sx.len() {
         println!("{}", sx.get(k));

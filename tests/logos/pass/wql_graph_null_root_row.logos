@@ -179,7 +179,7 @@ fn rows_equal(a: &Vec<WritEdgeRow>, b: &Vec<WritEdgeRow>) -> i64 {
     return 0i64;
 }
 
-fn n_key(rs: &Vec<WritEdgeRow>, k: str) -> i64 {
+fn n_key(rs: &Vec<WritEdgeRow>, k: &str) -> i64 {
     let mut n: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < rs.len() {
@@ -191,7 +191,7 @@ fn n_key(rs: &Vec<WritEdgeRow>, k: str) -> i64 {
 }
 
 // The child id of the `nth` (0-based) row carrying key `k`; −1 if absent.
-fn nth_child_by_key(rs: &Vec<WritEdgeRow>, k: str, nth: i64) -> i64 {
+fn nth_child_by_key(rs: &Vec<WritEdgeRow>, k: &str, nth: i64) -> i64 {
     let mut c: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < rs.len() {
@@ -205,7 +205,7 @@ fn nth_child_by_key(rs: &Vec<WritEdgeRow>, k: str, nth: i64) -> i64 {
     return 0i64 - 1i64;
 }
 
-fn n_kind(rs: &Vec<WritEdgeRow>, k: str) -> i64 {
+fn n_kind(rs: &Vec<WritEdgeRow>, k: &str) -> i64 {
     let mut n: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < rs.len() {
@@ -216,7 +216,7 @@ fn n_kind(rs: &Vec<WritEdgeRow>, k: str) -> i64 {
     return n;
 }
 
-fn first_child_by_kind(rs: &Vec<WritEdgeRow>, k: str) -> i64 {
+fn first_child_by_kind(rs: &Vec<WritEdgeRow>, k: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < rs.len() {
         let r: WritEdgeRow = rs.get(i);
@@ -296,7 +296,7 @@ fn main() -> i32 {
     if s0.len() != 1i64 { return 10i32; }
     if s0.get(0i64) != 0i64 { return 20i32; }
 
-    let s1: Vec<str> = match g_key(&d) { Result::Ok(v) => { v } Result::Err(_b) => { return 11i32; } };
+    let s1: Vec<&str> = match g_key(&d) { Result::Ok(v) => { v } Result::Err(_b) => { return 11i32; } };
     if s1.len() != 1i64 { return 11i32; }
     if !str_eq(s1.get(0i64), "") { return 21i32; }
 
@@ -308,7 +308,7 @@ fn main() -> i32 {
     if s3.len() != 1i64 { return 13i32; }
     if s3.get(0i64) != root_id { return 23i32; }
 
-    let s4: Vec<str> = match g_kind(&d) { Result::Ok(v) => { v } Result::Err(_e) => { return 14i32; } };
+    let s4: Vec<&str> = match g_kind(&d) { Result::Ok(v) => { v } Result::Err(_e) => { return 14i32; } };
     if s4.len() != 1i64 { return 14i32; }
     if !str_eq(s4.get(0i64), "null") { return 24i32; }
 
@@ -320,7 +320,7 @@ fn main() -> i32 {
     if s6.len() != 1i64 { return 16i32; }
     if s6.get(0i64) != 0i64 { return 26i32; }
 
-    let s7: Vec<str> = match g_vs(&d) { Result::Ok(v) => { v } Result::Err(_h) => { return 17i32; } };
+    let s7: Vec<&str> = match g_vs(&d) { Result::Ok(v) => { v } Result::Err(_h) => { return 17i32; } };
     if s7.len() != 1i64 { return 17i32; }
     if !str_eq(s7.get(0i64), "") { return 27i32; }
 
@@ -353,7 +353,7 @@ fn main() -> i32 {
     if t0.len() != 1i64 { return 50i32; }
     if t0.get(0i64) != 0i64 { return 60i32; }
 
-    let t1: Vec<str> = match g_key(&d2) { Result::Ok(v) => { v } Result::Err(_j) => { return 51i32; } };
+    let t1: Vec<&str> = match g_key(&d2) { Result::Ok(v) => { v } Result::Err(_j) => { return 51i32; } };
     if t1.len() != 1i64 { return 51i32; }
     if !str_eq(t1.get(0i64), "") { return 61i32; }
 
@@ -365,7 +365,7 @@ fn main() -> i32 {
     if t3.len() != 1i64 { return 53i32; }
     if t3.get(0i64) != root_id { return 63i32; }
 
-    let t4: Vec<str> = match g_kind(&d2) { Result::Ok(v) => { v } Result::Err(_m) => { return 54i32; } };
+    let t4: Vec<&str> = match g_kind(&d2) { Result::Ok(v) => { v } Result::Err(_m) => { return 54i32; } };
     if t4.len() != 1i64 { return 54i32; }
     if !str_eq(t4.get(0i64), "i64") { return 64i32; }
 
@@ -377,7 +377,7 @@ fn main() -> i32 {
     if t6.len() != 1i64 { return 56i32; }
     if t6.get(0i64) != 7i64 { return 66i32; }
 
-    let t7: Vec<str> = match g_vs(&d2) { Result::Ok(v) => { v } Result::Err(_p) => { return 57i32; } };
+    let t7: Vec<&str> = match g_vs(&d2) { Result::Ok(v) => { v } Result::Err(_p) => { return 57i32; } };
     if t7.len() != 1i64 { return 57i32; }
     if !str_eq(t7.get(0i64), "") { return 67i32; }
 

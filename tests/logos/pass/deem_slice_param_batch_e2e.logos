@@ -69,7 +69,7 @@ use logos.mem.collections.vec;
 
 struct Item {
     pub id:   i64,
-    pub tag:  str,
+    pub tag:  &'static str,
     pub qty:  i64,
 }
 
@@ -90,7 +90,7 @@ pub deem tags_by_tag(xs: &[Item], lo: i64) {
 // its base would surface as the wrong ids rather than as a wrong order.
 pub deem ids_by_tag(xs: &[Item]) { from xs x select x.id order by x.tag : i64 }
 
-fn mk(id: i64, tag: str, qty: i64) -> Item {
+fn mk(id: i64, tag: &'static str, qty: i64) -> Item {
     return Item { id: id, tag: tag, qty: qty };
 }
 
@@ -123,7 +123,7 @@ fn main() -> i32 {
     // Sorted: charlie, delta, echo. The FILTERED-OUT rows sit between the kept
     // ones (ids 2 and 4), so an ordinal that skipped them would project rows
     // that were filtered out.
-    let tags: Vec<str> = tags_by_tag(&xs[..], 20i64).unwrap();
+    let tags: Vec<&str> = tags_by_tag(&xs[..], 20i64).unwrap();
     if tags.len() != 3i64 { return 10i32; }
     if !str_eq(tags.get(0i64), "charlie") { return 11i32; }
     if !str_eq(tags.get(1i64), "delta")   { return 12i32; }
@@ -147,7 +147,7 @@ fn main() -> i32 {
     if e_ids.len() != 0i64 { return 30i32; }
     let e_big: Vec<i64> = big_ids(&e[..], 0i64).unwrap();
     if e_big.len() != 0i64 { return 31i32; }
-    let e_tags: Vec<str> = tags_by_tag(&e[..], 0i64).unwrap();
+    let e_tags: Vec<&str> = tags_by_tag(&e[..], 0i64).unwrap();
     if e_tags.len() != 0i64 { return 32i32; }
     let e_byt: Vec<i64> = ids_by_tag(&e[..]).unwrap();
     if e_byt.len() != 0i64 { return 33i32; }
@@ -169,7 +169,7 @@ fn main() -> i32 {
     if again.len()     != 5i64 { return 50i32; }
     if again.get(0i64) != 1i64 { return 51i32; }
     if again.get(4i64) != 5i64 { return 52i32; }
-    let again2: Vec<str> = tags_by_tag(&xs[..], 20i64).unwrap();
+    let again2: Vec<&str> = tags_by_tag(&xs[..], 20i64).unwrap();
     if again2.len() != 3i64 { return 53i32; }
     if !str_eq(again2.get(0i64), "charlie") { return 54i32; }
 
@@ -201,7 +201,7 @@ fn main() -> i32 {
     let v_none: Vec<i64> = big_ids(vs.as_slice(), 1000i64).unwrap();
     if v_none.len() != 0i64 { return 65i32; }
 
-    let v_tags: Vec<str> = tags_by_tag(vs.as_slice(), 20i64).unwrap();
+    let v_tags: Vec<&str> = tags_by_tag(vs.as_slice(), 20i64).unwrap();
     if v_tags.len() != 3i64 { return 66i32; }
     if !str_eq(v_tags.get(0i64), "charlie") { return 67i32; }
     if !str_eq(v_tags.get(1i64), "delta")   { return 68i32; }
@@ -220,7 +220,7 @@ fn main() -> i32 {
     let ve: Vec<Item> = Vec::<Item>::new();
     let ve_ids: Vec<i64> = all_ids(ve.as_slice()).unwrap();
     if ve_ids.len() != 0i64 { return 76i32; }
-    let ve_tags: Vec<str> = tags_by_tag(ve.as_slice(), 0i64).unwrap();
+    let ve_tags: Vec<&str> = tags_by_tag(ve.as_slice(), 0i64).unwrap();
     if ve_tags.len() != 0i64 { return 77i32; }
 
     // A SINGLE-row `Vec`, and the same `Vec` scanned twice.

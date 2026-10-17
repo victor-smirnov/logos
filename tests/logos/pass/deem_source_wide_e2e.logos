@@ -12,24 +12,24 @@ use logos.std.fmt;
 
 pub trait LedgerSource { rel entry(id: i64, who: str, amt: i64, ok: bool); }
 
-struct Ledger { pub rows: Vec<(i64, str, i64, bool)> }   // sorted by id, ids unique
+struct Ledger { pub rows: Vec<(i64, &'static str, i64, bool)> }   // sorted by id, ids unique
 
-pub fn ledger_rows(l: &Ledger) -> Vec<(i64, str, i64, bool)> {
-    let mut out: Vec<(i64, str, i64, bool)> = vec_new::<(i64, str, i64, bool)>();
+pub fn ledger_rows(l: &Ledger) -> Vec<(i64, &str, i64, bool)> {
+    let mut out: Vec<(i64, &str, i64, bool)> = vec_new::<(i64, &str, i64, bool)>();
     let mut i: i64 = 0i64;
     while i < l.rows.len() { out.push(l.rows.get(i)); i = i + 1i64; }
     return out;
 }
 /// The row with id `k`: exact.
-pub fn ledger_at(l: &Ledger, k: i64) -> Vec<(i64, str, i64, bool)> {
-    let mut out: Vec<(i64, str, i64, bool)> = vec_new::<(i64, str, i64, bool)>();
+pub fn ledger_at(l: &Ledger, k: i64) -> Vec<(i64, &str, i64, bool)> {
+    let mut out: Vec<(i64, &str, i64, bool)> = vec_new::<(i64, &str, i64, bool)>();
     let mut i: i64 = 0i64;
     while i < l.rows.len() { if l.rows.get(i).0 == k { out.push(l.rows.get(i)); } i = i + 1i64; }
     return out;
 }
 /// The rows with id >= `lo`: exact (the rows are sorted by id).
-pub fn ledger_from(l: &Ledger, lo: i64) -> Vec<(i64, str, i64, bool)> {
-    let mut out: Vec<(i64, str, i64, bool)> = vec_new::<(i64, str, i64, bool)>();
+pub fn ledger_from(l: &Ledger, lo: i64) -> Vec<(i64, &str, i64, bool)> {
+    let mut out: Vec<(i64, &str, i64, bool)> = vec_new::<(i64, &str, i64, bool)>();
     let mut i: i64 = 0i64;
     while i < l.rows.len() { if l.rows.get(i).0 >= lo { out.push(l.rows.get(i)); } i = i + 1i64; }
     return out;
@@ -43,7 +43,7 @@ impl LedgerSource for Ledger {
     size entry = ledger_len;
 }
 
-struct User { pub name: str, pub city: str }
+struct User { pub name: &'static str, pub city: &'static str }
 
 pub deem at3(l: &Ledger) { from l e where e.id == 3 select (e.who, e.amt) }
 pub deem from2(l: &Ledger) { from l e where e.id >= 2 && e.ok select (e.id, e.who) order by e.id }
@@ -57,24 +57,24 @@ pub deem big(l: &Ledger) {
 }
 
 fn main() -> i32 {
-    let mut rows: Vec<(i64, str, i64, bool)> = vec_new::<(i64, str, i64, bool)>();
+    let mut rows: Vec<(i64, &str, i64, bool)> = vec_new::<(i64, &str, i64, bool)>();
     rows.push((1i64, "ann", 5i64, true)); rows.push((2i64, "bob", 7i64, false));
     rows.push((3i64, "ann", 4i64, true)); rows.push((4i64, "cy", 9i64, true));
     let l: Ledger = Ledger { rows: rows };
     let users: [User; 2] = [ User { name: "ann", city: "x" }, User { name: "cy", city: "y" } ];
-    let a: Vec<(str, i64)> = at3(&l).unwrap();
+    let a: Vec<(&str, i64)> = at3(&l).unwrap();
     let mut i: i64 = 0i64;
     while i < a.len() { println!("at3 {} {}", a.get(i).0, a.get(i).1); i = i + 1i64; }
-    let f: Vec<(i64, str)> = from2(&l).unwrap();
+    let f: Vec<(i64, &str)> = from2(&l).unwrap();
     i = 0i64;
     while i < f.len() { println!("from2 {} {}", f.get(i).0, f.get(i).1); i = i + 1i64; }
-    let p: Vec<(str, i64)> = per_who(&l).unwrap();
+    let p: Vec<(&str, i64)> = per_who(&l).unwrap();
     i = 0i64;
     while i < p.len() { println!("per_who {} {}", p.get(i).0, p.get(i).1); i = i + 1i64; }
-    let c: Vec<(i64, str)> = cities(&l, &users[..]).unwrap();
+    let c: Vec<(i64, &str)> = cities(&l, &users[..]).unwrap();
     i = 0i64;
     while i < c.len() { println!("cities {} {}", c.get(i).0, c.get(i).1); i = i + 1i64; }
-    let b: Vec<str> = big(&l).unwrap();
+    let b: Vec<&str> = big(&l).unwrap();
     i = 0i64;
     while i < b.len() { println!("big {}", b.get(i)); i = i + 1i64; }
     return 0i32;

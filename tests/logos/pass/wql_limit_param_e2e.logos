@@ -8,7 +8,7 @@ package test;
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
 
-struct Person { pub name: str, pub age: i64 }
+struct Person { pub name: &'static str, pub age: i64 }
 
 // pub fn first_ages(people: &[Person], n: i64) -> Vec<i64> — ages of adults in
 // source order, capped at the runtime `n`.

@@ -38,7 +38,7 @@ pub deem pg_owner_kind(w: Net) {
 }
 
 // (c) mapping rel ⋈ the consumer's own slice param.
-struct Svc { pub id: i64, pub label: str }
+struct Svc { pub id: i64, pub label: &'static str }
 pub deem port_labels(w: Net, svcs: &[Svc]) {
     from port p join svcs s on s.id == p.p
     select (p.p, s.label)
@@ -73,18 +73,18 @@ fn main() -> i32 {
     if doc.root().is_null() { return 90i32; }
 
     // (a) rename w→g works: both engines found through the fused rules.
-    let e: Vec<(i64, str)> = match all_engines(&doc)
+    let e: Vec<(i64, &str)> = match all_engines(&doc)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
     if e.len() != 2i64 { return 2i32; }
 
     // (e) parity with the hand-written program.
-    let hd: Vec<(i64, str)> = match all_engines_hand(&doc)
+    let hd: Vec<(i64, &str)> = match all_engines_hand(&doc)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
     if hd.len() != e.len() { return 4i32; }
     let mut i: i64 = 0i64;
     while i < e.len() {
-        let a: (i64, str) = e.get(i);
-        let b: (i64, str) = hd.get(i);
+        let a: (i64, &str) = e.get(i);
+        let b: (i64, &str) = hd.get(i);
         if a.0 != b.0 { return 5i32; }
         if !str_eq(a.1, b.1) { return 6i32; }
         i = i + 1i64;
@@ -92,7 +92,7 @@ fn main() -> i32 {
 
     // (b) mapping rel joined with the graph param itself: the owner handle of
     // the "pg" engine is the db map — kind "map".
-    let ks: Vec<str> = match pg_owner_kind(&doc)
+    let ks: Vec<&str> = match pg_owner_kind(&doc)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; } };
     if ks.len() != 1i64 { return 8i32; }
     if !str_eq(ks.get(0i64), "map") { return 9i32; }
@@ -100,7 +100,7 @@ fn main() -> i32 {
     // (c) mapping rel ⋈ consumer slice.
     let svcs: [Svc; 2] = [ Svc { id: 80i64, label: "http" },
                            Svc { id: 8443i64, label: "https" } ];
-    let pl: Vec<(i64, str)> = match port_labels(&doc, &svcs[..])
+    let pl: Vec<(i64, &str)> = match port_labels(&doc, &svcs[..])
     { Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
     if pl.len() != 2i64 { return 11i32; }
 

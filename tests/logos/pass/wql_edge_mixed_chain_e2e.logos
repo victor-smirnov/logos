@@ -12,9 +12,9 @@ use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.str;
 
-struct Emp  { pub name: str, pub dept: i64, pub skills: Vec<str> }
-struct Dept { pub id: i64, pub dname: str }
-struct Org  { pub oname: str, pub emps: Vec<Emp> }
+struct Emp  { pub name: &'static str, pub dept: i64, pub skills: Vec<&'static str> }
+struct Dept { pub id: i64, pub dname: &'static str }
+struct Org  { pub oname: &'static str, pub emps: Vec<Emp> }
 
 // Keyed hash join first, traversal second.
 pub deem emp_geo(emps: &[Emp], depts: &[Dept]) {
@@ -30,8 +30,8 @@ pub deem org_depts(orgs: &[Org], depts: &[Dept]) {
     join depts d on e.dept == d.id
     select (o.oname, e.name, d.dname) }
 
-fn mk_emp(name: str, dept: i64, s1: str) -> Emp {
-    let mut sk: Vec<str> = Vec::<str>::new();
+fn mk_emp(name: &'static str, dept: i64, s1: &'static str) -> Emp {
+    let mut sk: Vec<&str> = Vec::<&str>::new();
     if s1.len() > 0i64 { sk.push(s1); }
     return Emp { name: name, dept: dept, skills: sk };
 }
@@ -46,12 +46,12 @@ fn main() -> i32 {
         Dept { id: 2i64, dname: "data" },
     ];
 
-    let g: Vec<(str, str)> = emp_geo(emps.as_slice(), &depts[..]).unwrap();
+    let g: Vec<(&str, &str)> = emp_geo(emps.as_slice(), &depts[..]).unwrap();
     if g.len() != 2i64 { return 1i32; }
-    let g0: (str, str) = g.get(0i64);
+    let g0: (&str, &str) = g.get(0i64);
     if !str_eq(g0.0, "core") { return 2i32; }
     if !str_eq(g0.1, "rust") { return 3i32; }
-    let g1: (str, str) = g.get(1i64);
+    let g1: (&str, &str) = g.get(1i64);
     if !str_eq(g1.0, "data") { return 4i32; }
     if !str_eq(g1.1, "sql")  { return 5i32; }
 
@@ -61,9 +61,9 @@ fn main() -> i32 {
     let mut orgs: Vec<Org> = Vec::<Org>::new();
     orgs.push(Org { oname: "acme", emps: o_emps });
 
-    let od: Vec<(str, str, str)> = org_depts(orgs.as_slice(), &depts[..]).unwrap();
+    let od: Vec<(&str, &str, &str)> = org_depts(orgs.as_slice(), &depts[..]).unwrap();
     if od.len() != 1i64 { return 6i32; }
-    let od0: (str, str, str) = od.get(0i64);
+    let od0: (&str, &str, &str) = od.get(0i64);
     if !str_eq(od0.0, "acme") { return 7i32; }
     if !str_eq(od0.1, "eve")  { return 8i32; }
     if !str_eq(od0.2, "data") { return 9i32; }

@@ -15,7 +15,7 @@ use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;
 
-struct W { pub s: str, pub i: i64, pub n: i64, pub id: i64 }
+struct W { pub s: &'static str, pub i: i64, pub n: i64, pub id: i64 }
 struct N { pub a: i64, pub b: i32 }
 
 // (a)

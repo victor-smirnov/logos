@@ -63,6 +63,23 @@ fn gs_is(s: SView, w: &str) -> bool {
     return str_eq(gs_sv(s), w);
 }
 
+// A borrowed `str` type node (`&str`, `&'a str`): REF_TYPE (129) over a POINTEE
+// (key 18) named `str`. Such a node has no NAME of its own.
+fn gs_ref_str(view: &OView, t: WAny) -> bool {
+    if t.is_null() || (view.ast_node_code(t) & (0xFFFF as u64)) != (129 as u64) { return false; }
+    let p: WAny = view.tiny_map_get(t, 18 as u8);
+    return !p.is_null() && gs_is(view.ast_node_name(p), "str");
+}
+
+// The first type argument NODE of a field's generic type (`Vec<T>` → T).
+fn gs_arg0(view: &OView, fld: WAny) -> WAny {
+    let ty: WAny = view.ast_type_child(fld);
+    if ty.is_null() { return ty; }
+    let items: WAny = view.tiny_map_get(ty, 2 as u8);
+    if items.is_null() || view.array_len(items) == (0 as u64) { return items; }
+    return view.array_get(items, 0 as u64);
+}
+
 #[metaprog_handler("derive_graph_source")]
 fn derive_graph_source_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
@@ -113,12 +130,30 @@ fn derive_graph_source_hook(target_offset: u32) -> () {
             flds.push(quote_block! {
                 out.push((id, ##f, -1i64, (&v.#f as *const str) as i64, "str", 0i64, 0i64, v.#f));
             });
+        } else if gs_ref_str(&view, view.ast_type_child(fld)) {
+            flds.push(quote_block! {
+                out.push((id, ##f, -1i64, (&v.#f as *const &str) as i64, "str", 0i64, 0i64, v.#f));
+            });
         } else if gs_is(tname, "f64") {
             // vi = IEEE-754 bits (kind "f64"), same contract as the Writ
             // walker: exact, Hash/Eq-sound; consume via f64_from_bits.
             flds.push(quote_block! {
                 out.push((id, ##f, -1i64, (&v.#f as *const f64) as i64, "f64", 0i64,
                           f64_to_bits(v.#f) as i64, ""));
+            });
+        } else if gs_is(tname, "Vec") && gs_ref_str(&view, gs_arg0(&view, fld)) {
+            flds.push(quote_block! {
+                {
+                    let __vid: i64 = (&v.#f as *const Vec<&str>) as i64;
+                    out.push((id, ##f, -1i64, __vid, "arr", 0i64, 0i64, ""));
+                    let __s = v.#f.as_slice();
+                    let mut __k: i64 = 0i64;
+                    while __k < __s.len() {
+                        out.push((__vid, "", __k, (&__s[__k] as *const &str) as i64, "str", 0i64,
+                                  0i64, __s[__k]));
+                        __k = __k + 1i64;
+                    }
+                }
             });
         } else if gs_is(tname, "Vec") {
             let at: SView = view.ast_field_type_arg0_name(fld);

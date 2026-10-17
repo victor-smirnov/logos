@@ -16,8 +16,8 @@ use logos.mem.string;
 use logos.lang.str;
 
 struct Ctx {
-    pub title: str,
-    pub city:  str,
+    pub title: &'static str,
+    pub city:  &'static str,
 }
 
 //   pub fn render(c: &Ctx) -> String {
@@ -35,9 +35,9 @@ fn main() -> i32 {
     let s: String = render(&ctx).unwrap();
 
     // Expect "TEAM-nyc" — title upper-cased, city lower-cased.
-    let want: str = "TEAM-nyc";
+    let want: &str = "TEAM-nyc";
     if s.len() != want.len() { return 1i32; }
-    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let sv: &str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
     if !str_eq(sv, want) { return 2i32; }
     return 0i32;
 }

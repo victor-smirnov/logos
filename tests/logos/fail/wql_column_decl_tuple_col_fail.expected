@@ -1,1 +1,1 @@
-declares column `x: (i64, str)` — a TUPLE has no scalar reading at all
+declares column `x: (i64, &str)` — a TUPLE has no scalar reading at all

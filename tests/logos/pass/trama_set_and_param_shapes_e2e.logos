@@ -36,7 +36,7 @@ use logos.lang.result;
 
 struct Ctx {
     n: i64,
-    name: str,
+    name: &'static str,
     ratio: f64,
 }
 
@@ -44,9 +44,9 @@ resource card = trama!(c: &Ctx,
                        k: i64,
 ){ `{% set total = c.n + k %}{% set doubled = total + total %}{% set tag = c.name %}{% set big = c.n > 2 %}{% set half = c.ratio %}[{{ total }}|{{ doubled }}|{{ tag }}|{{ big }}|{{ half }}]` };
 
-fn streq(s: &String, want: str) -> bool {
+fn streq(s: &String, want: &str) -> bool {
     if s.len() != want.len() { return false; }
-    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let sv: &str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
     let mut i: i64 = 0i64;
     while i < want.len() {
         if str_byte_at(sv, i) != str_byte_at(want, i) { return false; }

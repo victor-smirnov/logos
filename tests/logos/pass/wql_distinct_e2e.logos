@@ -11,7 +11,7 @@ use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.str;
 
-struct Sale { pub dept: str, pub region: i64, pub amount: i64 }
+struct Sale { pub dept: &'static str, pub region: i64, pub amount: i64 }
 
 // distinct int projection: unique region codes, first-seen order.
 pub deem regions(sales: &[Sale]) { from sales s select distinct s.region }
@@ -41,7 +41,7 @@ fn main() -> i32 {
 
     // amount >= 10 keeps eng(12), eng(30), ops(11), sales(40) → distinct depts
     // in first-seen order: eng, ops, sales.
-    let d: Vec<str> = big_depts(&sales[..]).unwrap();
+    let d: Vec<&str> = big_depts(&sales[..]).unwrap();
     if d.len() != 3i64 { return 5i32; }
     if !str_eq(d.get(0i64), "eng")   { return 6i32; }
     if !str_eq(d.get(1i64), "ops")   { return 7i32; }

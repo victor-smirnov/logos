@@ -9,8 +9,8 @@ use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.str;
 
-struct Emp  { pub name: str, pub skills: Vec<str> }
-struct Dept { pub dname: str, pub emps: Vec<Emp> }
+struct Emp  { pub name: &'static str, pub skills: Vec<&'static str> }
+struct Dept { pub dname: &'static str, pub emps: Vec<Emp> }
 
 // Residual on BOTH traversal levels + where over the outer var.
 pub deem eng_skills(depts: &[Dept], banned: &str) {
@@ -20,8 +20,8 @@ pub deem eng_skills(depts: &[Dept], banned: &str) {
     where d.dname == "eng"
     select s }
 
-fn mk_emp(name: str, s1: str, s2: str) -> Emp {
-    let mut sk: Vec<str> = Vec::<str>::new();
+fn mk_emp(name: &'static str, s1: &'static str, s2: &'static str) -> Emp {
+    let mut sk: Vec<&str> = Vec::<&str>::new();
     if s1.len() > 0i64 { sk.push(s1); }
     if s2.len() > 0i64 { sk.push(s2); }
     return Emp { name: name, skills: sk };
@@ -37,7 +37,7 @@ fn main() -> i32 {
     depts.push(Dept { dname: "eng", emps: eng_emps });
     depts.push(Dept { dname: "ops", emps: ops_emps });
 
-    let rows: Vec<str> = eng_skills(depts.as_slice(), "none").unwrap();
+    let rows: Vec<&str> = eng_skills(depts.as_slice(), "none").unwrap();
     if rows.len() != 1i64 { return 1i32; }
     if !str_eq(rows.get(0i64), "rust") { return 2i32; }
     return 0i32;

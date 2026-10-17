@@ -39,7 +39,7 @@ container Journal {
 const LEDGER:  u64 = 1u64;
 const JOURNAL: u64 = 2u64;
 
-fn beq(b: &[u8], want: str) -> bool {
+fn beq(b: &[u8], want: &str) -> bool {
     if b.len() != want.len() { return false; }
     let mut i: i64 = 0i64;
     while i < b.len() { if b[i] != str_byte_at(want, i) { return false; } i = i + 1i64; }
