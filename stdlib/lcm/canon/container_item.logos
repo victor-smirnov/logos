@@ -1323,6 +1323,23 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
                     return bt_size::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level);
                 }
             }
+            pub fn is_empty(self: &#nm) -> bool { return self.size() == 0u64; }
+            /// Drop every entry: the container's root becomes a fresh empty
+            /// leaf (what `remove` of the last key leaves, schema document
+            /// republished from the family's blob) and this snapshot's share
+            /// of the old tree is released — nodes another snapshot still
+            /// holds only lose a reference.
+            pub fn clear(self: &mut #nm) {
+                unsafe {
+                    let e: DirEntry = self.ms().root_of_mut(self.ctr_id);
+                    let lf: #lid = #lid::new_in(self.snap.snapshot_id());
+                    {
+                        let __mroot: *mut u8 = ctr_publish_meta_static(lf.block(), #(mexpr));
+                        self.ms().set_root(self.ctr_id, __mroot, 0u32);
+                    }
+                    tree_release(e.root, e.level);
+                }
+            }
         }
         impl Ctr for #nm {
             fn size(self: &#nm) -> u64 {
@@ -1380,6 +1397,9 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
                         let e: DirEntry = self.ms().root_of(self.ctr_id);
                         return bt_descend_find::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key);
                     }
+                }
+                pub fn contains_key(self: &#nm, key: #(kid)) -> bool {
+                    match self.find(key) { Option::Some(_v) => { return true; } Option::None => { return false; } }
                 }
                 /// How many entries sort strictly before `key` — the position
                 /// a range starts reading from. Demanded by the plan compiler

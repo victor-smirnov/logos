@@ -1,0 +1,136 @@
+// ctr_map_edges — the ordered map's edge behaviour, ported from the deem.data
+// fixtures the Memoria plane did not yet cover (ADR 0039 M4b): the empty map,
+// replace-on-hit under reverse and strided fills, both bounds from `rank_of`,
+// draining to zero from either end (merges down to a root collapse) and
+// refilling, and `clear` — including that clearing a fork leaves the committed
+// parent's tree intact.
+//
+// The data crosses leaf boundaries by construction (hundreds of entries), so
+// the removals exercise merges and the root collapse, not one leaf.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.option;
+
+container Ledger {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+
+const LEDGER: u64 = 1u64;
+const N: u64 = 600u64;
+
+const MISS: u64 = 18446744073709551615u64;   // never a stored value here
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let mut l = create_ctr::<typeof(Ledger)>(&s1, LEDGER);
+
+        // ── the empty map ───────────────────────────────────────────────
+        if !l.is_empty() || l.size() != 0u64 { return 1i32; }
+        if l.remove(5u64)                    { return 2i32; }
+        if l.contains_key(5u64)              { return 3i32; }
+        if l.seek(0u64).valid()              { return 4i32; }
+        if l.rank_of(7u64) != 0u64           { return 5i32; }
+
+        // ── reverse fill of the even keys, then a strided overwrite ─────
+        let mut i: u64 = N;
+        while i > 0u64 { i = i - 1u64; l.insert(i * 2u64, i); }
+        if l.size() != N || l.is_empty() { return 10i32; }
+        let mut j: u64 = 0u64;
+        while j < N { l.insert(j * 2u64, j + 1000000u64); j = j + 7u64; }
+        if l.size() != N { return 11i32; }          // replace-on-hit keeps the count
+        j = 0u64;
+        while j < N {
+            let want: u64 = if j % 7u64 == 0u64 { j + 1000000u64 } else { j };
+            if l.get_or(j * 2u64, MISS) != want { return 12i32; }
+            if l.contains_key(j * 2u64 + 1u64) { return 13i32; }
+            j = j + 1u64;
+        }
+
+        // ── bounds: lower = rank_of(k), upper = rank_of(k + 1) ──────────
+        j = 0u64;
+        while j < N {
+            if l.rank_of(j * 2u64) != j               { return 20i32; }   // present key
+            if l.rank_of(j * 2u64 + 1u64) != j + 1u64 { return 21i32; }   // absent key, between
+            j = j + 1u64;
+        }
+        if l.rank_of(N * 2u64) != N { return 22i32; }                      // past the maximum
+        let c = l.seek(l.rank_of(301u64));
+        if !c.valid() || c.key() != 302u64 { return 23i32; }
+
+        // ── remove every key ≡ 0 mod 4, then walk: only the others, in order
+        j = 0u64;
+        while j < N { if !l.remove(j * 2u64) { return 30i32; } j = j + 2u64; }
+        if l.size() != N / 2u64 { return 31i32; }
+        let mut cu = l.seek(0u64);
+        let mut want: u64 = 2u64;
+        let mut seen: u64 = 0u64;
+        while cu.valid() {
+            if cu.key() != want { return 32i32; }
+            want = want + 4u64;
+            seen = seen + 1u64;
+            cu = l.next(&cu);
+        }
+        if seen != N / 2u64 { return 33i32; }
+        if l.remove(0u64) { return 34i32; }                                // already gone
+
+        // ── drain from the low end to zero, then refill ─────────────────
+        while !l.is_empty() {
+            let k: u64 = l.seek(0u64).key();
+            if !l.remove(k) || l.contains_key(k) { return 40i32; }
+        }
+        if l.size() != 0u64 || l.seek(0u64).valid() { return 41i32; }
+        j = 0u64;
+        while j < N { l.insert(j, j); j = j + 1u64; }
+        if l.size() != N || l.get_or(N - 1u64, MISS) != N - 1u64 { return 42i32; }
+
+        // ── drain from the high end ─────────────────────────────────────
+        while !l.is_empty() {
+            let k: u64 = l.prev(&l.seek(l.size())).key();
+            if k != l.size() - 1u64 { return 50i32; }
+            if !l.remove(k) { return 51i32; }
+        }
+
+        // ── clear: a filled map empties and is reusable ─────────────────
+        j = 0u64;
+        while j < N { l.insert(j, j * 3u64); j = j + 1u64; }
+        l.clear();
+        if !l.is_empty() || l.contains_key(0u64) || l.seek(0u64).valid() { return 60i32; }
+        l.insert(9u64, 99u64);
+        if l.size() != 1u64 || l.get_or(9u64, MISS) != 99u64 { return 61i32; }
+        l.clear();
+        j = 0u64;
+        while j < N { l.insert(j, j * 3u64); j = j + 1u64; }
+    }
+    s1.commit();
+
+    // ── clearing a FORK leaves the committed parent's tree intact ───────
+    let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let mut l2 = open_ctr::<typeof(Ledger)>(&s2, LEDGER);
+        if l2.size() != N { return 70i32; }
+        l2.clear();
+        if !l2.is_empty() { return 71i32; }
+        l2.insert(1u64, 7u64);
+    }
+    {
+        let p = open_ctr::<typeof(Ledger)>(&s1, LEDGER);
+        if p.size() != N { return 72i32; }
+        let mut j: u64 = 0u64;
+        while j < N { if p.get_or(j, MISS) != j * 3u64 { return 73i32; } j = j + 1u64; }
+    }
+    s2.commit();
+    {
+        let l2 = open_ctr::<typeof(Ledger)>(&s2, LEDGER);
+        if l2.size() != 1u64 || l2.get_or(1u64, MISS) != 7u64 { return 74i32; }
+    }
+    return 0i32;
+}
