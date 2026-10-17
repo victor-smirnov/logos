@@ -64,7 +64,7 @@ const N: u64 = 40u64;
 #[token_macro]
 pub fn gen_n1(s: &str) -> ItemList {
     let mut em1: Emitter = Emitter::new();
-    em1.buf.push_str("package test; use logos.std.compiler.metaprog; use logos.mem.string; #[token_macro] pub fn gen_n2(s: str) -> ItemList { let mut em2: Emitter = Emitter::new(); em2.buf.push_str(\"package test; use logos.std.compiler.metaprog; use logos.mem.string; #[token_macro] pub fn gen_n3(s: str) -> ItemList { let mut em3: Emitter = Emitter::new(); em3.buf.push_str(\\\"package test; use logos.gen; pub struct LwFieldProbe { pub f: Hs352959f3caf5b795LeafWalk } \\\");  em3.commit(); return item_list_new(); } gen_n3!{ x } \");  em2.commit(); return item_list_new(); } gen_n2!{ x } ");
+    em1.buf.push_str("package test; use logos.std.compiler.metaprog; use logos.mem.string; #[token_macro] pub fn gen_n2(s: &str) -> ItemList { let mut em2: Emitter = Emitter::new(); em2.buf.push_str(\"package test; use logos.std.compiler.metaprog; use logos.mem.string; #[token_macro] pub fn gen_n3(s: &str) -> ItemList { let mut em3: Emitter = Emitter::new(); em3.buf.push_str(\\\"package test; use logos.gen; pub struct LwFieldProbe { pub f: Hs352959f3caf5b795LeafWalk } \\\");  em3.commit(); return item_list_new(); } gen_n3!{ x } \");  em2.commit(); return item_list_new(); } gen_n2!{ x } ");
     em1.commit();
     return item_list_new();
 }
