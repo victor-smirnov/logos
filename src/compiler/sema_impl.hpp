@@ -285,6 +285,18 @@ private:
         };
         return unit(a) != 0 && unit(a) == unit(b);
     }
+    // A bare unsized `str` in a VALUE position — itself, or a tuple / array
+    // element (not behind a reference, pointer or generic argument): rustc E0277.
+    static bool bare_str_value(TypeRef t) {
+        if (!t) return false;
+        TypeRef tr(t);
+        if (tr.kind() == LogosType::Kind::UnsizedSlice)
+            return tr.elem() && TypeRef(tr.elem()).kind() == LogosType::Kind::Str;
+        if (tr.kind() == LogosType::Kind::Array) return bare_str_value(tr.elem());
+        if (tr.kind() == LogosType::Kind::Tuple)
+            for (auto e : tr.tuple_elems()) if (bare_str_value(e)) return true;
+        return false;
+    }
     // `t` is a string slice: `&str` / `&mut str` / `*const str`, or bare unsized `str`.
     static bool is_str_type(TypeRef t) {
         if (!t) return false;
