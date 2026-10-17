@@ -17,9 +17,9 @@ use logos.std.wql.trama_render;
 use logos.mem.string;
 use logos.lang.str;
 
-struct Line { pub sku: str, pub qty: i64 }
-struct Box  { pub label: str, pub lines: [Line; 2] }
-struct Ship { pub carrier: str, pub boxes: [Box; 2] }
+struct Line { pub sku: &'static str, pub qty: i64 }
+struct Box  { pub label: &'static str, pub lines: [Line; 2] }
+struct Ship { pub carrier: &'static str, pub boxes: [Box; 2] }
 
 resource manifest = trama!(s: &Ship){
 `carrier: {{ s.carrier }}
@@ -31,9 +31,9 @@ box {{ b.label }}:
 {% endfor -%}
 done`  };
 
-fn streq_all(s: &String, want: str) -> bool {
+fn streq_all(s: &String, want: &str) -> bool {
     if s.len() != want.len() { return false; }
-    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let sv: &str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
     let mut i: i64 = 0i64;
     while i < want.len() {
         if str_byte_at(sv, i) != str_byte_at(want, i) { return false; }
@@ -53,7 +53,7 @@ fn main() -> i32 {
     let r: String = manifest(&ship).unwrap();
     // `-%}` trims the newline+indent after each loop tag, so the item lines pack
     // flush-left (the 2-space template indent is part of the trimmed run).
-    let want: str = "carrier: UPS\nbox A:\nX1 x3\nX2 x5\nbox B:\nY1 x1\nY2 x9\ndone";
+    let want: &str = "carrier: UPS\nbox A:\nX1 x3\nX2 x5\nbox B:\nY1 x1\nY2 x9\ndone";
     if !streq_all(&r, want) { return 1i32; }
     return 0i32;
 }

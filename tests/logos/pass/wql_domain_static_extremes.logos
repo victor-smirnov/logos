@@ -138,7 +138,7 @@ struct S_f64 { pub x: f64, pub id: i64 }
 pub deem sel_f64(ss: &[S_f64]) { from ss s select s.x }
 pub deem ord_f64(ss: &[S_f64]) { from ss s select s.id order by s.x }
 
-struct S_str { pub x: str, pub id: i64 }
+struct S_str { pub x: &'static str, pub id: i64 }
 pub deem sel_str(ss: &[S_str]) { from ss s select s.x }
 pub deem ord_str(ss: &[S_str]) { from ss s select s.id order by s.x }
 
@@ -512,7 +512,7 @@ fn main() -> i32 {
                                 S_str { x: "aaa", id: 1i64 },
                                 S_str { x: "ddd", id: 2i64 },
                                 S_str { x: "bbb", id: 3i64 }];
-    let v_str: Vec<str> = match sel_str(&rows_str[..]) {
+    let v_str: Vec<&str> = match sel_str(&rows_str[..]) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 128i32; } };
     if v_str.len() != 4i64 { return 129i32; }
     if !str_eq(v_str.get(1i64), "aaa") { return 130i32; }

@@ -14,8 +14,8 @@ use logos.lang.option;
 
 struct Row  { pub k: i64, pub a: i64 }
 struct Edge { pub src: i64, pub dst: i64 }
-struct Emp  { pub name: str, pub skills: Vec<str> }
-struct Dept { pub dname: str, pub emps: Vec<Emp> }
+struct Emp  { pub name: &'static str, pub skills: Vec<&'static str> }
+struct Dept { pub dname: &'static str, pub emps: Vec<Emp> }
 
 // Simple: where, order desc, limit.
 pub deem s_simple(rs: &[Row]) { from rs r where r.a > 1 select r.k order by r.k desc limit 3 }

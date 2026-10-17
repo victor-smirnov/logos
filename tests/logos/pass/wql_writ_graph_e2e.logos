@@ -24,7 +24,7 @@ use logos.mem.collections.vec;
 use logos.std.wql.wql;
 
 // (c): an ordinary slice param joined against graph edges by key name
-struct Label { pub key: str, pub title: str }
+struct Label { pub key: &'static str, pub title: &'static str }
 
 // ── the static queries ───────────────────────────────────────────────────────
 pub deem engines(g: &Writ) {
@@ -91,7 +91,7 @@ fn main() -> i32 {
     if doc.root().is_null() { return 90i32; }
 
     // ── (a) flat: engines anywhere ───────────────────────────────────────────
-    let eng: Vec<str> = match engines(&doc)
+    let eng: Vec<&str> = match engines(&doc)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
     if eng.len() != 2i64 { return 2i32; }
     // source order: db before cache
@@ -117,7 +117,7 @@ fn main() -> i32 {
         Label { key: "replicas", title: "replica count" },
         Label { key: "min",      title: "pool floor" },
     ];
-    let tt: Vec<(str, i64)> = match titled(&doc, &labels[..])
+    let tt: Vec<(&str, i64)> = match titled(&doc, &labels[..])
     { Result::Ok(v) => { v } Result::Err(_e4) => { return 12i32; } };
     if tt.len() != 2i64 { return 13i32; }
     // order-insensitive: both (title, value) pairs must be present
@@ -125,7 +125,7 @@ fn main() -> i32 {
     let mut saw_min: bool = false;
     let mut ti: i64 = 0i64;
     while ti < tt.len() {
-        let r: (str, i64) = tt.get(ti);
+        let r: (&str, i64) = tt.get(ti);
         if str_eq(r.0, "replica count") && r.1 == 3i64 { saw_rep = true; }
         if str_eq(r.0, "pool floor") && r.1 == 2i64 { saw_min = true; }
         ti = ti + 1i64;
@@ -136,10 +136,10 @@ fn main() -> i32 {
     // ── (d) two graph params in one query ───────────────────────────────────
     let doc2: Writ = parse_writ(r#"{ svc: { engine: "mysql" } }"#);
     if doc2.root().is_null() { return 91i32; }
-    let be: Vec<(str, str)> = match both_engines(&doc, &doc2)
+    let be: Vec<(&str, &str)> = match both_engines(&doc, &doc2)
     { Result::Ok(v) => { v } Result::Err(_e5) => { return 16i32; } };
     if be.len() != 2i64 { return 17i32; }           // {pg,redis} × {mysql}
-    let b0: (str, str) = be.get(0i64);
+    let b0: (&str, &str) = be.get(0i64);
     if !str_eq(b0.1, "mysql") { return 18i32; }
 
     return 0i32;

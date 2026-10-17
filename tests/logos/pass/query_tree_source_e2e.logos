@@ -234,13 +234,13 @@ fn eq_i64(a: &Vec<i64>, b: &Vec<i64>) -> bool {
     return true;
 }
 
-fn has_str(a: &Vec<str>, s: str) -> bool {
+fn has_str(a: &Vec<&str>, s: &str) -> bool {
     let mut i: i64 = 0i64;
     while i < a.len() { if str_eq(a.get(i), s) { return true; } i = i + 1i64; }
     return false;
 }
 
-fn eq_str(a: &Vec<str>, b: &Vec<str>) -> bool {
+fn eq_str(a: &Vec<&str>, b: &Vec<&str>) -> bool {
     if a.len() != b.len() { return false; }
     let mut i: i64 = 0i64;
     while i < a.len() { if !str_eq(a.get(i), b.get(i)) { return false; } i = i + 1i64; }
@@ -280,8 +280,8 @@ fn main() -> i32 {
     if sm.len() != 4i64 { return 6i32; }
 
     // key filter over the TYPED str column — hand-derived values, ordered
-    let we: Vec<str> = match w_eng(h)             { Result::Ok(v) => { v } Result::Err(_j) => { return 7i32; } };
-    let se: Vec<str> = match s_eng(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_k) => { return 7i32; } };
+    let we: Vec<&str> = match w_eng(h)             { Result::Ok(v) => { v } Result::Err(_j) => { return 7i32; } };
+    let se: Vec<&str> = match s_eng(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_k) => { return 7i32; } };
     if we.len() != 2i64 { return 8i32; }
     if !has_str(&we, "pg") { return 9i32; }
     if !has_str(&we, "redis") { return 10i32; }

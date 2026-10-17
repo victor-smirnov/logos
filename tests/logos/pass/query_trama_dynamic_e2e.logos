@@ -35,7 +35,7 @@ impl Team { pub fn as_any(self: &Team) -> WAny { return unsafe { WAny::ref_to((s
 
 resource cat = schema_catalog!{ Emp, Team };
 
-fn str_view(s: &String) -> str {
+fn str_view(s: &String) -> &str {
     return unsafe { str_from_raw(s.as_ptr(), s.len()) };
 }
 
@@ -76,7 +76,7 @@ fn main() -> i32 {
         Result::Ok(s) => { s }
         Result::Err(_e2) => { return 2i32; }
     };
-    let want1: str = "Hello Ann, senior; team Core: Ann(45) Bob(31) x=5";
+    let want1: &str = "Hello Ann, senior; team Core: Ann(45) Bob(31) x=5";
     if !str_eq(str_view(&s1), want1) { return 3i32; }
 
     // ── render #2: SAME Tpl, different env (re-entrancy) ──────────────────
@@ -87,7 +87,7 @@ fn main() -> i32 {
         Result::Ok(s) => { s }
         Result::Err(_e3) => { return 4i32; }
     };
-    let want2: str = "Hello Bob, junior; team Core: Ann(45) Bob(31) x=5";
+    let want2: &str = "Hello Bob, junior; team Core: Ann(45) Bob(31) x=5";
     if !str_eq(str_view(&s2), want2) { return 5i32; }
 
     return 0i32;

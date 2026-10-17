@@ -41,7 +41,7 @@ use logos.mem.string;
 use logos.lang.str;
 use logos.mem.collections.vec;
 
-struct S { pub g: i64, pub v: i64, pub nm: str }
+struct S { pub g: i64, pub v: i64, pub nm: &'static str }
 struct T { pub g: i64, pub w: i64 }
 // `U` is `S` WITHOUT the `str` field and `V` is a third relation for the
 // two-step chain. They exist so that the join refusals below can be told apart:

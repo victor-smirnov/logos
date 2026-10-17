@@ -35,7 +35,7 @@ use logos.std.wql.wql_surface_parser;   // parse_program — the GENERATED surfa
 // Parse + unwrap the RQProgram envelope: the ENTRY query node (a null WAny on
 // a parse failure — also asserts the rels edge is NULL for these rel-less
 // samples, exercising `has_rels` on the envelope).
-fn parse_entry(src: str, h: &Writ) -> WAny {
+fn parse_entry(src: &str, h: &Writ) -> WAny {
     let root: WAny = parse_program(src, h);
     if root.is_null() { return WAny::null(); }
     let prog: RQProgram = root.view::<RQProgram>();
@@ -51,7 +51,7 @@ fn main() -> i32 {
     // ── SIMPLE ────────────────────────────────────────────────────────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from people p where p.age >= 18 select p.name";
+        let src: &str = "from people p where p.age >= 18 select p.name";
         let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 1i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -94,7 +94,7 @@ fn main() -> i32 {
     // ── LIMIT forms: INTEGER literal vs bare IDENT (scalar-param name) ─────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from people p select p.age limit 3";
+        let src: &str = "from people p select p.age limit 3";
         let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 90i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -109,7 +109,7 @@ fn main() -> i32 {
     }
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from people p select p.age limit n";
+        let src: &str = "from people p select p.age limit n";
         let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 95i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -126,7 +126,7 @@ fn main() -> i32 {
     // ── JOIN (one step → RQJoinStepArr of 1) ──────────────────────────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from a x join b y on x.k == y.k select x.name : str";
+        let src: &str = "from a x join b y on x.k == y.k select x.name : str";
         let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 20i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -159,7 +159,7 @@ fn main() -> i32 {
     // ── JOIN CHAIN (N-way: two steps, second anti) ────────────────────────
     {
         let h: Writ = writ_new(8192i64);
-        let src: str = "from a x join b y on x.k == y.k anti join c z on y.j == z.j select x.name : str";
+        let src: &str = "from a x join b y on x.k == y.k anti join c z on y.j == z.j select x.name : str";
         let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 100i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -189,7 +189,7 @@ fn main() -> i32 {
     // ── AGGREGATE over a JOINED stream (join_steps? on the aggr shape) ────
     {
         let h: Writ = writ_new(8192i64);
-        let src: str = "from o r join d q on r.dept == q.id group by q.region aggregate total = sum(r.amt) select total : i64";
+        let src: &str = "from o r join d q on r.dept == q.id group by q.region aggregate total = sum(r.amt) select total : i64";
         let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 120i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -207,7 +207,7 @@ fn main() -> i32 {
     // ── AGGREGATE ─────────────────────────────────────────────────────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from o r group by r.dept aggregate total = sum(r.amt) select total : i64";
+        let src: &str = "from o r group by r.dept aggregate total = sum(r.amt) select total : i64";
         let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 40i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -253,7 +253,7 @@ fn main() -> i32 {
     // ── ANTI-JOIN + `where` (ordered-choice + per-step is_anti flag) ──────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from a x anti join b y on x.k == y.k where x.ok select x.name : str";
+        let src: &str = "from a x anti join b y on x.k == y.k where x.ok select x.name : str";
         let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 60i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -275,7 +275,7 @@ fn main() -> i32 {
     // ── AGGREGATE + `where` + count() (empty-paren alt) + 2 aggs ───────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from o r where r.paid group by r.dept aggregate n = count(), total = sum(r.amt) select total : i64";
+        let src: &str = "from o r where r.paid group by r.dept aggregate n = count(), total = sum(r.amt) select total : i64";
         let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 70i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -301,7 +301,7 @@ fn main() -> i32 {
     // terminate the sel_body embed early (they are inside brackets / not stops).
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from rows r select [ v.n for v in items ] : i64";
+        let src: &str = "from rows r select [ v.n for v in items ] : i64";
         let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 80i32; }
         let plan: RQuery = root.view::<RQuery>();

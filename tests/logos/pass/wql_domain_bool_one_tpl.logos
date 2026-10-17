@@ -98,7 +98,7 @@ impl Cell { pub fn as_any(self: &Cell) -> WAny { return unsafe { WAny::ref_to((s
 
 resource cat = schema_catalog!{ Cell };
 
-fn str_view(s: &String) -> str {
+fn str_view(s: &String) -> &str {
     return unsafe { str_from_raw(s.as_ptr(), s.len()) };
 }
 

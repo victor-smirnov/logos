@@ -8,8 +8,8 @@ package test;
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
 
-struct Emp  { pub city: str, pub salary: i64 }
-struct Hub  { pub city: str, pub code: i64 }
+struct Emp  { pub city: &'static str, pub salary: i64 }
+struct Hub  { pub city: &'static str, pub code: i64 }
 
 pub deem hub_sal(emps: &[Emp], hubs: &[Hub]) {
     from emps e

@@ -29,7 +29,7 @@ impl Emp { pub fn as_any(self: &Emp) -> WAny { return unsafe { WAny::ref_to((sel
 resource cat = schema_catalog!{ Emp };
 
 // Expect Tpl::compile(text) to FAIL with `frag` in the message.
-fn expect_compile_err(text: str, c: &SchemaCatalog, frag: str) -> bool {
+fn expect_compile_err(text: &str, c: &SchemaCatalog, frag: &str) -> bool {
     match Tpl::compile(text, c) {
         Result::Ok(_t) => { return false; }
         Result::Err(e) => { return str_contains(e.message(), frag); }
@@ -37,7 +37,7 @@ fn expect_compile_err(text: str, c: &SchemaCatalog, frag: str) -> bool {
 }
 
 // Expect render over `env` to FAIL with `frag` in the message (compile OK).
-fn expect_render_err(text: str, c: &SchemaCatalog, env: &QEnv, frag: str) -> bool {
+fn expect_render_err(text: &str, c: &SchemaCatalog, env: &QEnv, frag: &str) -> bool {
     match Tpl::compile(text, c) {
         Result::Ok(t) => {
             match t.render(env) {
@@ -83,7 +83,7 @@ fn main() -> i32 {
         Result::Ok(t) => {
             match t.render(&env) {
                 Result::Ok(s) => {
-                    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+                    let sv: &str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
                     if !str_eq(sv, "Ann:45") { return 14i32; }
                 }
                 Result::Err(_e4) => { return 15i32; }

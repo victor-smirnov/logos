@@ -112,7 +112,7 @@ fn main() -> i32 {
     if dv2.get(0i64) != bits_neg0 { return 13i32; }
 
     // ── (3) `kind` still names the payload the consumer must reinterpret ────
-    let sk: Vec<str> = match root_kind(&d)
+    let sk: Vec<&str> = match root_kind(&d)
     { Result::Ok(v) => { v } Result::Err(_e4) => { return 14i32; } };
     if sk.len() != 1i64 { return 15i32; }
     if !str_eq(sk.get(0i64), "f64") { return 16i32; }

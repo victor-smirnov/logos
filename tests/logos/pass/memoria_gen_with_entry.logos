@@ -23,7 +23,7 @@ container WeFse {
 }
 container WeVol {
     kind ordered_map;
-    entry { key: u64, val: str }
+    entry { key: u64, val: &str }
     measure max(key);
 }
 
@@ -54,7 +54,7 @@ fn drop_odd(cur: Option<u64>) -> Option<u64> {
     }
 }
 
-fn set_hello(cur: Option<&[u8]>) -> Option<str> {
+fn set_hello(cur: Option<&[u8]>) -> Option<&str> {
     match cur {
         Option::Some(_v) => {
             return Option::Some("replaced-with-a-longer-value");

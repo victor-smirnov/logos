@@ -42,7 +42,7 @@ struct W {
     pub c260: i64, pub c261: i64, pub c262: i64, pub c263: i64, pub c264: i64, pub c265: i64, pub c266: i64, pub c267: i64, pub c268: i64, pub c269: i64,
     pub c270: i64, pub c271: i64, pub c272: i64, pub c273: i64, pub c274: i64, pub c275: i64, pub c276: i64, pub c277: i64, pub c278: i64, pub c279: i64,
     pub c280: i64, pub c281: i64, pub c282: i64, pub c283: i64, pub c284: i64, pub c285: i64, pub c286: i64, pub c287: i64, pub c288: i64, pub c289: i64,
-    pub c290: i64, pub c291: i64, pub c292: i64, pub c293: i64, pub c294: i64, pub c295: i64, pub c296: i64, pub c297: i64, pub c298: i64, pub c299: str,
+    pub c290: i64, pub c291: i64, pub c292: i64, pub c293: i64, pub c294: i64, pub c295: i64, pub c296: i64, pub c297: i64, pub c298: i64, pub c299: &'static str,
 }
 
 pub deem wide(ws: &[W]) { from ws w where w.c298 == 7 select w.c299 }

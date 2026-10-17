@@ -19,7 +19,7 @@ pub schema E : code(0x0DFE_0000_0000_0001) { x: i64 = 0 }
 resource cat = schema_catalog!{ E };
 
 // 0 = compile-Err, 1 = render-Err (math error), 2 = render-Ok
-fn outcome(t: str, c: &SchemaCatalog, env: &QEnv) -> i32 {
+fn outcome(t: &str, c: &SchemaCatalog, env: &QEnv) -> i32 {
     match Tpl::compile(t, c) {
         Result::Ok(tp) => { match tp.render(env) { Result::Ok(_r) => { return 2i32; } Result::Err(_e) => { return 1i32; } } }
         Result::Err(_e2) => { return 0i32; }

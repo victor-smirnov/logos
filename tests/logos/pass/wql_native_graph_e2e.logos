@@ -29,10 +29,10 @@ use logos.lang.writ.wstring;
 use logos.std.io;
 
 #[derive_graph_source]
-pub struct Db { pub host: str, pub port: i64, pub load: f64 }
+pub struct Db { pub host: &'static str, pub port: i64, pub load: f64 }
 
 #[derive_graph_source]
-pub struct Cfg { pub name: str, pub db: Db, pub replicas: Vec<i64> }
+pub struct Cfg { pub name: &'static str, pub db: Db, pub replicas: Vec<i64> }
 
 pub deem ports(g: &Cfg) {
     from g ** p {i64} where p.key == "port" select p.vi

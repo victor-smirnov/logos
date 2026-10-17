@@ -38,7 +38,7 @@ pub struct Leaf { pub id: i64 }
 pub struct Bag {
     pub on: bool,
     pub off: bool,
-    pub tags: Vec<str>,
+    pub tags: Vec<&'static str>,
     pub nums: Vec<i64>,
     pub kids: Vec<Leaf>,
 }

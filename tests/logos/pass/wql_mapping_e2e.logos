@@ -56,10 +56,10 @@ fn main() -> i32 {
     if doc.root().is_null() { return 90i32; }
 
     // (a) engines anywhere: pg, redis
-    let e: Vec<(i64, str)> = match engines(&doc)
+    let e: Vec<(i64, &str)> = match engines(&doc)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
     if e.len() != 2i64 { return 2i32; }
-    let e0: (i64, str) = e.get(0i64);
+    let e0: (i64, &str) = e.get(0i64);
     if !str_eq(e0.1, "pg") { return 3i32; }
 
     // ports: 8080, 8443
@@ -74,7 +74,7 @@ fn main() -> i32 {
     if b.get(0i64) != 8443i64 { return 8i32; }
 
     // (c) i64 leaves >= 16: max(16), ports 8080/8443
-    let o: Vec<(str, i64)> = match overs(&doc, 16i64)
+    let o: Vec<(&str, i64)> = match overs(&doc, 16i64)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 9i32; } };
     if o.len() != 3i64 { return 10i32; }
 

@@ -18,10 +18,10 @@ use logos.std.io;
 // generated leaf with a VLE value column and a volume-balanced split.
 container GenKV {
     kind node;
-    entry { key: u64, val: str }
+    entry { key: u64, val: &str }
 }
 
-fn beq(b: &[u8], want: str) -> bool {
+fn beq(b: &[u8], want: &str) -> bool {
     if b.len() != want.len() { return false; }
     let mut i: i64 = 0i64;
     while i < b.len() { if b[i] != str_byte_at(want, i) { return false; } i = i + 1i64; }

@@ -28,7 +28,7 @@ use logos.std.io;
 // the whole VOLUME stack (leaf/branch + cow handle) from this one decl.
 container GenVol {
     kind ordered_map;
-    entry { key: u64, val: str }
+    entry { key: u64, val: &str }
     measure max(key);
 }
 
@@ -36,14 +36,14 @@ const CTR: u64 = 1u64;
 
 // str value for key k — lengths cycle [5, 13, 1, 18] so the volume-balanced split
 // is byte-driven, not count-driven.
-fn vstr(k: u64) -> str {
+fn vstr(k: u64) -> &str {
     let m: u64 = k % 4u64;
     if m == 0u64 { return "alpha"; }                 // 5
     if m == 1u64 { return "bravo-charlie"; }         // 13
     if m == 2u64 { return "d"; }                     // 1
     return "echo-foxtrot-golf!"; }                    // 18
 
-fn beq(b: &[u8], want: str) -> bool {
+fn beq(b: &[u8], want: &str) -> bool {
     if b.len() != want.len() { return false; }
     let mut i: i64 = 0i64;
     while i < b.len() { if b[i] != str_byte_at(want, i) { return false; } i = i + 1i64; }

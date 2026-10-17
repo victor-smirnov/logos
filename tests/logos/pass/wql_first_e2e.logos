@@ -10,8 +10,8 @@ use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.str;
 
-struct Person { pub name: str, pub age: i64 }
-struct Dept   { pub id: i64, pub label: str }
+struct Person { pub name: &'static str, pub age: i64 }
+struct Dept   { pub id: i64, pub label: &'static str }
 
 // hit: the first adult's name in SCAN order (Eve 12 skipped → Ada).
 pub deem first_adult(people: &[Person]) { from people p where p.age >= 18 select first p.name : str }

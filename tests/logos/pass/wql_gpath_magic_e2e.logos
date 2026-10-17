@@ -85,16 +85,16 @@ fn main() -> i32 {
     if doc.root().is_null() { return 90i32; }
 
     // (1) results ≡ full walk
-    let r1: Vec<str> = match db_engines(&doc)
+    let r1: Vec<&str> = match db_engines(&doc)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
-    let f1: Vec<str> = match db_engines_full(&doc)
+    let f1: Vec<&str> = match db_engines_full(&doc)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
     if r1.len() != 1i64 || f1.len() != 1i64 { return 3i32; }
     if !str_eq(r1.get(0i64), "pg") || !str_eq(f1.get(0i64), "pg") { return 4i32; }
 
-    let r2: Vec<str> = match any_engines(&doc)
+    let r2: Vec<&str> = match any_engines(&doc)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
-    let f2: Vec<str> = match any_engines_full(&doc)
+    let f2: Vec<&str> = match any_engines_full(&doc)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
     if r2.len() != 2i64 || f2.len() != 2i64 { return 7i32; }
 

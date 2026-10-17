@@ -9,9 +9,9 @@ use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.str;
 
-struct Emp  { pub dept: i64, pub name: str }
+struct Emp  { pub dept: i64, pub name: &'static str }
 struct Dept { pub id: i64, pub region: i64 }
-struct Reg  { pub rid: i64, pub label: str }
+struct Reg  { pub rid: i64, pub label: &'static str }
 
 // 3-way join; the projection takes one column from EACH bound var.
 pub deem emp_geo(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
@@ -35,13 +35,13 @@ fn main() -> i32 {
         Reg { rid: 20i64, label: "south" },
     ];
 
-    let rows: Vec<(str, i64, str)> = emp_geo(&emps[..], &depts[..], &regs[..]).unwrap();
+    let rows: Vec<(&str, i64, &str)> = emp_geo(&emps[..], &depts[..], &regs[..]).unwrap();
     if rows.len() != 2i64 { return 1i32; }
-    let r0: (str, i64, str) = rows.get(0i64);
+    let r0: (&str, i64, &str) = rows.get(0i64);
     if !str_eq(r0.0, "ann") { return 2i32; }
     if r0.1 != 10i64 { return 3i32; }
     if !str_eq(r0.2, "north") { return 4i32; }
-    let r1: (str, i64, str) = rows.get(1i64);
+    let r1: (&str, i64, &str) = rows.get(1i64);
     if !str_eq(r1.0, "bob") { return 5i32; }
     if r1.1 != 20i64 { return 6i32; }
     if !str_eq(r1.2, "south") { return 7i32; }

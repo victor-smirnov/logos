@@ -200,12 +200,12 @@ fn main() -> i32 {
     // the mapping consumer
     let doc: Writ = parse_writ(r#"{ db: { engine: "pg" }, cache: { engine: "redis" } }"#);
     let po: Vec<i64> = pg_owner(&doc).unwrap();
-    let ao: Vec<(i64, str)> = all_owners(&doc).unwrap();
+    let ao: Vec<(i64, &str)> = all_owners(&doc).unwrap();
     if po.len() != 1i64 || ao.len() != 2i64 { return 9i32; }
     let mut found: bool = false;
     i = 0i64;
     while i < ao.len() {
-        let r: (i64, str) = ao.get(i);
+        let r: (i64, &str) = ao.get(i);
         if str_eq(r.1, "pg") && r.0 == po.get(0i64) { found = true; }
         i = i + 1i64;
     }

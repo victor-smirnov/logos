@@ -79,7 +79,7 @@ fn main() -> i32 {
     if er.len() != 2i64 { return 4i32; }   // 2, 3
 
     let doc: Writ = parse_writ(r#"{ db: { engine: "pg" }, cache: { engine: "redis" } }"#);
-    let en: Vec<str> = match engines(&doc)
+    let en: Vec<&str> = match engines(&doc)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
     if en.len() != 2i64 { return 6i32; }
 

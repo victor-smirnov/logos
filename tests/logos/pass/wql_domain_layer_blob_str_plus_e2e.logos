@@ -20,7 +20,7 @@ use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;
 
-struct S { pub x: str, pub id: i64 }
+struct S { pub x: &'static str, pub id: i64 }
 
 pub deem q(ss: &[S]) { from ss s select s.x + s.x }
 

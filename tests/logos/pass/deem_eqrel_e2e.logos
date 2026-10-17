@@ -20,7 +20,7 @@ use logos.mem.collections.vec;
 use logos.lang.str;
 
 struct Edge { pub src: i64, pub dst: i64 }
-struct Alias { pub a: str, pub b: str }
+struct Alias { pub a: &'static str, pub b: &'static str }
 
 // (a)
 pub deem pairs(es: &[Edge]) {
@@ -74,7 +74,7 @@ fn main() -> i32 {
     if b9.len() != 0i64 { return 8i32; }
     // (c) car ~ auto ~ automobile; motor ~ engine apart
     let al: [Alias; 2] = [ Alias { a: "automobile", b: "auto" }, Alias { a: "motor", b: "engine" } ];
-    let c: Vec<str> = names(&al[..]).unwrap();
+    let c: Vec<&str> = names(&al[..]).unwrap();
     if c.len() != 3i64 || !str_eq(c.get(0i64), "auto") || !str_eq(c.get(1i64), "automobile") || !str_eq(c.get(2i64), "car") { return 9i32; }
     // (d) representatives 1, 5, 7 with class sizes 4, 2, 1
     let d: Vec<(i64, i64)> = reps(&es[..]).unwrap();

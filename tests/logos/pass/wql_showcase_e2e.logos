@@ -26,7 +26,7 @@ use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.str;
 
-struct Emp  { pub name: str, pub dept: i64, pub age: i64 }
+struct Emp  { pub name: &'static str, pub dept: i64, pub age: i64 }
 struct Dept { pub id:   i64, pub budget: i64 }
 
 // (A) SIMPLE — two `where` conditions + INFERRED result type (`select e.name`
@@ -60,7 +60,7 @@ fn main() -> i32 {
 
     // (A) seniors → Vec<str>: age>=40 AND dept==1 ⇒ Ada (45,1) and Dane (41,1).
     // Bob (50,2) fails dept; Cleo (30,1) fails age.
-    let names: Vec<str> = seniors(&emps[..]).unwrap();
+    let names: Vec<&str> = seniors(&emps[..]).unwrap();
     if names.len() != 2i64 { return 1i32; }
     if !str_eq(names.get(0i64), "Ada")  { return 2i32; }
     if !str_eq(names.get(1i64), "Dane") { return 3i32; }

@@ -8,7 +8,7 @@ use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.str;
 
-struct Person { pub name: str, pub age: i64 }
+struct Person { pub name: &'static str, pub age: i64 }
 
 // hit: the first adult → ("Ada", 45).
 pub deem first_adult(people: &[Person]) { from people p where p.age >= 18 select first (p.name, p.age) }

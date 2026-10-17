@@ -20,7 +20,7 @@ pub deem all_engines(w: Net) {
 
 fn main() -> i32 {
     let doc: Writ = parse_writ(r#"{ db: { engine: "pg" }, cache: { engine: "redis" } }"#);
-    let v: Vec<(i64, str)> = match all_engines(&doc)
+    let v: Vec<(i64, &str)> = match all_engines(&doc)
     { Result::Ok(x) => { x } Result::Err(_e) => { return 1i32; } };
     if v.len() != 2i64 { return 2i32; }
     return 0i32;

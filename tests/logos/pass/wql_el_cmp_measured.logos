@@ -65,7 +65,7 @@ extern fn printf(fmt: *const u8, ...) -> i32;
 fn emit(b: &mut String) {
     b.push_u8(10u8);
     b.push_u8(0u8);
-    let f: str = "%s";
+    let f: &str = "%s";
     unsafe { printf(f.as_ptr(), b.as_ptr()); }
 }
 
@@ -154,12 +154,12 @@ fn k_f32(i: i64) -> f32 { if i == 0i64 { return -1.5f32; } if i == 1i64 { return
 fn nan_f64() -> f64 { let z: f64 = k_f64(1i64); return z / z; }
 fn nan_f32() -> f32 { let z: f32 = k_f32(1i64); return z / z; }
 fn k_bool(i: i64) -> bool { if i == 0i64 { return false; } return true; }
-fn k_str(i: i64) -> str { if i == 0i64 { return ""; } if i == 1i64 { return "a"; } return "ab"; }
+fn k_str(i: i64) -> &str { if i == 0i64 { return ""; } if i == 1i64 { return "a"; } return "ab"; }
 /// A second, independent producer of the same bytes — an equal value of separate
 /// provenance, which is what "equal values hash equal" has to be asked about.
-fn k_str2(i: i64) -> str { if i == 0i64 { return ""; } if i == 1i64 { return "a"; } return "ab"; }
-fn k_zed() -> str { return "z"; }
-fn k_acc() -> str { return "é"; }
+fn k_str2(i: i64) -> &str { if i == 0i64 { return ""; } if i == 1i64 { return "a"; } return "ab"; }
+fn k_zed() -> &str { return "z"; }
+fn k_acc() -> &str { return "é"; }
 fn k_string(i: i64) -> String {
     let mut b: String = String::new();
     b.push_str(k_str(i));
@@ -436,7 +436,7 @@ fn m_bool() -> Meas {
 // order those two the same way, a length comparison would not, and a comparison
 // that stopped at the NUL of the shorter string would put "ab" before "a".
 fn m_str() -> Meas {
-    let lo: str = k_str(0i64); let md: str = k_str(1i64); let hi: str = k_str(2i64);
+    let lo: &str = k_str(0i64); let md: &str = k_str(1i64); let hi: &str = k_str(2i64);
     return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
                 && !(md < lo) && !(hi < md) && !(lo > md)
                 && (k_zed() < k_acc()) && !(k_acc() < k_zed()),
@@ -466,7 +466,7 @@ fn m_string() -> Meas {
                   inj: inj, keeps: keeps, hashed: false };
 }
 
-fn probe(name: str) -> Meas {
+fn probe(name: &str) -> Meas {
     if str_eq(name, "i8")     { return m_i8(); }
     if str_eq(name, "i16")    { return m_i16(); }
     if str_eq(name, "i32")    { return m_i32(); }
@@ -530,7 +530,7 @@ fn expect_ident(m: Meas, repr: Meas) -> i32 {
     return expect_self_ident(repr);
 }
 
-fn ord_name(o: i32) -> str {
+fn ord_name(o: i32) -> &str {
     if o == X_MISORDER()     { return "MISORDER"; }
     if o == X_UNPROBED()     { return "UNPROBED"; }
     if o == X_LOSSY()        { return "LOSSY"; }
@@ -542,7 +542,7 @@ fn ord_name(o: i32) -> str {
     if o == EL_ORD_NO_CMP()  { return "NO_CMP"; }
     return "??";
 }
-fn id_name(i: i32) -> str {
+fn id_name(i: i32) -> &str {
     if i == X_MISORDER()    { return "BAD"; }
     if i == X_UNPROBED()    { return "UNPROBED"; }
     if i == EL_ID_OK()      { return "OK"; }
@@ -551,9 +551,9 @@ fn id_name(i: i32) -> str {
     if i == EL_ID_UNNAMED() { return "UNNAMED"; }
     return "??";
 }
-fn yn(v: bool) -> str { if v { return "y"; } return "n"; }
+fn yn(v: bool) -> &str { if v { return "y"; } return "n"; }
 
-fn cmp_field(b: &mut String, label: str, want: i32, got: i32, is_ord: bool) -> i64 {
+fn cmp_field(b: &mut String, label: &str, want: i32, got: i32, is_ord: bool) -> i64 {
     b.push_str(" ");
     b.push_str(label);
     b.push_str("=");
@@ -564,7 +564,7 @@ fn cmp_field(b: &mut String, label: str, want: i32, got: i32, is_ord: bool) -> i
     b.push_str("!MISMATCH");
     return 1i64;
 }
-fn cmp_bool(b: &mut String, label: str, want: bool, got: bool) -> i64 {
+fn cmp_bool(b: &mut String, label: &str, want: bool, got: bool) -> i64 {
     b.push_str(" ");
     b.push_str(label);
     b.push_str("=");

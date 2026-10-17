@@ -45,7 +45,7 @@ struct Order {
 #[batch_entry]
 struct Remark {
     id: u64,
-    text: str,
+    text: &'static str,
 }
 
 // deterministic LCG (Knuth MMIX) — wrapping BY DESIGN
