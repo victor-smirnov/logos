@@ -3857,10 +3857,10 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 StrSet seen2;
                 std::function<void(const std::string&)> walk2 = [&](const std::string& tn) {
                     if (!po_provider.empty() || !seen2.insert(tn).second) return;
+                    // KEY-IDENTITY: the `partial_ord` lang item, not a method spelling.
+                    if (trait_key_is_lang_item(canonical_trait_name(tn), "partial_ord")) { po_provider = tn; return; }
                     auto* it = find_trait_iter_scoped(tn);
                     if (!it) return;
-                    for (auto& m : it->methods)
-                        if (m.name == "partial_cmp") { po_provider = tn; return; }
                     for (auto& st : it->supertraits) walk2(st.trait_name);
                 };
                 for (auto& b : bit->second) walk2(b.trait_name);
@@ -14310,11 +14310,19 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 if (ft && !ft_has_typevar &&
                     (logos::probe::arm_inst() || logos::probe::arm_subst()) &&
                     !sinfo.lifetime_params.empty()) {
+                    std::unordered_set<std::string> f_static_only;
                     auto blift = structlit_lt_subst_(sinfo.lifetime_params,
                                                      effective->fields, fields,
                                                      sinfo.package.empty()
                                                        ? std::string(sname)
-                                                       : sinfo.package + "." + std::string(sname));
+                                                       : sinfo.package + "." + std::string(sname),
+                                                     &f_static_only);
+                    // A binder offered only a covariant 'static (`tag: ""`) is a lower
+                    // bound, not the instantiation the other fields must equal: it stays
+                    // inferred here as at the literal's own type.
+                    for (auto& lp : f_static_only)
+                        if (auto bi = blift.find(lp); bi != blift.end() && outlives_is_static(bi->second))
+                            bi->second = std::string{};
                     if (!blift.empty()) {
                         ft_cmp = subst_type_sema(ft, {}, blift);
                         if (ft_cmp != ft) logos::probe::census("structlit.field.instantiated");
@@ -14524,11 +14532,17 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 auto [_slp_pkg, _slp] = find_struct_by_name(std::string(sname));
                 (void)_slp_pkg;
                 if (_slp && !_slp->lifetime_params.empty()) {
+                    std::unordered_set<std::string> f_static_only2;
                     auto blift2 = structlit_lt_subst_(_slp->lifetime_params,
                                                       _slp->fields, fields,
                                                       _slp->package.empty()
                                                         ? std::string(sname)
-                                                        : _slp->package + "." + std::string(sname));
+                                                        : _slp->package + "." + std::string(sname),
+                                                      &f_static_only2);
+                    // As the generic path: a covariant-'static-only binder stays inferred.
+                    for (auto& lp : f_static_only2)
+                        if (auto bi = blift2.find(lp); bi != blift2.end() && outlives_is_static(bi->second))
+                            bi->second = std::string{};
                     if (!blift2.empty()) {
                         ft_cmp2 = subst_type_sema(ft, {}, blift2);
                         if (ft_cmp2 != ft) logos::probe::census("structlit.field.instantiated");

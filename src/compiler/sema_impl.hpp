@@ -1135,7 +1135,12 @@ private:
                     (TypeRef(h).kind() == LogosType::Kind::Struct || TypeRef(h).kind() == LogosType::Kind::Enum)) {
                     auto rl = TypeRef(ret).lifetime_args(); auto hl = TypeRef(h).lifetime_args();
                     for (size_t i = 0; i < rl.size() && i < hl.size(); ++i)
-                        if (rl[i] == lp && !hl[i].empty() && hl[i] != "'_") { hinted = hl[i]; named = true; }
+                        // Only a region this scope can name: 'static or a signature
+                        // binder — a struct field's declared type (`e: E<'d>` in
+                        // `R { e: e_new() }`) spells the struct's own `'d`.
+                        if (rl[i] == lp && !hl[i].empty() && hl[i] != "'_" &&
+                            (outlives_is_static(hl[i]) || current_lt_binders().count(outlives_norm(hl[i]))))
+                            { hinted = hl[i]; named = true; }
                 }
                 if (named) ls[lp] = hinted;
                 else if (auto v = fn_binder_variance_(param_types, ret, lp);
