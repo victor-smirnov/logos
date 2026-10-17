@@ -28,9 +28,9 @@ package bc_esc_holder_residency_abuse_dangle;
 use logos.mem.string;
 use logos.lang.rc;
 
-pub struct E { pub h: Rc<i64>, pub v: str }
+pub struct E<'a> { pub h: Rc<i64>, pub v: &'a str }
 
-pub fn bad() -> &str {
+pub fn bad() -> &'static str {
     let o: String = String::from("hello");
     let e: E = E { h: rc_new::<i64>(1i64), v: o.as_str() };
     return e.v;

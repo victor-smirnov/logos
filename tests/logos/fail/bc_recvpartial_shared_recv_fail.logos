@@ -12,7 +12,7 @@
 // to be there, and `l.origin` is not.
 package bc_recvpartial_shared_recv_fail;
 
-struct P { s: str, x: i64 }
+struct P { s: &'static str, x: i64 }
 impl Drop for P { fn drop(self: &mut P) {} }
 struct L { origin: P, middle: P }
 impl L { fn look(self: &L) -> i64 { return self.middle.x; } }

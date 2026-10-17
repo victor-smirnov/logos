@@ -17,7 +17,7 @@
 package bc_flowsum_rawtrip_outparam_dangle;
 use logos.mem.string;
 
-pub struct W { pub ssz: [str; 4] }
+pub struct W { pub ssz: [&'static str; 4] }
 
 pub fn sas(s: &String) -> &str { return unsafe { str_from_raw(s.as_ptr(), s.len()) }; }
 

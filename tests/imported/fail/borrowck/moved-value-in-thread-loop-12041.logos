@@ -3,7 +3,7 @@
 // shelf: pin
 // upstream: borrowck/moved-value-in-thread-loop-12041.rs (E0382 use of moved value in a loop)
 package moved_value_in_thread_loop_12041;
-struct Tx { s: str }
+struct Tx { s: &'static str }
 impl Drop for Tx { fn drop(self: &mut Tx) {} }
 fn main() -> i32 {
     let tx = Tx { s: "a" };

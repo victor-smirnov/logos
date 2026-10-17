@@ -25,12 +25,12 @@ package bc_esc_generic_outparam_dangle;
 
 use logos.mem.string;
 
-pub trait Tr { fn stash(&self, s: &str, out: &mut str); }
+pub trait Tr { fn stash<'a>(&self, s: &'a str, out: &mut &'a str); }
 
 pub struct K { pub z: i64 }
 
 impl Tr for K {
-    fn stash(&self, s: &str, out: &mut str) { *out = s; }
+    fn stash<'a>(&self, s: &'a str, out: &mut &'a str) { *out = s; }
 }
 
 pub fn bad<T: Tr>(t: &T) -> &str {

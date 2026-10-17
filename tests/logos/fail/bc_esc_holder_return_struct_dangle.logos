@@ -13,11 +13,11 @@
 package bc_esc_holder_return_struct_dangle;
 use logos.mem.string;
 
-pub struct W { pub v: str }
+pub struct W<'a> { pub v: &'a str }
 
-pub fn mk(s: &str) -> W { return W { v: s }; }
+pub fn mk<'a>(s: &'a str) -> W<'a> { return W { v: s }; }
 
-pub fn bad() -> W {
+pub fn bad() -> W<'static> {
     let o: String = String::from("hello");
     return mk(o.as_str());
 }
