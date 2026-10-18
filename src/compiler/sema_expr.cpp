@@ -7394,7 +7394,7 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
         }
         // A trait object's own methods (its trait's and supertraits' vtable).
         if (ck == K::TraitObject || ck == K::UnsizedDyn) {
-            if (auto* tit = find_trait_iter_scoped(std::string(TypeRef(cur).trait_name()))) {
+            if (auto* tit = trait_of_object_(cur)) {
                 std::vector<std::pair<std::string, const SemaTraitMethodInfo*>> vtab;
                 std::vector<std::string> upsup_unused;
                 trait_vtable_layout(trait_path(*tit), vtab, upsup_unused);
@@ -10512,7 +10512,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
     // (mi) below stays consistent with mlir-gen: the EMIT side single-sources the
     // same flattened slot order from this trait's own def (sema_decl lowers it via
     // the same scope-aware key), and the mlir vtable registry is target-keyed.
-    auto* canon = find_trait_iter_scoped(tname);
+    auto* canon = trait_of_object_(dyn_t);
     auto tit = canon;
     if (tit) {
         // Supertrait-closure vtable order: a supertrait method is dispatchable
@@ -16780,8 +16780,11 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
         TypeRef(at).kind() != LogosType::Kind::MutRef) return false;
     TypeRef pointee = TypeRef(at).pointee();
     if (!pointee) return false;
-    std::string trait(TypeRef(pt).trait_name());
-    if (trait.empty()) return false;
+    // The object's trait by identity (`pkg::Name`): its package when the type
+    // carries one — a homonym, or a trait renamed by `use … as`.
+    const SemaTraitInfo* obj_ti = trait_of_object_(pt);
+    if (TypeRef(pt).trait_name().empty()) return false;
+    const std::string trait = obj_ti ? trait_path(*obj_ti) : std::string(TypeRef(pt).trait_name());
 
     // (a) pointee is a TypeVar, or a projection `T::Item`, bounded
     //     (transitively) by the trait: a where-clause / parameter bound, or a
@@ -16803,16 +16806,16 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
         logos::compiler::StrSet seen;
         std::function<bool(const std::string&)> reaches =
             [&](const std::string& tn) -> bool {
-                if (!seen.insert(tn).second) return false;
-                if (tn == trait) return true;
                 auto* it = find_trait_iter_scoped(tn);
                 if (!it) return false;
+                if (!seen.insert(trait_path(*it)).second) return false;
+                if (trait_path(*it) == trait) return true;
                 for (auto& s : it->supertraits)
-                    if (reaches(s.trait_name)) return true;
+                    if (reaches(s.canonical_trait.empty() ? s.trait_name : s.canonical_trait)) return true;
                 return false;
             };
         for (auto& b : bounds)
-            if (reaches(b.trait_name)) return true;
+            if (reaches(b.canonical_trait.empty() ? b.trait_name : b.canonical_trait)) return true;
         return false;
     }
 
@@ -16832,20 +16835,19 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
         // operand is re-typed non-owning in lower_unary and never reaches here
         // as an owning pointee. expect_type's E0277 arm supplies the sentence.
         if (TypeRef(pointee).owning_trait_object()) return false;
-        std::string sub(TypeRef(pointee).trait_name());
-        if (sub.empty()) return false;
+        const SemaTraitInfo* sub_ti = trait_of_object_(pointee);
+        if (!sub_ti) return false;
         logos::compiler::StrSet seen;
-        std::function<bool(const std::string&)> reaches =
-            [&](const std::string& tn) -> bool {
-                if (!seen.insert(tn).second) return false;
-                if (tn == trait) return true;
-                auto* it = resolve_trait(tn);
-                if (!it) return false;
+        std::function<bool(const SemaTraitInfo*)> reaches =
+            [&](const SemaTraitInfo* it) -> bool {
+                if (!it || !seen.insert(trait_path(*it)).second) return false;
+                if (trait_path(*it) == trait) return true;
                 for (auto& s : it->supertraits)
-                    if (reaches(s.trait_name)) return true;
+                    if (reaches(trait_by_key(s.canonical_trait.empty() ? s.trait_name : s.canonical_trait)))
+                        return true;
                 return false;
             };
-        return reaches(sub);
+        return reaches(sub_ti);
     }
 
     // (b) pointee is a concrete type — struct / enum / PRIMITIVE — implementing
@@ -16870,7 +16872,7 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
     // The trait as it resolves in this scope: a TraitObject carries the
     // spelling, and a package-local homonym of a lang item (`trait Hash`,
     // `trait FnMut`) is registered under its path, not the bare slot.
-    if (!implements_(canonical_trait_name(trait), pointee)) return false;
+    if (!implements_(obj_ti ? trait : canonical_trait_name(trait), pointee)) return false;
     // logos-core 2.4(c): auto-trait bound enforcement at the unsize site.
     // `&NotSend → &dyn Trait + Send` must be rejected: the trait object's
     // contract is that the erased type satisfies every `+ Auto` bound. The

@@ -1,0 +1,13 @@
+// An owning `Box<dyn Error>` does not implement `Error` (Rust: no such impl; rustc 1.98.1
+// refuses `need(b)` with E0277). Only `dyn Error` itself implements its trait.
+package owning_trait_object_does_not_implement_its_trait;
+use logos.lang.error;
+use logos.mem.boxed;
+use logos.lang.option;
+struct E1 { c: i32 }
+impl Error for E1 { fn source(&self) -> Option<&dyn Error> { return Option::<&dyn Error>::None; } }
+fn need<E: Error>(e: E) -> i32 { return 0; }
+fn main() -> i32 {
+    let b: Box<dyn Error> = Box::new(E1 { c: 1 });
+    return need(b);
+}

@@ -900,6 +900,7 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
     case K::UnsizedDyn:
         put_str(buf, t.trait_name);
         for (auto a : t.type_args) put_sub(buf, impl, a);
+        if (!t.pkg_name.empty()) put_str(buf, t.pkg_name);   // only when set: every other UID stays
         break;
     case K::DstRef:
         put_str(buf, t.pkg_name);
@@ -1118,7 +1119,7 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     case K::UnsizedSlice:
         return t.elem == r.elem();
     case K::UnsizedDyn:
-        return t.trait_name == r.trait_name() &&
+        return t.trait_name == r.trait_name() && t.pkg_name == r.pkg_name() &&
                t.lifetime == r.lifetime() &&   // THE REGION SLOT (`+ 'a`, 2026-09-02y)
                vec_ptr_eq(t.type_args, r.type_args());
     case K::DstRef:
@@ -7362,7 +7363,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (!changed) return t;
         return make_unsized_dyn_type(t.trait_name(), std::move(new_args),
                                      t.trait_requires_send(), t.trait_requires_sync(),
-                                     std::string(t.lifetime()));
+                                     std::string(t.lifetime()), t.pkg_name());
     }
     case LogosType::Kind::DstRef: {
         // Phase 1B-15: substitute type-args.
@@ -9151,13 +9152,15 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     if (tc == la::DYN_TYPE) {
         auto tname = std::string(str_of(node.get(la::NAME.code)));
         refuse_ambiguous_trait_(tname);
-        // A trait object is keyed by its trait's bare name downstream (KNOWN GAP
-        // below), so a RENAMED trait cannot name one yet.
-        if (renamed_alias_(tname))
-            error(std::format("`dyn {}`: a trait renamed by `use … as` cannot name a trait object yet — "
-                              "import it under its own name (`use {}.{} as {};`)", tname,
-                              cur_imports_.item_aliases[tname].first, cur_imports_.item_aliases[tname].second,
-                              cur_imports_.item_aliases[tname].second));
+        // A trait renamed by `use pkg.Trait as Alias;`: the object type names the
+        // trait itself — its name and its package (the identity pair).
+        std::string tpkg;
+        if (renamed_alias_(tname)) {
+            const auto target = cur_imports_.item_aliases[tname];
+            tpkg = target.first;
+            tname = target.second;
+        }
+        const std::string tkey = tpkg.empty() ? tname : tpkg + "::" + tname;
         // C5-cl-04 slice: `dyn Fn(…)` / `dyn FnMut(…)` / `dyn FnOnce(…)` —
         // Logos's Fn-family isn't a registered trait (it's a bound-check
         // shortcut), but the trait-object layout for these matches the
@@ -9259,7 +9262,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // and mlir-gen's vtable registry keys — else dispatch segfaults
         // (probe p2). Needs the full chokepoint sweep; see
         // docs/track3-gaps (dyn-local-trait-shadowing).
-        if (!resolve_trait(tname))
+        if (!resolve_trait(tkey))
             error(std::format("unknown trait '{}' in &dyn type", tname));
         // Optional type-args: &dyn Trait<T,…> — same shape as Struct<T,…>.
         // logos-core 2.4(c): the grammar now also collects per-bound AUTO_TRAIT_BOUND
@@ -9317,11 +9320,11 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // `&dyn Trait` both produce TraitObject; downstream sema rejects
         // bare-by-value when it matters).
         if (unsized_ok_)
-            return make_unsized_dyn_type(tname, std::move(args), req_send, req_sync, plus_lt);
+            return make_unsized_dyn_type(tname, std::move(args), req_send, req_sync, plus_lt, tpkg);
         // P2-15: forming a `&dyn Trait` fat trait object requires Trait to be
         // object-safe (dyn-compatible). A non-object-safe method has no vtable
         // slot → dispatch would crash; reject at the type-resolution point.
-        check_trait_object_safe(tname);
+        check_trait_object_safe(tkey);
         // logos-core 2.4(c): pass the auto-trait bounds we extracted from
         // ITEMS so the TraitObject carries `+ Send` / `+ Sync` in its
         // const_val bits, enabling the unsize-coercion check downstream.
@@ -9339,7 +9342,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         return dyn_mut_(make_trait_object(tname, std::move(args),
                                           TraitOwningKind::Borrow,
                                           req_send, req_sync,
-                                          logos::probe::arm_regslot() ? dlt : std::string{}),
+                                          logos::probe::arm_regslot() ? dlt : std::string{}, tpkg),
                         node.has_key(la::IS_MUT) && !node.get(la::IS_MUT.code).is_null() &&
                             node.get(la::IS_MUT.code).as_value<int32_t>() != 0);
     }
