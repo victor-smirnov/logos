@@ -24,6 +24,7 @@ use logos.lang.rc;                // Rc — the thread-local container handle pl
 use logos.lang.cell;              // RefCell — the handle's `&mut self` surface behind Rc
 use logos.mem.sync;               // Arc — the snapshot parent-hold plane
 use logos.mem.bt.map;             // trait Snapshot — the erased public snapshot tier
+use logos.mem.collections.vec;    // ZStore::z_entries
 // The factory-generated VECTOR family delegates into the btvec positional
 // prototype, and a metaprog-emitted `use` cannot itself LOAD a module — the
 // same hub rule as logos.mem.bt.map's node/btss edges. Every create_ctr
@@ -41,6 +42,18 @@ pub enum InsertError {
     KeyType,
     ValueType,
     FrameLimit,
+}
+
+/// A persistent Z-set (ADR 0039 M9): rows as order-preserving bytes, each with
+/// a nonzero weight. Canon implements it for every `entry { key: str, val: i64 }`
+/// ordered_map; the row codec and `apply_delta` live in lcm.canon.zset.
+pub trait ZStore {
+    /// The row's weight; 0 when the row is absent.
+    fn z_weight(self: &Self, row: &[u8]) -> i64;
+    /// Sets the row's weight; 0 removes the row.
+    fn z_set(self: &mut Self, row: &[u8], w: i64);
+    /// Appends every (row bytes, weight), in row order.
+    fn z_entries(self: &Self, out: &mut Vec<(Vec<u8>, i64)>);
 }
 
 /// Typed wrapper over a container configuration document. Zero-field: the

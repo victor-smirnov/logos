@@ -1521,6 +1521,38 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
         }
     };
     unsafe { logos_emit_item_blob_subst(&handle); }
+    // A str -> i64 family is a persistent Z-set (ADR 0039 M9).
+    if kstr && str_eq(vty, "i64") {
+        let zq: QuoteItemBlob = quote_item! {
+            use logos.lcm.canon.metaclass;    // ZStore
+            use logos.lang.str;
+            use logos.lang.slice;
+            use logos.lang.option;
+            use logos.mem.collections.vec;
+            impl ZStore for #nm {
+                fn z_weight(self: &#nm, row: &[u8]) -> i64 {
+                    match self.find(unsafe { str_from_raw(row.as_ptr(), row.len()) }) { Option::Some(w) => { return w; } Option::None => { return 0i64; } }
+                }
+                fn z_set(self: &mut #nm, row: &[u8], w: i64) {
+                    let k: &str = unsafe { str_from_raw(row.as_ptr(), row.len()) };
+                    if w == 0i64 { let _ = self.remove(k); } else { self.insert(k, w); }
+                }
+                fn z_entries(self: &#nm, out: &mut Vec<(Vec<u8>, i64)>) {
+                    let mut c = self.seek(0u64);
+                    while c.valid() {
+                        let k: &str = c.key();
+                        let w: i64 = c.value();
+                        let mut b: Vec<u8> = Vec::new();
+                        let mut i: i64 = 0i64;
+                        while i < k.len() { b.push(k.as_bytes()[i]); i = i + 1i64; }
+                        out.push((b, w));
+                        c = self.next(&c);
+                    }
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&zq); }
+    }
     if framed {
         let fr: QuoteItemBlob = quote_item! {
             use logos.mem.bt.btss;

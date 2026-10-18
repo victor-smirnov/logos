@@ -1,0 +1,191 @@
+// Logos standard library — logos.lcm.canon.zset
+//
+// The element model for relations (ADR 0039 M9, D12): a persistent Z-set is an
+// ordered_map `entry { key: str, val: i64 }` whose key is a ROW's order-
+// preserving bytes and whose value is the row's nonzero weight. Canon emits
+// `impl ZStore` (lcm.canon.metaclass) for every str -> i64 family; this
+// package adds the row codec and the write path ADR 0020 requirement 9 names:
+// `apply_delta(sorted batch)`, where weights add and a weight that cancels to
+// zero removes the row.
+//
+// Row bytes (a tuple encoding, FoundationDB-style): byte order = row order.
+//   u64/u32: big-endian; i64/i32: big-endian with the sign bit flipped;
+//   bool: one byte; String: the bytes with 0x00 escaped as 00 FF, then 00 00.
+// A row is its columns' encodings concatenated, so rows compare column by
+// column. An encoded row longer than STR_KEY_RESERVE (255) bytes is refused.
+
+package logos.lcm.canon.zset;
+
+use logos.lcm.canon.metaclass;    // ZStore
+use logos.mem.bt.btss;            // bytes_cmp, STR_KEY_RESERVE
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.result;
+use logos.lang.slice;
+
+/// A type that is a row of a Z-set: an order-preserving byte encoding.
+pub trait RowKey {
+    fn rk_encode(self: &Self, out: &mut Vec<u8>);
+    /// Reads one value starting at `*at`, advancing `*at` past it.
+    fn rk_decode(b: &[u8], at: &mut i64) -> Self;
+}
+
+fn rk_put_be(out: &mut Vec<u8>, v: u64, n: u64) {
+    let mut i: u64 = n;
+    while i > 0u64 { i = i - 1u64; out.push(((v >> (8u64 * i)) & 255u64) as u8); }
+}
+
+fn rk_get_be(b: &[u8], at: &mut i64, n: i64) -> u64 {
+    let mut v: u64 = 0u64;
+    let mut i: i64 = 0i64;
+    while i < n { v = (v << 8u64) | (b[*at + i] as u64); i = i + 1i64; }
+    *at = *at + n;
+    return v;
+}
+
+impl RowKey for u64 {
+    fn rk_encode(self: &u64, out: &mut Vec<u8>) { rk_put_be(out, *self, 8u64); }
+    fn rk_decode(b: &[u8], at: &mut i64) -> u64 { return rk_get_be(b, at, 8i64); }
+}
+impl RowKey for i64 {
+    fn rk_encode(self: &i64, out: &mut Vec<u8>) { rk_put_be(out, (*self as u64) ^ 9223372036854775808u64, 8u64); }
+    fn rk_decode(b: &[u8], at: &mut i64) -> i64 { return (rk_get_be(b, at, 8i64) ^ 9223372036854775808u64) as i64; }
+}
+impl RowKey for u32 {
+    fn rk_encode(self: &u32, out: &mut Vec<u8>) { rk_put_be(out, *self as u64, 4u64); }
+    fn rk_decode(b: &[u8], at: &mut i64) -> u32 { return rk_get_be(b, at, 4i64) as u32; }
+}
+impl RowKey for i32 {
+    fn rk_encode(self: &i32, out: &mut Vec<u8>) { rk_put_be(out, ((*self as u32) ^ 2147483648u32) as u64, 4u64); }
+    fn rk_decode(b: &[u8], at: &mut i64) -> i32 { return ((rk_get_be(b, at, 4i64) as u32) ^ 2147483648u32) as i32; }
+}
+impl RowKey for bool {
+    fn rk_encode(self: &bool, out: &mut Vec<u8>) { out.push(if *self { 1u8 } else { 0u8 }); }
+    fn rk_decode(b: &[u8], at: &mut i64) -> bool { let v: u8 = b[*at]; *at = *at + 1i64; return v != 0u8; }
+}
+impl RowKey for String {
+    fn rk_encode(self: &String, out: &mut Vec<u8>) {
+        let s: &str = self.as_str();
+        let mut i: i64 = 0i64;
+        while i < s.len() {
+            let c: u8 = s.as_bytes()[i];
+            out.push(c);
+            if c == 0u8 { out.push(255u8); }
+            i = i + 1i64;
+        }
+        out.push(0u8);
+        out.push(0u8);
+    }
+    fn rk_decode(b: &[u8], at: &mut i64) -> String {
+        let mut s: String = String::new();
+        loop {
+            let c: u8 = b[*at];
+            if c == 0u8 {
+                let next: u8 = b[*at + 1i64];
+                *at = *at + 2i64;
+                if next == 0u8 { break; }
+                s.push_u8(0u8);
+            } else {
+                s.push_u8(c);
+                *at = *at + 1i64;
+            }
+        }
+        return s;
+    }
+}
+
+/// The bytes of one row.
+pub fn row_bytes<T: RowKey>(r: &T) -> Vec<u8> {
+    let mut b: Vec<u8> = Vec::new();
+    r.rk_encode(&mut b);
+    return b;
+}
+
+/// The row whose bytes are `b`; panics unless they hold exactly one row.
+pub fn row_of<T: RowKey>(b: &[u8]) -> T {
+    let mut at: i64 = 0i64;
+    let r: T = T::rk_decode(b, &mut at);
+    assert(at == b.len(), "zset: row bytes hold more than one row");
+    return r;
+}
+
+/// Why a delta batch was refused (nothing was applied).
+pub enum ZError {
+    /// The batch is not strictly increasing by row bytes (unsorted or a repeat).
+    Unsorted,
+    /// An encoded row is longer than STR_KEY_RESERVE bytes.
+    RowTooLong,
+}
+
+/// Applies a delta batch sorted strictly by row bytes: each row's weight is
+/// added to the stored one, and a row whose weight reaches zero is removed.
+/// The batch is checked whole before the first write, so a refusal applies
+/// nothing.
+pub fn zset_apply<M: ZStore>(m: &mut M, batch: &Vec<(Vec<u8>, i64)>) -> Result<(), ZError> {
+    let mut i: i64 = 0i64;
+    while i < batch.len() {
+        if batch[i].0.len() > STR_KEY_RESERVE { return Result::Err(ZError::RowTooLong); }
+        if i > 0i64 && bytes_cmp(batch[i - 1i64].0.as_slice(), batch[i].0.as_slice()) >= 0i32 { return Result::Err(ZError::Unsorted); }
+        i = i + 1i64;
+    }
+    i = 0i64;
+    while i < batch.len() {
+        let k: &[u8] = batch[i].0.as_slice();
+        let w: i64 = m.z_weight(k) + batch[i].1;
+        m.z_set(k, w);
+        i = i + 1i64;
+    }
+    return Result::Ok(());
+}
+
+// Merge sort of (row bytes, weight) pairs by row bytes, stable.
+fn zsort(v: &Vec<(Vec<u8>, i64)>, lo: i64, hi: i64, out: &mut Vec<(Vec<u8>, i64)>) {
+    if hi - lo <= 1i64 {
+        if hi > lo { out.push((v[lo].0.clone(), v[lo].1)); }
+        return;
+    }
+    let mid: i64 = lo + (hi - lo) / 2i64;
+    let mut a: Vec<(Vec<u8>, i64)> = Vec::new();
+    let mut b: Vec<(Vec<u8>, i64)> = Vec::new();
+    zsort(v, lo, mid, &mut a);
+    zsort(v, mid, hi, &mut b);
+    let mut i: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while i < a.len() || j < b.len() {
+        if j >= b.len() || (i < a.len() && bytes_cmp(a[i].0.as_slice(), b[j].0.as_slice()) <= 0i32) {
+            out.push((a[i].0.clone(), a[i].1)); i = i + 1i64;
+        } else {
+            out.push((b[j].0.clone(), b[j].1)); j = j + 1i64;
+        }
+    }
+}
+
+/// Applies typed delta rows in any order: encodes, sorts, coalesces equal rows
+/// (their weights add; a sum of zero drops the row from the batch) and applies.
+pub fn zset_apply_rows<T: RowKey, M: ZStore>(m: &mut M, rows: &Vec<(T, i64)>) -> Result<(), ZError> {
+    let mut enc: Vec<(Vec<u8>, i64)> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < rows.len() { enc.push((row_bytes::<T>(&rows[i].0), rows[i].1)); i = i + 1i64; }
+    let mut sorted: Vec<(Vec<u8>, i64)> = Vec::new();
+    zsort(&enc, 0i64, enc.len(), &mut sorted);
+    let mut batch: Vec<(Vec<u8>, i64)> = Vec::new();
+    i = 0i64;
+    while i < sorted.len() {
+        let mut w: i64 = sorted[i].1;
+        let mut j: i64 = i + 1i64;
+        while j < sorted.len() && bytes_cmp(sorted[i].0.as_slice(), sorted[j].0.as_slice()) == 0i32 { w = w + sorted[j].1; j = j + 1i64; }
+        if w != 0i64 { batch.push((sorted[i].0.clone(), w)); }
+        i = j;
+    }
+    return zset_apply::<M>(m, &batch);
+}
+
+/// The Z-set's rows with their weights, in row order.
+pub fn zset_rows<T: RowKey, M: ZStore>(m: &M) -> Vec<(T, i64)> {
+    let mut raw: Vec<(Vec<u8>, i64)> = Vec::new();
+    m.z_entries(&mut raw);
+    let mut out: Vec<(T, i64)> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < raw.len() { out.push((row_of::<T>(raw[i].0.as_slice()), raw[i].1)); i = i + 1i64; }
+    return out;
+}

@@ -1,0 +1,203 @@
+// zset_rows — ADR 0039 M9: a persistent Z-set of struct rows. Random delta
+// batches (repeats inside a batch, negative weights, rows interleaving the
+// stored ones) applied across commits and a fork; after every batch the stored
+// rows equal an independent model kept on the struct's FIELDS (no row bytes):
+// same rows, same weights, and the order is the fields' tuple order. A weight
+// that cancels removes the row; an unsorted raw batch and an over-long row are
+// refused with nothing applied.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.lcm.canon.zset;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.arith;
+use logos.lang.result;
+use logos.std.io;
+
+container Edges { kind ordered_map; entry { key: str, val: i64 } measure max(key); }
+
+pub struct Edge { src: u64, dst: i64, label: String }
+
+impl RowKey for Edge {
+    fn rk_encode(self: &Edge, out: &mut Vec<u8>) { self.src.rk_encode(out); self.dst.rk_encode(out); self.label.rk_encode(out); }
+    fn rk_decode(b: &[u8], at: &mut i64) -> Edge {
+        let s: u64 = u64::rk_decode(b, at);
+        let d: i64 = i64::rk_decode(b, at);
+        let l: String = String::rk_decode(b, at);
+        return Edge { src: s, dst: d, label: l };
+    }
+}
+
+struct Lcg { s: u64 }
+impl Lcg {
+    fn next(self: &mut Lcg) -> u64 { self.s = self.s.wrapping_mul(6364136223846793005u64).wrapping_add(1442695040888963407u64); return self.s >> 33u64; }
+}
+
+fn label_of(n: u64) -> String {
+    let mut s: String = String::new();
+    if n % 5u64 == 0u64 { return s; }                    // the empty label
+    s.push_str("e");
+    if n % 7u64 == 0u64 { s.push_u8(0u8); }              // an embedded NUL
+    let mut i: u64 = 0u64;
+    while i < n % 4u64 { s.push_u8((97u64 + n % 26u64) as u8); i = i + 1u64; }
+    return s;
+}
+
+fn edge_eq(a: &Edge, b: &Edge) -> bool { return a.src == b.src && a.dst == b.dst && a.label.eq_string(&b.label); }
+
+// The fields' tuple order, bytewise on the label (no row encoding involved).
+fn edge_lt(a: &Edge, b: &Edge) -> bool {
+    if a.src != b.src { return a.src < b.src; }
+    if a.dst != b.dst { return a.dst < b.dst; }
+    let x: &str = a.label.as_str();
+    let y: &str = b.label.as_str();
+    let mut i: i64 = 0i64;
+    while i < x.len() && i < y.len() {
+        if x.as_bytes()[i] != y.as_bytes()[i] { return x.as_bytes()[i] < y.as_bytes()[i]; }
+        i = i + 1i64;
+    }
+    return x.len() < y.len();
+}
+
+fn edge_copy(e: &Edge) -> Edge { return Edge { src: e.src, dst: e.dst, label: String::from(e.label.as_str()) }; }
+
+// The model: an unordered list of (row, nonzero weight).
+fn model_add(m: &mut Vec<(Edge, i64)>, e: &Edge, w: i64) {
+    let mut i: i64 = 0i64;
+    while i < m.len() {
+        if edge_eq(&m[i].0, e) {
+            let n: i64 = m[i].1 + w;
+            if n == 0i64 { let _ = m.remove(i); } else { m[i].1 = n; }
+            return;
+        }
+        i = i + 1i64;
+    }
+    if w != 0i64 { m.push((edge_copy(e), w)); }
+}
+
+fn model_copy(m: &Vec<(Edge, i64)>) -> Vec<(Edge, i64)> {
+    let mut c: Vec<(Edge, i64)> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < m.len() { c.push((edge_copy(&m[i].0), m[i].1)); i = i + 1i64; }
+    return c;
+}
+
+// Stored rows == model: same count, strictly increasing in tuple order, and
+// every stored (row, weight) is the model's.
+fn matches(got: &Vec<(Edge, i64)>, m: &Vec<(Edge, i64)>) -> bool {
+    if got.len() != m.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < got.len() {
+        if i > 0i64 && !edge_lt(&got[i - 1i64].0, &got[i].0) { return false; }
+        let mut found: bool = false;
+        let mut j: i64 = 0i64;
+        while j < m.len() { if edge_eq(&m[j].0, &got[i].0) && m[j].1 == got[i].1 { found = true; } j = j + 1i64; }
+        if !found { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn random_edge(rng: &mut Lcg) -> Edge {
+    let s: u64 = rng.next() % 6u64;
+    let d: i64 = (rng.next() % 9u64) as i64 - 4i64;          // negative and positive
+    return Edge { src: s, dst: d, label: label_of(rng.next() % 40u64) };
+}
+
+fn run_all() -> i32 {
+    let mut rng: Lcg = Lcg { s: 99u64 };
+    let mut store: Arc<MemoryStore> = store_new();
+    let mut model: Vec<(Edge, i64)> = Vec::new();
+
+    let s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let mut z = create_ctr::<typeof(Edges)>(&s1, 1u64);
+        let mut round: i64 = 0i64;
+        while round < 40i64 {
+            let mut batch: Vec<(Edge, i64)> = Vec::new();
+            let n: u64 = 1u64 + rng.next() % 12u64;
+            let mut k: u64 = 0u64;
+            while k < n {
+                let e: Edge = random_edge(&mut rng);
+                let w: i64 = (rng.next() % 7u64) as i64 - 3i64;   // -3..3, zero included
+                model_add(&mut model, &e, w);
+                batch.push((e, w));
+                if rng.next() % 4u64 == 0u64 {                     // the same row again in this batch
+                    let e2: Edge = edge_copy(&batch[batch.len() - 1i64].0);
+                    model_add(&mut model, &e2, 0i64 - w);
+                    batch.push((e2, 0i64 - w));
+                }
+                k = k + 1u64;
+            }
+            match zset_apply_rows::<Edge, _>(&mut z, &batch) { Result::Ok(_) => {} Result::Err(_) => { return 1i32; } }
+            if !matches(&zset_rows::<Edge, _>(&z), &model) { return 2i32; }
+            round = round + 1i64;
+        }
+    }
+    s1.commit();
+    let m1: Vec<(Edge, i64)> = model_copy(&model);
+
+    // a fork applies more; the committed parent keeps its rows
+    let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let mut z = open_ctr::<typeof(Edges)>(&s2, 1u64);
+        let mut round: i64 = 0i64;
+        while round < 20i64 {
+            let mut batch: Vec<(Edge, i64)> = Vec::new();
+            let e: Edge = random_edge(&mut rng);
+            let w: i64 = 1i64 + (rng.next() % 3u64) as i64;
+            model_add(&mut model, &e, w);
+            batch.push((e, w));
+            match zset_apply_rows::<Edge, _>(&mut z, &batch) { Result::Ok(_) => {} Result::Err(_) => { return 10i32; } }
+            round = round + 1i64;
+        }
+        if !matches(&zset_rows::<Edge, _>(&z), &model) { return 11i32; }
+        let p = open_ctr::<typeof(Edges)>(&s1, 1u64);
+        if !matches(&zset_rows::<Edge, _>(&p), &m1) { return 12i32; }
+
+        // cancel every stored row: the Z-set becomes empty, not zero-weighted
+        let mut neg: Vec<(Edge, i64)> = Vec::new();
+        let mut i: i64 = 0i64;
+        while i < model.len() { neg.push((edge_copy(&model[i].0), 0i64 - model[i].1)); i = i + 1i64; }
+        match zset_apply_rows::<Edge, _>(&mut z, &neg) { Result::Ok(_) => {} Result::Err(_) => { return 13i32; } }
+        if z.size() != 0u64 { return 14i32; }
+        if zset_rows::<Edge, _>(&z).len() != 0i64 { return 15i32; }
+
+        // refusals apply nothing
+        let one: Edge = Edge { src: 1u64, dst: 1i64, label: String::from("x") };
+        let two: Edge = Edge { src: 2u64, dst: 1i64, label: String::from("x") };
+        let mut raw: Vec<(Vec<u8>, i64)> = Vec::new();
+        raw.push((row_bytes::<Edge>(&two), 1i64));
+        raw.push((row_bytes::<Edge>(&one), 1i64));
+        match zset_apply::<_>(&mut z, &raw) {
+            Result::Ok(_) => { return 16i32; }
+            Result::Err(e) => { match e { ZError::Unsorted => {} _ => { return 17i32; } } }
+        }
+        let mut long: String = String::new();
+        while long.len() < 300i64 { long.push_str("y"); }
+        let mut lb: Vec<(Edge, i64)> = Vec::new();
+        lb.push((edge_copy(&one), 1i64));
+        lb.push((Edge { src: 3u64, dst: 0i64, label: long }, 1i64));
+        match zset_apply_rows::<Edge, _>(&mut z, &lb) {
+            Result::Ok(_) => { return 18i32; }
+            Result::Err(e) => { match e { ZError::RowTooLong => {} _ => { return 19i32; } } }
+        }
+        if z.size() != 0u64 { return 20i32; }
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL zset_rows: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}
