@@ -167,42 +167,6 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         return Option::Some(&mut (*e).val);
     } }
 
-    /// Returns a pointer to the value for `key`, or null if absent (raw form;
-    /// transitional, squeue hashmap_get_unsafe_raw_api_refused).
-    pub unsafe fn get_ptr(&mut self, key: &K) -> *const V {
-        let (idx, found) = self.probe(key);
-        if !found { return 0 as *const V; }
-        let e: *mut Slot<K, V> = &mut self.entries[idx];
-        return &e.val as *const V;
-    }
-
-    /// Returns a mutable pointer to the value for `key`, or null if absent (raw form).
-    pub unsafe fn get_mut_ptr(&mut self, key: &K) -> *mut V {
-        let (idx, found) = self.probe(key);
-        if !found { return 0 as *mut V; }
-        let e: *mut Slot<K, V> = &mut self.entries[idx];
-        return &mut e.val as *mut V;
-    }
-
-    /// Returns a pointer to the value bound to `key`, inserting `default` if absent.
-    /// Single-probe find-or-insert (Rust's `entry().or_insert()`): ONE probe + ONE hash vs
-    /// get-then-insert's two of each — the idiomatic count/accumulate path
-    /// (`*m.get_or_insert(k, 0) += 1`). If `key` is already present, `default` is dropped.
-    pub unsafe fn get_or_insert_ptr(&mut self, key: K, default: V) -> *mut V {
-        if (self.len + 1 as i64) * 4 as i64 > self.cap * 3 as i64 {
-            self.resize(self.cap * 2 as i64);
-        }
-        let (idx, found) = self.probe(&key);
-        let e: *mut Slot<K, V> = &mut self.entries[idx];
-        if !found {
-            e.key = key;
-            e.val = default;
-            self.states[idx] = SLOT_OCCUPIED;
-            self.len = self.len + 1 as i64;
-        }
-        return &mut e.val as *mut V;
-    }
-
     /// Removes `key` from the map, returning its value if it was present; the stored key is dropped.
     pub fn remove(&mut self, key: &K) -> Option<V> { unsafe {
         // Rust's `remove`: the value is returned, the stored key dropped (both leaked before).
