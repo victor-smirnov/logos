@@ -1316,7 +1316,7 @@ unsafe fn ser_map_refs(img: *mut u8, ids: *mut HashMap<u64, u64>, to_id: bool,
             let cell: u64 = b.get(0u32, i);
             if cell != 0u64 {
                 if to_id {
-                    let p: *const u64 = (*ids).get(&cell);
+                    let p: *const u64 = (*ids).get_ptr(&cell);
                     assert(p != (0 as *const u64), "store_save: unvisited block reference");
                     b.set(0u32, i, *p);
                 } else {
@@ -1389,7 +1389,7 @@ pub fn store_save<W: OutStream>(st: &Arc<MemoryStore>, out: &mut W) -> bool {
             let mut i: i64 = 0i64;
             while i < descs.len() {
                 let d: *mut SnapDesc = descs.get(i) as *mut SnapDesc;
-                let rid: *const u64 = ids.get(&(*d).dir_root.id());
+                let rid: *const u64 = ids.get_ptr(&(*d).dir_root.id());
                 assert(rid != (0 as *const u64), "store_save: snapshot root unvisited");
                 if !out.write_u64((*d).id) { return false; }
                 if !out.write_u64((*d).parent) { return false; }

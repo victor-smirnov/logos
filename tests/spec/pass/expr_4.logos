@@ -220,10 +220,9 @@ fn main() -> i64 {
         let mut m: HashMap<i64, i64> = {x: x * 10i64 for x in arr};
         if m.len() != 5i64 { return 15; }
         let k: i64 = 3i64;
-        unsafe {
-            let pv = m.get(&k);
-            if pv == 0 as *const i64 { return 15; }
-            if *pv != 30i64 { return 15; }
+        match m.get(&k) {
+            Option::Some(pv) => { if *pv != 30i64 { return 15; } }
+            Option::None => { return 15; }
         }
     }
 
