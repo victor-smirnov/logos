@@ -18268,6 +18268,7 @@ sym	logos_lang.logos.lang.writ.dview$htag_align__f__u64__u64
 sym	logos_lang.logos.lang.writ.dview$htag_cmp__f__u64__u64__pcst_u8__u64__pcst_u8__u64
 sym	logos_lang.logos.lang.writ.dview$htag_size__f__u64__u64
 sym	logos_lang.logos.lang.writ.equal$equal__f__WAny$Mbca990539d695b8c__WAny$Mbca990539d695b8c
+sym	logos_lang.logos.lang.writ.objdata$wod_from_raw__f__pcst_u8__i64__u64
 sym	logos_lang.logos.lang.writ.objdata$wod_materialize_raw__f__ref_Writ$M50d537c7332380e0__pcst_u8__u64
 sym	logos_lang.logos.lang.writ.objdata$wod_serialize__f__WAny$Mbca990539d695b8c
 sym	logos_lang.logos.lang.writ.objdata$wod_tag_is_scalar__f__u64

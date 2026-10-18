@@ -241,7 +241,12 @@ stdlib/lang/rc/rc.logos	7
 stdlib/lang/writ/array.logos	2
 stdlib/lang/writ/compactify.logos	1
 stdlib/lang/writ/decimal.logos	1
-stdlib/lang/writ/objdata.logos	2
+# 2026-10-18 — `stdlib/lang/writ/objdata.logos` 2 -> 3. The new site is the
+# same shape in `wod_from_raw` (ADR 0039 M1w: an owned copy of a container
+# cell's run): `writ_alloc_bytes((&d) as *const Writ as *mut Writ, off + len)`.
+# REVIEWED, same reason as the two above: `Writ` is non-Freeze (UnsafeCell),
+# and `d` is the function's own local, moved into the returned value.
+stdlib/lang/writ/objdata.logos	3
 stdlib/lang/writ/parameter.logos	1
 stdlib/lang/writ/tmpl.logos	1
 stdlib/lang/writ/typed_arr.logos	2
