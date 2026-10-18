@@ -1,0 +1,155 @@
+// ctr_writ_cells — ADR 0039 M1w: Writ objects as container cells. Every root
+// kind (inline scalar, boxed u64, string, nested array, map) round-trips
+// through a u64-keyed and a str-keyed map, across a commit and a fork; a fork's
+// replacement stays invisible to its parent; an object over the frame limit is
+// refused at INSERT (the container unchanged) while the largest one under it
+// lands and reads back intact.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.lcm.canon.writcell;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.mem.string;
+use logos.mem.writ.equal;
+use logos.lang.writ.objdata;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
+use logos.lang.writ.array;
+use logos.lang.writ.wmap;
+use logos.lang.rc;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.io;
+
+container Docs { kind ordered_map; entry { key: u64, val: WritObjectData } measure max(key); }
+container Named { kind ordered_map; entry { key: str, val: WritObjectData } measure max(key); }
+
+fn ser(v: WAny) -> WritObjectData {
+    match wod_serialize(v) { Result::Ok(d) => { return d; } Result::Err(_) => { assert(false, "serialize"); return wod_serialize(WAny::null()).unwrap(); } }
+}
+
+// Same tag, same bytes.
+fn same(a: &WritObjectData, b: &WritObjectData) -> bool {
+    if a.tag() != b.tag() || a.len() != b.len() { return false; }
+    let pa: *const u8 = a.as_ptr();
+    let pb: *const u8 = b.as_ptr();
+    let mut i: i64 = 0i64;
+    while i < a.len() { if unsafe { *pa.byte_add(i) != *pb.byte_add(i) } { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn got(o: Option<WritObjectData>) -> WritObjectData {
+    match o { Option::Some(d) => { return d; } Option::None => { assert(false, "get_obj: missing"); return got(o); } }
+}
+
+fn run_all() -> i32 {
+    let src: Rc<Writ> = writ_rc(65536);
+    let h: &Writ = src.deref();
+    let mut objs: Vec<WritObjectData> = Vec::new();
+    objs.push(ser(WAny::from((0i64 - 1234i64) as i56)));
+    objs.push(ser(WAny::from(true)));
+    objs.push(ser(unsafe { box_u64(h.allocator.get(), 18446744073709551615u64) }));
+    objs.push(ser(WAny::from(h.wstring("hello-writ"))));
+    let inner: &mut WArray<WAny> = h.array(4);
+    inner.push(3i64);
+    inner.push(4i64);
+    let outer: &mut WArray<WAny> = h.array(4);
+    outer.push(7i64);
+    outer.push("two");
+    outer.push(&*inner);
+    objs.push(ser(WAny::from(&*outer)));
+    let mp: &mut WMap<WString, WAny> = h.map(8);
+    mp.set("a", 1i64);
+    mp.set("b", "x");
+    objs.push(ser(WAny::from(&*mp)));
+
+    let mut store: Arc<MemoryStore> = store_new();
+    let s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let mut m = create_ctr::<typeof(Docs)>(&s1, 1u64);
+        let mut i: i64 = 0i64;
+        while i < objs.len() { m.insert_obj((i + 1i64) as u64, objs.borrow(i)); i = i + 1i64; }
+        let mut n = create_ctr::<typeof(Named)>(&s1, 2u64);
+        n.insert_obj("outer", objs.borrow(4i64));
+        n.insert_obj("map", objs.borrow(5i64));
+    }
+    s1.commit();
+
+    // read back after the commit, from a fresh handle
+    let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let m = open_ctr::<typeof(Docs)>(&s1, 1u64);
+        let mut i: i64 = 0i64;
+        while i < objs.len() {
+            let d: WritObjectData = got(m.get_obj((i + 1i64) as u64));
+            if !same(&d, objs.borrow(i)) { return 10i32 + i as i32; }
+            i = i + 1i64;
+        }
+        match m.get_obj(99u64) { Option::Some(_) => { return 20i32; } Option::None => {} }
+        // views read in place on the copy
+        if got(m.get_obj(1u64)).as_i64() != 0i64 - 1234i64 { return 21i32; }
+        if !got(m.get_obj(2u64)).as_bool() { return 22i32; }
+        if !str_eq(got(m.get_obj(4u64)).as_string().as_str(), "hello-writ") { return 23i32; }
+        if got(m.get_obj(5u64)).as_array().len() != 3i64 { return 24i32; }
+        if got(m.get_obj(6u64)).as_map().len() != 2i64 { return 25i32; }
+        // materialize back into a live document: equal to the original value
+        let w: Rc<Writ> = writ_rc(8192);
+        match got(m.get_obj(5u64)).materialize(w.deref()) {
+            Result::Ok(v) => { if !writ_equal(v, WAny::from(&*outer)) { return 26i32; } }
+            Result::Err(_) => { return 27i32; }
+        }
+        let n = open_ctr::<typeof(Named)>(&s1, 2u64);
+        if !same(&got(n.get_obj("outer")), objs.borrow(4i64)) { return 28i32; }
+        if !same(&got(n.get_obj("map")), objs.borrow(5i64)) { return 29i32; }
+    }
+
+    // a fork replaces an object; the parent keeps the old one
+    {
+        let mut f = open_ctr::<typeof(Docs)>(&s2, 1u64);
+        f.insert_obj(4u64, objs.borrow(5i64));
+        if !same(&got(f.get_obj(4u64)), objs.borrow(5i64)) { return 30i32; }
+        let p = open_ctr::<typeof(Docs)>(&s1, 1u64);
+        if !same(&got(p.get_obj(4u64)), objs.borrow(3i64)) { return 31i32; }
+    }
+
+    // the frame limit: an over-limit string is refused, the largest under it lands
+    {
+        let mut f = open_ctr::<typeof(Docs)>(&s2, 1u64);
+        let lim: u64 = f.frame_limit();
+        let before: u64 = f.size();
+        let mut text: String = String::new();
+        while (text.len() as u64) < lim { text.push_str("w"); }
+        let big: WritObjectData = ser(WAny::from(h.wstring(text.as_str())));
+        match f.try_insert_obj(100u64, &big) {
+            Result::Ok(_) => { return 40i32; }
+            Result::Err(e) => { match e { InsertError::FrameLimit => {} _ => { return 41i32; } } }
+        }
+        if f.size() != before { return 42i32; }
+        match f.get_obj(100u64) { Option::Some(_) => { return 43i32; } Option::None => {} }
+        // shrink until the cell fits: key (8) + tag (8) + run <= limit
+        let mut fit: WritObjectData = ser(WAny::from(h.wstring(text.as_str())));
+        while 16u64 + (fit.len() as u64) > lim {
+            text = String::from(&text.as_str()[0i64..text.len() - 8i64]);
+            fit = ser(WAny::from(h.wstring(text.as_str())));
+        }
+        match f.try_insert_obj(100u64, &fit) { Result::Ok(_) => {} Result::Err(_) => { return 44i32; } }
+        if !same(&got(f.get_obj(100u64)), &fit) { return 45i32; }
+        if (fit.len() as u64) + 16u64 + 64u64 < lim { return 46i32; }     // the probe was near the limit
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_writ_cells: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

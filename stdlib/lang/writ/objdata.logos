@@ -234,6 +234,29 @@ pub fn wod_serialize(v: WAny) -> Result<WritObjectData, CloneRefusal> {
     }
 }
 
+// ── an owned copy of a run held elsewhere (a Memoria cell) ────────────────────
+
+/// An owned [WritObjectData] over a COPY of the tagless run at `p` (`len`
+/// bytes, external `tag`): the read side of a container cell (ADR 0039 M1w).
+/// A run is position-independent, so the copy reads in place at its new base.
+/// `p` may be unaligned; the copy is 8-aligned like every run.
+pub unsafe fn wod_from_raw(p: *const u8, len: i64, tag: u64) -> WritObjectData {
+    if tag == 0u64 || len == 0i64 {
+        return WritObjectData { doc: writ_new(16i64), off: 0i64, len: 0i64, tag: 0u64 };
+    }
+    // Scalars sit at byte 0 (no tag slot); an object root follows its dropped
+    // 8-byte tag slot, as `wod_serialize` lays them out.
+    let scalar: bool = wod_tag_is_scalar(tag) || tag == W_I64 || tag == W_U64 || tag == W_F32 || tag == W_F64;
+    let off: i64 = if scalar { 0i64 } else { 8i64 };
+    let d: Writ = writ_new(off + len + 16i64);
+    let q: *mut u8 = writ_alloc_bytes((&d) as *const Writ as *mut Writ, off + len);
+    if q.is_null() { panic("writ objdata: out of memory copying a run"); }
+    memset(q, 0i32, off);
+    let mut i: i64 = 0i64;
+    while i < len { *q.byte_add(off + i) = *p.byte_add(i); i = i + 1i64; }
+    return WritObjectData { doc: d, off: off, len: len, tag: tag };
+}
+
 // ── materialization (the thaw half of the mutate cycle) ───────────────────────
 
 /// Deep-copies a tagless object run (base `p`, external `tag`) into the live

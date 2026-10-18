@@ -2735,6 +2735,25 @@ fn emit_cfg_doc(name: &str, cs: &ContainerSpec) -> bool {
         unsafe { logos_emit_item_blob_subst(&b); }
         return true;
     }
+    // A Writ value column (M1w): a `str` value family underneath plus the
+    // Writ surface the factory adds on the `"writ"` flag (lcm.canon.writcell).
+    if str_eq(vty, "WritObjectData") {
+        if str_eq(kty, "str") {
+            let b: QuoteItemBlob = quote_item! {
+                use logos.lang.writ.wstatic;
+                pub const #cfgnm #(gp): WritStatic = @{ "kind": "ordered_map", "key": "str", "value": "str", "writ": "1" };
+            };
+            unsafe { logos_emit_item_blob_subst(&b); }
+        } else {
+            let kt: ExprBlob = parse_type(kty);
+            let b: QuoteItemBlob = quote_item! {
+                use logos.lang.writ.wstatic;
+                pub const #cfgnm #(gp): WritStatic = @{ "kind": "ordered_map", "key": <type:#(kt)>, "value": "str", "writ": "1" };
+            };
+            unsafe { logos_emit_item_blob_subst(&b); }
+        }
+        return true;
+    }
     // A `str` KEY (M4b) takes the same `"str"` VLE tag a `str` value does.
     if str_eq(kty, "str") {
         if str_eq(vty, "str") {
@@ -4315,6 +4334,47 @@ fn emit_dview_surface(name: &str) {
     unsafe { logos_emit_item_blob_subst(&q); }
 }
 
+// The Writ surface of an `entry { key: K, val: WritObjectData }` ordered_map
+// (ADR 0039 M1w): objects in, owned objects out, over the `str`-valued family
+// (cell = tag ++ run, logos.lcm.canon.writcell). An object over the frame
+// limit is refused at INSERT.
+fn emit_writ_surface(name: &str, kty: &str) {
+    let nm: Ident = Ident::new(name);
+    let kid: ExprBlob = parse_type(if str_eq(kty, "str") { "&str" } else { kty });
+    let q: QuoteItemBlob = quote_item! {
+        use logos.lcm.canon.writcell;
+        use logos.lcm.canon.metaclass;    // InsertError
+        use logos.lang.writ.objdata;
+        use logos.lang.option;
+        use logos.lang.result;
+        use logos.lang.str;
+        use logos.lang.panic;
+        use logos.mem.collections.vec;
+        impl #nm {
+            /// Insert or replace `key` -> `v`. An object whose cell is over the
+            /// frame limit is refused and the container is left unchanged.
+            pub fn try_insert_obj(self: &mut #nm, key: #(kid), v: &WritObjectData) -> Result<(), InsertError> {
+                let mut b: Vec<u8> = Vec::new();
+                writ_cell_bytes(v, &mut b);
+                let vs: &str = unsafe { str_from_raw(b.as_ptr(), b.len()) };
+                return self.try_insert(key, vs);
+            }
+            /// `try_insert_obj` that panics on a refusal.
+            pub fn insert_obj(self: &mut #nm, key: #(kid), v: &WritObjectData) {
+                match self.try_insert_obj(key, v) {
+                    Result::Ok(_u) => {}
+                    Result::Err(_e) => { panic("Writ map: an object over the container's frame limit (frame_limit())"); }
+                }
+            }
+            /// The object at `key`, an owned copy; None when absent.
+            pub fn get_obj(self: &#nm, key: #(kid)) -> Option<WritObjectData> {
+                return writ_of_cell(self.get_or(key));
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&q); }
+}
+
 pub fn __container_factory(hash_hex: &str, cfg_src: &str) -> ItemList {
     let out: ItemList = item_list_new();
     if hash_hex.len() == 0i64 {
@@ -4464,6 +4524,13 @@ pub fn __container_factory(hash_hex: &str, cfg_src: &str) -> ItemList {
     // A DView map: the runtime-typed surface over the `str`/`str` family.
     if str_eq(kind, KIND_ORDERED_MAP) && cfg_value_pos(cfg_src, "\"dview\"") >= 0i64 {
         emit_dview_surface(fam.as_str());
+    }
+    // A Writ map: the object surface over the `str`-valued family.
+    if str_eq(kind, KIND_ORDERED_MAP) && cfg_value_pos(cfg_src, "\"writ\"") >= 0i64 {
+        let wkp: i64 = cfg_value_pos(cfg_src, "\"key\"");
+        let mut wkty: &str = cfg_read_type_slot(cfg_src, wkp);
+        if wkty.len() == 0i64 { wkty = "str"; }
+        emit_writ_surface(fam.as_str(), wkty);
     }
 
     // ── satisfaction marker + Phase 4a surface: the full CtrFamily impl ────
