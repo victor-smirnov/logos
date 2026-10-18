@@ -392,6 +392,7 @@ sym	logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$f64__fmt__g__ref_Vec$M4ed
 sym	logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$i32__fmt__g__ref_Vec$M4edea24aa4768b45$G1$T__refmut_Formatter$M906c9710fe03ed97
 sym	logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$i64__fmt__g__ref_Vec$M4edea24aa4768b45$G1$T__refmut_Formatter$M906c9710fe03ed97
 sym	logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$slice_str__fmt__g__ref_Vec$M4edea24aa4768b45$G1$T__refmut_Formatter$M906c9710fe03ed97
+sym	logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__fmt__g__ref_Vec$M4edea24aa4768b45$G1$T__refmut_Formatter$M906c9710fe03ed97
 sym	logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$slice_str$slice_str__fmt__g__ref_Vec$M4edea24aa4768b45$G1$T__refmut_Formatter$M906c9710fe03ed97
 sym	logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$u64$u64__fmt__g__ref_Vec$M4edea24aa4768b45$G1$T__refmut_Formatter$M906c9710fe03ed97
 sym	logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$3$slice_str$i64$slice_str__fmt__g__ref_Vec$M4edea24aa4768b45$G1$T__refmut_Formatter$M906c9710fe03ed97
@@ -824,6 +825,7 @@ sym	logos_lang..logos.lang.clone.$ref_$T__clone__g__ref_ref_T__uslice_tup$2$slic
 sym	logos_lang..logos.lang.clone.$ref_$T__clone__g__ref_ref_T__uslice_tup$3$slice_str$slice_str$slice_str
 sym	logos_lang..logos.lang.clone.$ref_$T__clone__g__ref_ref_T__uslice_tup$5$slice_str$slice_str$slice_str$slice_str$slice_str
 sym	logos_lang..logos.lang.clone.$ref_$T__clone__g__ref_ref_T__uslice_tup$8$i64$slice_str$i64$i64$slice_str$i64$i64$slice_str
+sym	logos_lang..logos.lang.clone.$tuple$2__clone__g__ref_tup$2$A$B__Vec$M4edea24aa4768b45$G1$u8__i64
 sym	logos_lang..logos.lang.clone.$tuple$2__clone__g__ref_tup$2$A$B__i64__String$M5ca39a0a178b867d
 sym	logos_lang..logos.lang.clone.$tuple$2__clone__g__ref_tup$2$A$B__i64__char
 sym	logos_lang..logos.lang.clone.$tuple$2__clone__g__ref_tup$2$A$B__i64__i32
@@ -881,6 +883,7 @@ sym	logos_lang..logos.lang.cmp.$tuple$2__partial_cmp__g__ref_tup$2$A$B__ref_tup$
 sym	logos_lang..logos.lang.cmp.$tuple$2__partial_cmp__g__ref_tup$2$A$B__ref_tup$2$A$B__i64__slice_str
 sym	logos_lang..logos.lang.cmp.$tuple$2__partial_cmp__g__ref_tup$2$A$B__ref_tup$2$A$B__i64__tup$2$i64$char
 sym	logos_lang..logos.lang.cmp.$tuple$2__partial_cmp__g__ref_tup$2$A$B__ref_tup$2$A$B__i64__u8
+sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__Vec$M4edea24aa4768b45$G1$u8__i64
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__i64__String$M5ca39a0a178b867d
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__i64__char
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__i64__i32
@@ -19199,6 +19202,27 @@ sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$slice_str__len
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$slice_str__ne__g__ref_Vec$M4edea24aa4768b45$G1$T__ref_Vec$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$slice_str__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$slice_str__push__g__refmut_Vec$M4edea24aa4768b45$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__as_mut__g__refmut_Vec$M4edea24aa4768b45$G1$E
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__as_mut_slice__g__refmut_Vec$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__as_ref__g__ref_Vec$M4edea24aa4768b45$G1$E
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__as_slice__g__ref_Vec$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__borrow__g__ref_Vec$M4edea24aa4768b45$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__borrow_mut__g__refmut_Vec$M4edea24aa4768b45$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__clone__g__ref_Vec$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__default__g__void
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__deref__g__ref_Vec$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__deref_mut__g__refmut_Vec$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__drop__g__refmut_Vec$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__eq__g__ref_Vec$M4edea24aa4768b45$G1$T__ref_Vec$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__extend_one__g__refmut_Vec$M4edea24aa4768b45$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__index__g__ref_Vec$M4edea24aa4768b45$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__index_mut__g__refmut_Vec$M4edea24aa4768b45$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__into_iter__g__Vec$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__len__g__ref_Vec$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__length__g__ref_Vec$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__ne__g__ref_Vec$M4edea24aa4768b45$G1$T__ref_Vec$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__new__g__void
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__push__g__refmut_Vec$M4edea24aa4768b45$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$slice_str$slice_str__as_mut__g__refmut_Vec$M4edea24aa4768b45$G1$E
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$slice_str$slice_str__as_mut_slice__g__refmut_Vec$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$tup$2$slice_str$slice_str__as_ref__g__ref_Vec$M4edea24aa4768b45$G1$E
@@ -19540,6 +19564,7 @@ sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$i32__t
 sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$i32__take_while__g__VecIntoIter$M4edea24aa4768b45$G1$T__fn(&T) -> bool
 sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$i64__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$slice_str__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$tup$2$Vec$M4edea24aa4768b45$G1$u8$i64__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$tup$2$slice_str$slice_str__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$tup$2$u64$u64__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$tup$3$slice_str$i64$slice_str__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
@@ -19654,6 +19679,7 @@ sym	logos_mem..logos.mem.fmt.$slice$T__fmt__g__slice_T__refmut_Formatter$M906c97
 sym	logos_mem..logos.mem.fmt.$slice$T__fmt__g__slice_T__refmut_Formatter$M906c9710fe03ed97__tup$3$slice_str$slice_str$slice_str
 sym	logos_mem..logos.mem.fmt.$slice$T__fmt__g__slice_T__refmut_Formatter$M906c9710fe03ed97__tup$5$slice_str$slice_str$slice_str$slice_str$slice_str
 sym	logos_mem..logos.mem.fmt.$slice$T__fmt__g__slice_T__refmut_Formatter$M906c9710fe03ed97__tup$8$i64$slice_str$i64$i64$slice_str$i64$i64$slice_str
+sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter$M906c9710fe03ed97__Vec$M4edea24aa4768b45$G1$u8__i64
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter$M906c9710fe03ed97__i64__String$M5ca39a0a178b867d
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter$M906c9710fe03ed97__i64__char
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter$M906c9710fe03ed97__i64__i32
@@ -19684,6 +19710,7 @@ sym	logos_mem..logos.mem.fmt.DebugList$M906c9710fe03ed97__entry__g__refmut_Debug
 sym	logos_mem..logos.mem.fmt.DebugList$M906c9710fe03ed97__entry__g__refmut_DebugList$M906c9710fe03ed97__ref_T__i32
 sym	logos_mem..logos.mem.fmt.DebugList$M906c9710fe03ed97__entry__g__refmut_DebugList$M906c9710fe03ed97__ref_T__i64
 sym	logos_mem..logos.mem.fmt.DebugList$M906c9710fe03ed97__entry__g__refmut_DebugList$M906c9710fe03ed97__ref_T__slice_str
+sym	logos_mem..logos.mem.fmt.DebugList$M906c9710fe03ed97__entry__g__refmut_DebugList$M906c9710fe03ed97__ref_T__tup$2$Vec$M4edea24aa4768b45$G1$u8$i64
 sym	logos_mem..logos.mem.fmt.DebugList$M906c9710fe03ed97__entry__g__refmut_DebugList$M906c9710fe03ed97__ref_T__tup$2$slice_str$slice_str
 sym	logos_mem..logos.mem.fmt.DebugList$M906c9710fe03ed97__entry__g__refmut_DebugList$M906c9710fe03ed97__ref_T__tup$2$u64$u64
 sym	logos_mem..logos.mem.fmt.DebugList$M906c9710fe03ed97__entry__g__refmut_DebugList$M906c9710fe03ed97__ref_T__tup$3$slice_str$i64$slice_str
@@ -20669,6 +20696,7 @@ sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__f64
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__i32
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__i64
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__slice_str
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__tup$2$Vec$M4edea24aa4768b45$G1$u8$i64
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__tup$2$slice_str$slice_str
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__tup$2$u64$u64
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__tup$3$slice_str$i64$slice_str
@@ -20706,6 +20734,7 @@ sym	logos_mem.logos.mem.encoding.json$json_validate_str__f__slice_str
 sym	logos_mem.logos.mem.encoding.json$parse__f__slice_str
 sym	logos_mem.logos.mem.fmt$err__f__void
 sym	logos_mem.logos.mem.fmt$fmt_debug__g__ref_T__refmut_Formatter$M906c9710fe03ed97__String$M5ca39a0a178b867d
+sym	logos_mem.logos.mem.fmt$fmt_debug__g__ref_T__refmut_Formatter$M906c9710fe03ed97__Vec$M4edea24aa4768b45$G1$u8
 sym	logos_mem.logos.mem.fmt$fmt_display_to_string__g__ref_T__CharTryFromError$Mdafbec543fdeb0c8
 sym	logos_mem.logos.mem.fmt$fmt_display_to_string__g__ref_T__Ordering$Mdf8dc4b1c48621d7
 sym	logos_mem.logos.mem.fmt$fmt_display_to_string__g__ref_T__ParseFloatError$M2993521b27f09da7
