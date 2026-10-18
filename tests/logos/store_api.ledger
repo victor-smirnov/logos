@@ -2,13 +2,13 @@
 # symbol	stack	area	uses	files	target
 MemoryStore	mem.bt	stdlib/mem/bt	99	1	VersionStore (in-memory model, D10)
 MemoryStore	mem.bt	tests/logos/fail	12	12	VersionStore (in-memory model, D10)
-MemoryStore	mem.bt	tests/logos/pass	105	85	VersionStore (in-memory model, D10)
+MemoryStore	mem.bt	tests/logos/pass	106	86	VersionStore (in-memory model, D10)
 MemorySnapshot	mem.bt	stdlib/mem/bt	78	1	Snapshot + Workspace instance; NodeStore (D7)
 MemorySnapshot	mem.bt	tests/logos/pass	35	9	Snapshot + Workspace instance; NodeStore (D7)
 dyn Snapshot	mem.bt	stdlib/lcm/canon	20	2	Snapshot (read) / Workspace (write) — split at M2
 dyn Snapshot	mem.bt	stdlib/mem/bt	14	2	Snapshot (read) / Workspace (write) — split at M2
 dyn Snapshot	mem.bt	tests/logos/fail	11	11	Snapshot (read) / Workspace (write) — split at M2
-dyn Snapshot	mem.bt	tests/logos/pass	145	86	Snapshot (read) / Workspace (write) — split at M2
+dyn Snapshot	mem.bt	tests/logos/pass	146	87	Snapshot (read) / Workspace (write) — split at M2
 NodeStore	mem.bt	stdlib/mem/bt	8	2	NodeStore (D7): node placement + the directory
 NodeStore	mem.bt	tests/logos/pass	3	1	NodeStore (D7): node placement + the directory
 node_store_of	mem.bt	stdlib/mem/bt	2	1	NodeStore (D7): the checked step to the privileged tier
@@ -20,12 +20,12 @@ memory_snapshot_of	mem.bt	stdlib/mem/bt	1	1	the in-memory model's tools and engi
 memory_snapshot_of	mem.bt	tests/logos/pass	7	5	the in-memory model's tools and engine tests only
 store_new	mem.bt	stdlib/mem/bt	3	1	VersionStore construction (model)
 store_new	mem.bt	tests/logos/fail	12	12	VersionStore construction (model)
-store_new	mem.bt	tests/logos/pass	95	85	VersionStore construction (model)
+store_new	mem.bt	tests/logos/pass	96	86	VersionStore construction (model)
 store_fork	mem.bt	stdlib/mem/bt	3	1	VersionStore::fork -> Workspace
 store_fork	mem.bt	tests/logos/pass	5	1	VersionStore::fork -> Workspace
 store_fork_arc	mem.bt	stdlib/mem/bt	1	1	VersionStore::fork -> Workspace
 store_fork_arc	mem.bt	tests/logos/fail	12	12	VersionStore::fork -> Workspace
-store_fork_arc	mem.bt	tests/logos/pass	119	84	VersionStore::fork -> Workspace
+store_fork_arc	mem.bt	tests/logos/pass	120	85	VersionStore::fork -> Workspace
 store_fork_branch	mem.bt	stdlib/mem/bt	1	1	VersionStore::fork(branch head) -> Workspace
 store_fork_branch	mem.bt	tests/logos/pass	1	1	VersionStore::fork(branch head) -> Workspace
 store_fork_from	mem.bt	stdlib/mem/bt	1	1	VersionStore::fork(&Snapshot) -> Workspace
@@ -85,11 +85,11 @@ store_load	mem.bt	tests/logos/pass	4	3	model durability (D6), not vocabulary
 create_ctr	compiler	src/compiler	1	1	Ctr: create in a Workspace
 create_ctr	mem.bt	stdlib/lcm/canon	1	1	Ctr: create in a Workspace
 create_ctr	mem.bt	tests/logos/fail	11	11	Ctr: create in a Workspace
-create_ctr	mem.bt	tests/logos/pass	122	83	Ctr: create in a Workspace
+create_ctr	mem.bt	tests/logos/pass	126	84	Ctr: create in a Workspace
 open_ctr	mem.bt	stdlib/lcm/canon	1	1	Ctr: open in a Snapshot / Workspace
 open_ctr	mem.bt	tests/logos/pass	81	27	Ctr: open in a Snapshot / Workspace
 create_ctr_rc	mem.bt	stdlib/lcm/canon	1	1	Ctr: create in a Workspace
 create_ctr_rc	mem.bt	tests/logos/pass	3	3	Ctr: create in a Workspace
 open_ctr_rc	mem.bt	stdlib/lcm/canon	1	1	Ctr: open in a Snapshot / Workspace
 open_ctr_rc	mem.bt	tests/logos/pass	1	1	Ctr: open in a Snapshot / Workspace
-# totals	compiler=1	mem.bt=1229
+# totals	compiler=1	mem.bt=1237
