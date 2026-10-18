@@ -1704,6 +1704,10 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
         s += "use ";
         s += std::string(str_of(node.get(la::NAME.code)));
         s += render_path_parts_(node);
+        if (node.has_key(la::mod::ALIAS)) {
+            s += " as ";
+            s += std::string(str_of(node.get(la::mod::ALIAS.code)));
+        }
         s += ";";
         return s;
     }

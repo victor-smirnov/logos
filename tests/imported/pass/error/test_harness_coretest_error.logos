@@ -23,6 +23,7 @@
 package test_coretest_error;
 
 use logos.std.fmt;
+use logos.lang.error.Error as Error;   // logos.std.fmt re-exports fmt's `Error` struct (E0659 without it)
 use logos.lang.panic;
 use logos.lang.error;
 use logos.lang.option;

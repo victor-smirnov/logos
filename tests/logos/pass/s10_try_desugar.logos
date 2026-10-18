@@ -5,6 +5,7 @@
 // arguments name, on a concrete Self (`impl<E> Mk<E> for H`). rustc twin: same stdout.
 package s10_try_desugar;
 use logos.std.fmt;
+use logos.lang.error.Error as Error;   // logos.std.fmt re-exports fmt's `Error` struct (E0659 without it)
 use logos.lang.error;
 use logos.mem.boxed;
 struct E1 { c: i64 }

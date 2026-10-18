@@ -189,6 +189,31 @@ SemaChecker::ImportScope SemaChecker::build_import_scope_(TinyMapView root, bool
             continue;
         }
         if (dotted.empty()) continue;
+        // `use pkg.path.Item as Alias;` binds one item under a new name; the
+        // package is not wildcard-imported (Rust: `use a::B as C;`).
+        if (use_node.has_key(la::mod::ALIAS)) {
+            std::string alias(str_of(use_node.get(la::mod::ALIAS.code)));
+            if (diagnose) { node_line_ = get_line(use_node); node_span_ = get_span(use_node); ctx_.clear(); }
+            auto dot = dotted.rfind('.');
+            if (dot == std::string::npos) {
+                if (diagnose)
+                    error(std::format("`use {} as {};`: name an item of a package, `use pkg.Item as {};`",
+                                      dotted, alias, alias));
+                continue;
+            }
+            std::string pkg = dotted.substr(0, dot), item = dotted.substr(dot + 1);
+            if (diagnose && !defs_.find(DefNs::Type, pkg, item))
+                error(std::format("`use {} as {};`: package `{}` declares no type or trait `{}` "
+                                  "(only type-namespace items can be renamed)", dotted, alias, pkg, item));
+            if (DefId id = defs_.find(DefNs::Type, pkg, item);
+                diagnose && id && alias != item && !trait_info(id))
+                error(std::format("`use {} as {};`: renaming a type is not supported yet — only a trait "
+                                  "can be renamed; import it under its own name (`as {}`)", dotted, alias, item));
+            if (diagnose && scope.item_aliases.count(alias))
+                error(std::format("the name `{}` is defined multiple times (E0252)", alias));
+            scope.item_aliases[alias] = {std::move(pkg), std::move(item)};
+            continue;
+        }
         // B-mv-10: warn on `use pkg;` repeated in the same module.
         // Functional behaviour is unchanged (effective_import_pkgs already
         // dedups), but copy-paste mistakes silently slipped through.
@@ -3523,8 +3548,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
     collecting_method_keys_.clear();
     std::string impl_doc = take_pending_doc();
     std::string trait_name;
-    if (node.has_key(la::NAME))
-        trait_name = std::string(str_of(node.get(la::NAME.code)));
+    if (node.has_key(la::NAME)) {
+        refuse_ambiguous_trait_(str_of(node.get(la::NAME.code)));
+        trait_name = dealias_trait_name_(str_of(node.get(la::NAME.code)));
+    }
     // T1-9 (audit-v2): `impl PrivTrait for Mine` from another package errors
     // ("private to package") — collect_impl used to consume the raw name
     // without any visibility gate. The lookup itself stays check-free
@@ -6999,6 +7026,8 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     // The body's block-local fn items, registered under `<base_name>$<name>`.
     if (node.has_key(la::BODY)) collect_nested_fns_(node.get(la::BODY.code), base_name);
     ctx_ = std::format("fn {}", base_name);
+    node_line_ = get_line(node);
+    node_span_ = get_span(node);
 
     // Specialisations are validated and lowered inline by lower_spec_fn;
     // skip collection-phase registration entirely.

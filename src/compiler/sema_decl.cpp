@@ -2413,7 +2413,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     std::string impl_doc = take_pending_doc();
     std::string trait_name;
     if (node.has_key(la::NAME))
-        trait_name = std::string(str_of(node.get(la::NAME.code)));
+        trait_name = dealias_trait_name_(str_of(node.get(la::NAME.code)));
     // Phase 6 (GAT projection): scope the impl's trait name so
     // `Self::Item<X>` in method body / signature resolves through
     // the trait's assoc_types directly (Self already substituted to
