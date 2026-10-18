@@ -1,0 +1,37 @@
+// WQL — a join keyed by a type that ORDERS but does not HASH is a TREE join.
+//
+// `Rank` derives Ord / Eq / Copy but not Hash, so the step cascade picks the
+// tree join (a BTreeMap build side, `JR_TREE`) instead of the hash join. No
+// fixture reached that arm before: a rename of its map accessors (to a name
+// BTreeMap does not have) compiled everywhere and broke only here. The answer
+// is checked against the hand-computed one, with duplicate keys on both sides.
+package test;
+use logos.std.wql.wql;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.cmp;
+use logos.lang.result;
+
+#[derive_partial_eq] #[derive_eq] #[derive_partial_ord] #[derive_ord] #[derive_copy] #[derive_clone]
+pub struct Rank { pub major: i64, pub minor: i64 }
+
+pub struct Emp { pub rank: Rank, pub pay: i64 }
+pub struct Band { pub rank: Rank, pub bonus: i64 }
+
+pub deem bonuses(es: &[Emp], bs: &[Band]) { from es e join bs b on e.rank == b.rank select e.pay + b.bonus }
+
+fn main() -> i32 {
+    let r1: Rank = Rank { major: 1i64, minor: 2i64 };
+    let r2: Rank = Rank { major: 1i64, minor: 3i64 };
+    let r3: Rank = Rank { major: 2i64, minor: 0i64 };
+    let es: [Emp; 4] = [ Emp { rank: r1, pay: 10i64 }, Emp { rank: r2, pay: 20i64 },
+                         Emp { rank: r1, pay: 30i64 }, Emp { rank: r3, pay: 40i64 } ];
+    let bs: [Band; 3] = [ Band { rank: r1, bonus: 1i64 }, Band { rank: r1, bonus: 2i64 }, Band { rank: r2, bonus: 5i64 } ];
+    let v: Vec<i64> = bonuses(&es[..], &bs[..]).unwrap();
+    // r1 x r1: (10,30) x (1,2) = 11 12 31 32; r2: 25; r3: no band
+    if v.len() != 5i64 { return 1i32; }
+    let mut s: i64 = 0i64; let mut i: i64 = 0i64;
+    while i < v.len() { s = s + v.get(i); i = i + 1i64; }
+    if s != 111i64 { return 2i32; }
+    return 0i32;
+}

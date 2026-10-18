@@ -1317,9 +1317,10 @@ unsafe fn ser_map_refs(img: *mut u8, ids: *mut HashMap<u64, u64>, to_id: bool,
             let cell: u64 = b.get(0u32, i);
             if cell != 0u64 {
                 if to_id {
-                    let p: *const u64 = (*ids).get_ptr(&cell);
-                    assert(p != (0 as *const u64), "store_save: unvisited block reference");
-                    b.set(0u32, i, *p);
+                    match (*ids).get(&cell) {
+                        Option::Some(p) => { b.set(0u32, i, *p); }
+                        Option::None => { panic("store_save: unvisited block reference"); }
+                    }
                 } else {
                     assert(cell >= 1u64 && cell <= (addrs.len() as u64),
                            "store_load: block id out of range");
@@ -1390,12 +1391,14 @@ pub fn store_save<W: OutStream>(st: &Arc<MemoryStore>, out: &mut W) -> bool {
             let mut i: i64 = 0i64;
             while i < descs.len() {
                 let d: *mut SnapDesc = descs.get(i) as *mut SnapDesc;
-                let rid: *const u64 = ids.get_ptr(&(*d).dir_root.id());
-                assert(rid != (0 as *const u64), "store_save: snapshot root unvisited");
+                let rid: u64 = match ids.get(&(*d).dir_root.id()) {
+                    Option::Some(r) => { *r }
+                    Option::None => { panic("store_save: snapshot root unvisited"); }
+                };
                 if !out.write_u64((*d).id) { return false; }
                 if !out.write_u64((*d).parent) { return false; }
                 if !out.write_u32((*d).status) { return false; }
-                if !out.write_u64(*rid) { return false; }
+                if !out.write_u64(rid) { return false; }
                 if !out.write_u32((*d).dir_level) { return false; }
                 let bn: &str = (*d).branch.as_str();
                 if !out.write_u32(bn.len() as u32) { return false; }

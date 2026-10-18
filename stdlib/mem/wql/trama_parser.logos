@@ -393,15 +393,14 @@ fn rule_tpl_impl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
 fn rule_tpl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mk: i64 = lex.save_pos() * 1024i64 + 0i64;
     let mut hok: bool = false; let mut hr: *const u8 = TrNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
-    unsafe {
-        let mp: *mut HashMap<i64, TrMemoCell> = &mut lex.memo;
-        let hp: *const TrMemoCell = (*mp).get_ptr(&mk);
-        if hp != (0i64 as *const TrMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
+    match lex.memo.get(&mk) {
+        Option::Some(c) => { hok = true; hr = c.res; hep = c.endpos; hel = c.endline; }
+        Option::None => {}
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_tpl_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
-    unsafe { let mp: *mut HashMap<i64, TrMemoCell> = &mut lex.memo; (*mp).insert(mk, TrMemoCell { res: r, endpos: ep, endline: el }); }
+    lex.memo.insert(mk, TrMemoCell { res: r, endpos: ep, endline: el });
     return r;
 }
 
@@ -724,15 +723,14 @@ fn rule_if_tail_impl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
 fn rule_if_tail(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mk: i64 = lex.save_pos() * 1024i64 + 6i64;
     let mut hok: bool = false; let mut hr: *const u8 = TrNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
-    unsafe {
-        let mp: *mut HashMap<i64, TrMemoCell> = &mut lex.memo;
-        let hp: *const TrMemoCell = (*mp).get_ptr(&mk);
-        if hp != (0i64 as *const TrMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
+    match lex.memo.get(&mk) {
+        Option::Some(c) => { hok = true; hr = c.res; hep = c.endpos; hel = c.endline; }
+        Option::None => {}
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_if_tail_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
-    unsafe { let mp: *mut HashMap<i64, TrMemoCell> = &mut lex.memo; (*mp).insert(mk, TrMemoCell { res: r, endpos: ep, endline: el }); }
+    lex.memo.insert(mk, TrMemoCell { res: r, endpos: ep, endline: el });
     return r;
 }
 
@@ -818,15 +816,14 @@ fn rule_expr_impl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
 fn rule_expr(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mk: i64 = lex.save_pos() * 1024i64 + 9i64;
     let mut hok: bool = false; let mut hr: *const u8 = TrNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
-    unsafe {
-        let mp: *mut HashMap<i64, TrMemoCell> = &mut lex.memo;
-        let hp: *const TrMemoCell = (*mp).get_ptr(&mk);
-        if hp != (0i64 as *const TrMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
+    match lex.memo.get(&mk) {
+        Option::Some(c) => { hok = true; hr = c.res; hep = c.endpos; hel = c.endline; }
+        Option::None => {}
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_expr_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
-    unsafe { let mp: *mut HashMap<i64, TrMemoCell> = &mut lex.memo; (*mp).insert(mk, TrMemoCell { res: r, endpos: ep, endline: el }); }
+    lex.memo.insert(mk, TrMemoCell { res: r, endpos: ep, endline: el });
     return r;
 }
 
