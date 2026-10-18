@@ -23,7 +23,7 @@
 // AddrOfTemp to detect literal / fresh-allocation / call-result inner exprs"
 package nll_return_ref_to_temp;
 
-fn make() -> &i32 {
+fn make() -> &'static i32 {
     return &5i32;
 }
 

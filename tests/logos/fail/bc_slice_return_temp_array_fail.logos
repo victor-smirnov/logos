@@ -7,5 +7,5 @@
 // intervening clobbering call, the returned slice read 81 where 1 is correct.
 // TWIN: pass/bc_slice_return_param_admit (a slice of a PARAM must still return).
 package bc_slice_return_temp_array_fail;
-fn function(x: i64) -> &[i64] { return &[x]; }
+fn function(x: i64) -> &'static [i64] { return &[x]; }
 fn main() -> i32 { let s: &[i64] = function(1i64); return s[0u64] as i32; }

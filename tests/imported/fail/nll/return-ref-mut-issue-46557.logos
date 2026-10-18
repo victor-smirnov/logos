@@ -2,7 +2,7 @@
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
 package return_ref_mut_issue_46557;
-fn gimme_static_mut() -> &mut i64 {
+fn gimme_static_mut() -> &'static mut i64 {
     let x: &mut i64 = &mut 1234543i64;
     return x;
 }

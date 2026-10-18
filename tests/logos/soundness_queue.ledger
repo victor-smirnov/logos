@@ -161,8 +161,6 @@ unsized_const_type_admitted 4 tests/soundness/open/unsized_const_type_admitted a
 
 blanket_impl_implicit_sized_unenforced_admitted 2 tests/soundness/open/blanket_impl_implicit_sized_unenforced_admitted admits
 
-elided_return_no_input_lifetime_admitted 3 tests/soundness/open/elided_return_no_input_lifetime_admitted admits
-
 unused_generic_param_admitted 4 tests/soundness/open/unused_generic_param_admitted admits
 
 variadic_fn_pointer_type_refused 4 tests/soundness/open/variadic_fn_pointer_type_refused refuses
@@ -370,5 +368,5 @@ rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visibl
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 94
-# SYNC-HASH a2ac5e656aa362c19a54784739fa8caf
+# TOTAL 93
+# SYNC-HASH 6e4bd44a57f8f64cb4b9b3a1da5d6df4

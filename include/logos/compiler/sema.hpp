@@ -626,6 +626,16 @@ public:
     bool owning_dst() const noexcept {
         return dst_owning_kind() != OwningKind::Borrow;
     }
+    // A fat pointer that IS a borrow — `&[T]`, `&str`, `&dyn T` — and so a
+    // lifetime (elision) position. An owning `Box<[T]>` / `Box<dyn T>` or a
+    // raw fat pointer shares the representation but carries no lifetime.
+    bool fat_borrow() const noexcept {
+        auto k = kind();
+        if (k == LogosType::Kind::UnsizedSlice) return true;
+        if (k == LogosType::Kind::Slice) return !owning_slice() && !raw_fat();
+        if (k == LogosType::Kind::TraitObject) return !owning_trait_object() && !raw_fat();
+        return false;
+    }
     uint64_t arr_size() const noexcept {
         auto av = mirror()->get(sema_schema::ARR_SIZE.code);
         if (av.is_null()) return 0;

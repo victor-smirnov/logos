@@ -5,7 +5,7 @@
 package borrowed_universal_error;
 struct P { a: u32 }
 fn gimme(x: &P) -> &u32 { return &x.a; }
-fn foo() -> &u32 {
+fn foo() -> &'static u32 {
     let v: u32 = 22u32;
     return gimme(&P { a: v });   // cannot return value referencing temporary
 }

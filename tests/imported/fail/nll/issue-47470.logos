@@ -4,8 +4,8 @@
 // port of tests/ui/nll/issue-47470.rs : return a reference to a local (E0515)
 package issue_47470;
 struct Foo { n: i64 }
-trait Bar { fn get(self: Self) -> &i64; }
+trait Bar { fn get(self: Self) -> &'static i64; }
 impl Bar for Foo {
-    fn get(self: Self) -> &i64 { let local = 42i64; return &local; }
+    fn get(self: Self) -> &'static i64 { let local = 42i64; return &local; }
 }
 fn main() -> i32 { return 0i32; }

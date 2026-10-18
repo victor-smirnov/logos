@@ -1,7 +1,7 @@
 // @rule region.dangling.no-return-local-ref
 package region_diag_1_return_local_ref;
 
-fn bad() -> &i32 {
+fn bad() -> &'static i32 {
     let x: i32 = 5i32;
     return &x;
 }

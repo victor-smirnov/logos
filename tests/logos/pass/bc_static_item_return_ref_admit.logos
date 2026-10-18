@@ -9,7 +9,7 @@ package bc_static_item_return_ref_admit;
 
 static K: i64 = 5i64;
 
-fn f() -> &i64 { return &K; }
+fn f() -> &'static i64 { return &K; }
 
 // ⚠ THE PROJECTION FORMS, added 2026-08-25 with the fix that closed them for a
 // `const`. Without these the admit half only exercised the BARE spelling, which
@@ -24,9 +24,9 @@ struct SS  { a: i64, i: SIn }
 static T: SS      = SS { a: 5i64, i: SIn { a: 5i64 } };
 static A: [i64; 4] = [5i64, 6i64, 7i64, 8i64];
 
-fn f_field() -> &i64 { return &T.a; }
-fn f_nested() -> &i64 { return &T.i.a; }
-fn f_index() -> &i64 { return &A[0u64]; }
+fn f_field() -> &'static i64 { return &T.a; }
+fn f_nested() -> &'static i64 { return &T.i.a; }
+fn f_index() -> &'static i64 { return &A[0u64]; }
 
 fn stomp(v: i64) -> i64 {
     let mut a: [i64; 32] = [v; 32];

@@ -14,7 +14,7 @@ pub fn ok(s: &str) -> Vec<&str> {
     return v;
 }
 
-pub fn ok_static() -> Vec<&str> {
+pub fn ok_static() -> Vec<&'static str> {
     let mut v: Vec<&str> = Vec::<&str>::new();
     v.push("x");
     v[0i64] = "abcde";

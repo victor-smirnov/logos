@@ -273,13 +273,13 @@ fn str_of(s: &String) -> &str {
 // ── The resource handler ────────────────────────────────────────────────────
 //   resource <name> = schema_catalog!{ S1, S2, … };
 // emits:
-//   pub fn <name>() -> SchemaCatalog {
+//   pub fn <name>() -> SchemaCatalog<'static> {
 //       return SchemaCatalog::from_static(@{ …blob… });
 //   }
 /// Token-macro handler for `schema_catalog!{ S1, S2, … }` (see `resource` decls
 /// like `resource cat = schema_catalog!{ Emp, Dept };` in `logos.std.deem` callers).
 /// Reflects the named `schema` decls out of the trigger module's AST and emits a
-/// `pub fn <name>() -> SchemaCatalog` returning a `SchemaCatalog::from_static` view
+/// `pub fn <name>() -> SchemaCatalog<'static>` returning a `SchemaCatalog::from_static` view
 /// over a deduped `@{…}` Writ blob, for use by `Query::compile`/`Tpl::compile`.
 /// Raises a diagnostic (via `error`) and returns an empty `ItemList` on a missing
 /// binding name, an unknown/non-`schema` name, or a schema missing `code(0x…)`.
@@ -341,7 +341,7 @@ pub fn schema_catalog(name: &str, s: &str) -> ItemList {
     let q: QuoteItemBlob = quote_item! {
         use logos.mem.deem;
         use logos.lang.writ.wstatic;
-        pub fn #nm() -> SchemaCatalog { return SchemaCatalog::from_static(#(blob)); }
+        pub fn #nm() -> SchemaCatalog<'static> { return SchemaCatalog::from_static(#(blob)); }
     };
     unsafe { logos_emit_item_blob_subst(&q); }
     return out;

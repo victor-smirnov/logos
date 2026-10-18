@@ -3,7 +3,7 @@ package region_diag_1_return_temp_ref;
 
 fn mk() -> i32 { return 7i32; }
 
-fn bad() -> &i32 {
+fn bad() -> &'static i32 {
     return &mk();
 }
 

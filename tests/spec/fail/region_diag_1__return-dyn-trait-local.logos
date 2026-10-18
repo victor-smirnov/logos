@@ -10,7 +10,7 @@ impl Speak for Dog {
     fn id(self: &Self) -> i32 { return 1i32; }
 }
 
-fn bad() -> &dyn Speak {
+fn bad() -> &'static dyn Speak {
     let d: Dog = Dog {};
     return &d;
 }

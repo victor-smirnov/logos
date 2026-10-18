@@ -8,7 +8,7 @@ package bc_esc_holder_return_option_dangle;
 use logos.lang.option;
 use logos.mem.string;
 
-pub fn bad() -> Option<&str> {
+pub fn bad() -> Option<&'static str> {
     let o: String = String::from("hello");
     return Option::<&str>::Some(o.as_str());
 }

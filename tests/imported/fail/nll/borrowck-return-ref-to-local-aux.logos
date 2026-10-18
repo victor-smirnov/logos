@@ -1,7 +1,7 @@
 // B75: dangling ref to local even via direct return of &local.
 package borrowck_return_ref_to_local_aux;
 
-fn make() -> &i32 {
+fn make() -> &'static i32 {
     let v: i32 = 7i32;
     return &v;
 }

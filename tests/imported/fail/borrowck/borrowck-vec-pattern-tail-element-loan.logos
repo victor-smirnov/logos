@@ -2,7 +2,7 @@
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
 package borrowck_vec_pattern_tail_element_loan;
-fn a() -> &i64 {
+fn a() -> &'static i64 {
     let v: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
     let s: &[i64] = &v;
     let tail: &i64 = match s {

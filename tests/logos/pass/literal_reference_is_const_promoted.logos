@@ -4,7 +4,7 @@
 // return's expected type stamped it (stamp_literal_behind_ref_).
 package literal_reference_is_const_promoted;
 
-fn get() -> &i32 {
+fn get() -> &'static i32 {
     return &5;
 }
 

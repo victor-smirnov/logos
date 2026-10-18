@@ -10,7 +10,7 @@ package m_issue_26251;
 
 use logos.lang.panic;
 
-fn pick(x: char) -> &str {
+fn pick(x: char) -> &'static str {
     return match x {
         'a'..='b' if false => { "one"   }
         'a'                => { "two"   }

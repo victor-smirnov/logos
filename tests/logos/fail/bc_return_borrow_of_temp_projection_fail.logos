@@ -9,6 +9,6 @@
 // return, which is why the terminal test is gated on `!is_ref_kind`.
 package bc_return_borrow_of_temp_projection_fail;
 struct S { n: i64 }
-fn arr_elem(x: i64) -> &i64 { return &[x][0u64]; }
-fn lit_field(x: i64) -> &i64 { return &S { n: x }.n; }
+fn arr_elem(x: i64) -> &'static i64 { return &[x][0u64]; }
+fn lit_field(x: i64) -> &'static i64 { return &S { n: x }.n; }
 fn main() -> i32 { return (*arr_elem(1i64) + *lit_field(2i64)) as i32; }

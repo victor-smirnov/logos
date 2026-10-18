@@ -4,7 +4,7 @@
 package borrowck_fn_in_const_c;
 struct DropInt { inner: i64 }
 impl Drop for DropInt { fn drop(self: &mut DropInt) { self.inner = 0i64; } }
-fn broken() -> &i64 {
+fn broken() -> &'static i64 {
     let local: DropInt = DropInt { inner: 7i64 };
     return &local.inner;
 }

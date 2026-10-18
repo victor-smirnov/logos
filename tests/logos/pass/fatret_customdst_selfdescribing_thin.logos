@@ -16,7 +16,7 @@ impl SelfDescribing for Buf {
     fn dst_len(self: *const Buf) -> i64 { return unsafe { (*self).count }; }
 }
 
-unsafe fn mk(raw: *mut Buf) -> &Buf { return &*raw; }
+unsafe fn mk<'a>(raw: *mut Buf) -> &'a Buf { return &*raw; }
 
 unsafe fn churn(n: i64) -> i64 {
     let a: i64 = n * 3i64;

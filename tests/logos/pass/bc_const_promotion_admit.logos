@@ -20,13 +20,13 @@
 //   fail/bc_slice_range_return_local_fail (`&a[0..2]` over a local array)
 package bc_const_promotion_admit;
 
-fn direct() -> &i64 { return &40i64; }
-fn let_bound() -> &i64 { let z: &i64 = &1i64; return z; }
+fn direct() -> &'static i64 { return &40i64; }
+fn let_bound() -> &'static i64 { let z: &i64 = &1i64; return z; }
 fn annotated() -> &'static i64 { let z: &'static i64 = &2i64; return z; }
-fn flag() -> &bool { return &true; }
-fn ratio() -> &f64 { return &0.5f64; }
-fn triple() -> &[i64] { return &[7i64, 8i64, 9i64]; }
-fn empty() -> &[u64] { return &[]; }
+fn flag() -> &'static bool { return &true; }
+fn ratio() -> &'static f64 { return &0.5f64; }
+fn triple() -> &'static [i64] { return &[7i64, 8i64, 9i64]; }
+fn empty() -> &'static [u64] { return &[]; }
 
 fn stomp(n: i64) -> i64 {
     let junk: [i64; 8] = [n, n, n, n, n, n, n, n];

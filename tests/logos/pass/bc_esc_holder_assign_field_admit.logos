@@ -17,7 +17,7 @@ pub fn ok(s: &str) -> &str {
     return w.v;
 }
 
-pub fn ok_static() -> &str {
+pub fn ok_static() -> &'static str {
     let mut w: W = W { v: "" };
     w.v = "abcde";
     return w.v;

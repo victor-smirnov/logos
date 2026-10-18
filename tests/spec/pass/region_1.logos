@@ -38,7 +38,7 @@ fn pick_branch<'a>(a: &'a i64, b: &'a i64, take_a: bool) -> &'a i64 {
 
 // A global: provenance from a global is treated as safe to return.
 static G: i64 = 314i64;
-fn pick_global() -> &i64 { return &G; }
+fn pick_global() -> &'static i64 { return &G; }
 
 // A function-call result is caller-owned (empty provenance, not local/temp) →
 // returning it is accepted even though ref params exist (untraced-is-safe).

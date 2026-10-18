@@ -1,0 +1,9 @@
+// A trait method declaration with two input lifetimes and no `&self` cannot elide its
+// output — rustc 1.98.1 refuses `fn a(x: &i32, y: &i32) -> &i32;` with E0106.
+package trait_decl_elided_return_ambiguous_refused;
+
+trait Tr {
+    fn a(x: &i32, y: &i32) -> &i32;
+}
+
+fn main() -> i32 { return 0; }

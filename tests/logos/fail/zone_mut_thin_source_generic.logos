@@ -10,7 +10,7 @@
 package test;
 extern fn malloc(n: i64) -> *mut u8;
 #[zone_mut] struct Box2 { v: i64 }
-unsafe fn gmk<T>(p: *mut T) -> &mut T { return &mut *p; }
+unsafe fn gmk<'a, T>(p: *mut T) -> &'a mut T { return &mut *p; }
 fn take(r: &mut Box2) -> i64 { return r.v; }
 unsafe fn main() -> i32 {
     let p: *mut Box2 = malloc(8i64) as *mut Box2;

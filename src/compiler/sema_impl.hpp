@@ -600,8 +600,7 @@ private:
         // source instead of asking for an annotation.
         // An OWNING trait object (`Box<dyn Tr>`) is no borrow: its object
         // lifetime defaults to 'static and it is no elision position.
-        else if (k == K::Slice || k == K::UnsizedSlice ||
-                 (k == K::TraitObject && !t.owning_trait_object()))
+        else if (t.fat_borrow())
             slot(t.lifetime());
         else if (k == K::Struct || k == K::ZonedStruct || k == K::Enum) {
             auto wr = t.lifetime_args();
@@ -636,6 +635,8 @@ private:
     // A trait DEFAULT method is lowered under each impl; its binders shadow the
     // TRAIT's, not the impl's. Null = the enclosing impl's binders.
     const std::vector<std::string>* shadow_scope_ = nullptr;
+    void check_output_elision_(TypeRef ret_type, writ::TinyMapView ret_ast,
+                               const std::vector<TypeRef>& ptypes, bool has_self_ref);
     size_t decl_lt_arity_(TypeRef t) {
         using K = LogosType::Kind;
         if (t.kind() == K::Enum) {

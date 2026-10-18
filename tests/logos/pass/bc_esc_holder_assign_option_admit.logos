@@ -10,7 +10,7 @@ pub fn ok(s: &str) -> Option<&str> {
     return op;
 }
 
-pub fn ok_static() -> Option<&str> {
+pub fn ok_static() -> Option<&'static str> {
     let mut op: Option<&str> = Option::<&str>::None;
     op = Option::<&str>::Some("abcde");
     return op;

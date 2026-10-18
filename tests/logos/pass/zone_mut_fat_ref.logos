@@ -10,7 +10,7 @@ impl Box2 {
     fn set(self: &mut Box2, x: i64) { self.v = x; }
     fn zone_i(self: &mut Box2) -> i64 { return zone_of(self) as i64; }   // cascade
 }
-unsafe fn make(p: *mut Box2, z: *mut u8) -> &mut Box2 { return zone_mut_ref::<Box2>(p, z); }
+unsafe fn make<'a>(p: *mut Box2, z: *mut u8) -> &'a mut Box2 { return zone_mut_ref::<Box2>(p, z); }
 unsafe fn main() -> i32 {
     let p: *mut Box2 = malloc(8i64) as *mut Box2;
     (*p).v = 42i64;

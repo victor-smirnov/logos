@@ -1,0 +1,9 @@
+// A trait method declaration is a signature like any other: `fn b() -> &i32;` has
+// no input lifetime — rustc 1.98.1 refuses it with E0106.
+package trait_decl_elided_return_no_input_refused;
+
+trait Tr {
+    fn b() -> &i32;
+}
+
+fn main() -> i32 { return 0; }

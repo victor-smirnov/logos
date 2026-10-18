@@ -3,7 +3,7 @@
 // shelf: pin
 // upstream: borrowck/return-ref-to-temporary.rs (E0515 cannot return reference to temporary)
 package return_ref_to_temporary;
-fn bar() -> &mut u64 {
+fn bar() -> &'static mut u64 {
     return &mut 4u64;
 }
 fn main() -> i32 { let r = bar(); *r = 1u64; return 0i32; }

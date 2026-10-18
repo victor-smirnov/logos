@@ -17,7 +17,7 @@
 package bc_d1r5_h7_declared_bc_struct_held;
 #[borrow_carrying]
 struct Pair<'a> { a: &'a i64, n: i64 }
-fn f() -> Pair {
+fn f() -> Pair<'static> {
     let z: i64 = 1i64;
     return Pair { a: &z, n: 0i64 };
 }
