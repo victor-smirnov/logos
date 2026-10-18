@@ -119,7 +119,7 @@ extern fn getcwd(buf: *mut u8, size: u64) -> *mut u8;
 
 // ── main ──────────────────────────────────────────────────────────────────
 
-fn select_profile() -> &str {
+fn select_profile() -> &'static str {
     if has_flag("release", "") { return "release"; }
     if has_flag("debug",   "") { return "debug"; }
     return "debug";

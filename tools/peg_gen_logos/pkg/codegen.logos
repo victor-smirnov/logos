@@ -268,7 +268,7 @@ fn unquote(s: &str) -> &str {
 
 // A grammar node is a tinymap (WMap<Wu6, WAny>); WAny has no `as_tinymap`, so
 // resolve+cast here. Caller checks the WAny is a non-null Ref first.
-fn as_tinymap(v: WAny) -> &WMap<Wu6, WAny> {
+fn as_tinymap<'a>(v: WAny) -> &'a WMap<Wu6, WAny> {
     return unsafe { &*(v.resolve() as *const WMap<Wu6, WAny>) };
 }
 

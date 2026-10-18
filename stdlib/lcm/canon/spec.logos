@@ -85,7 +85,7 @@ pub struct ContainerSpec<'d> {
     pub ops:         &'d str,   // BTFL 8b: "keys.seek(max(key)),keys.insert,values.scan(val),…"; unqualified for BTSS sugar; "" = none
 }
 
-pub fn container_spec_new() -> ContainerSpec {
+pub fn container_spec_new<'d>() -> ContainerSpec<'d> {
     return ContainerSpec {
         is_pub: false, generics: "", gnames: "", backing: "",
         backing_pkg: "", kind: "", entry: "", measures: "", pkg: "",
