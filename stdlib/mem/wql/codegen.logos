@@ -1151,7 +1151,7 @@ pub fn check_projection_copy(e: SExpr, t: &ElTypes, ctx: &str) -> bool {
     }
     if infer_ty(e, t) != EL_TY_NAMED() { return true; }
     let nm: &str = infer_ty_name(e, t);
-    if named_is_copy(nm) { return true; }
+    if type_text_is_copy(nm) { return true; }
     let mut m: String = String::new();
     m.push_str(ctx);
     m.push_str(": `");
@@ -1163,6 +1163,38 @@ pub fn check_projection_copy(e: SExpr, t: &ElTypes, ctx: &str) -> bool {
     m.push_str("`");
     ty_error(t, e, string_as_str(&m));
     return false;
+}
+
+/// Is the value type `nm` (a lattice spelling) Copy once emitted? A tuple
+/// (`(str, i64)`, a tuple group key) is Copy iff every component is; a lattice
+/// scalar is (`str` is emitted as `&str`); a named type asks the compiler.
+fn type_text_is_copy(nm: &str) -> bool {
+    let n: i64 = nm.len();
+    if n >= 2i64 && str_byte_at(nm, 0i64) == 40u8 && str_byte_at(nm, n - 1i64) == 41u8 {
+        let mut depth: i64 = 0i64;
+        let mut start: i64 = 1i64;
+        let mut i: i64 = 1i64;
+        while i < n {
+            let c: u8 = str_byte_at(nm, i);
+            if c == 40u8 || c == 60u8 || c == 91u8 { depth = depth + 1i64; }
+            if (c == 44u8 && depth == 0i64) || i == n - 1i64 {
+                let mut a: i64 = start;
+                let mut b: i64 = i;
+                while a < b && str_byte_at(nm, a) == 32u8 { a = a + 1i64; }
+                while b > a && str_byte_at(nm, b - 1i64) == 32u8 { b = b - 1i64; }
+                if b > a {
+                    let part: &str = unsafe { str_from_raw((nm.as_ptr() as i64 + a) as *const u8, b - a) };
+                    if !type_text_is_copy(part) { return false; }
+                }
+                start = i + 1i64;
+            }
+            if c == 41u8 || c == 62u8 || c == 93u8 { depth = depth - 1i64; }
+            i = i + 1i64;
+        }
+        return true;
+    }
+    if el_class_lookup(nm) >= 0i32 { return true; }
+    return named_is_copy(nm);
 }
 
 /// True iff `e` is a literal operand (`N`, `N.M`, a string, a bool, or `-N`).
@@ -1355,8 +1387,18 @@ pub fn named_has_eq_strict(name: &str) -> bool { return has_trait_named(TRAIT_EQ
 pub fn named_has_ord(name: &str) -> bool { return has_trait_named(TRAIT_ORD(), name); }
 /// A NAMED value is copied out of a borrowed row — into an index, a group key
 /// vector, an output buffer — only when it is `Copy`.
-pub fn named_is_copy(name: &str) -> bool { return has_trait_named(TRAIT_COPY(), name); }
-pub fn named_is_clone(name: &str) -> bool { return has_trait_named("logos.lang.clone::Clone", name); }
+// Asked of the type as LOGOS spells it: the lattice's `str` (alone or inside a
+// tuple key `(str, i64)`) is a `&str`, which is Copy; a bare `str` is not.
+pub fn named_is_copy(name: &str) -> bool {
+    let mut lt: String = String::new();
+    push_logos_col_ty(&mut lt, name);
+    return has_trait_named(TRAIT_COPY(), lt.as_str());
+}
+pub fn named_is_clone(name: &str) -> bool {
+    let mut lt: String = String::new();
+    push_logos_col_ty(&mut lt, name);
+    return has_trait_named("logos.lang.clone::Clone", lt.as_str());
+}
 
 /// True iff `op` is one of the arithmetic operators (the binary half of
 /// `el_computes_in_repr`, for a caller that holds only the op id).
