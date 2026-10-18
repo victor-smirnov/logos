@@ -206,8 +206,6 @@ guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_
 
 default_method_generics_shadow_impl_generics_refused 3 tests/soundness/open/default_method_generics_shadow_impl_generics_refused refuses
 
-hashmap_get_unsafe_raw_api_refused 3 tests/soundness/open/hashmap_get_unsafe_raw_api_refused refuses
-
 rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visible_admitted admits
 
 # ── 2026-09-27 FEATURE-INTERACTION AUDIT, clusters OUTSIDE ADR 0030 (docs/audit/2026-09-26-feature-interactions.md; the other 200 clusters are tracked by tests/interactions/clusters.json and close with the ADR 0030 steps) ──
@@ -374,5 +372,5 @@ rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visibl
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 96
-# SYNC-HASH 9a4342986204f2643213f168fcf1f8e1
+# TOTAL 95
+# SYNC-HASH f29650179f62082c53a62a77e7cd95fa
