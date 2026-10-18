@@ -10,17 +10,16 @@ Population: stdlib/, tests/, conuco/ (*.logos) and src/compiler (*.cpp, *.hpp),
 Attribution is by the file, not the spelling: a symbol of stack X counts only
 in a file inside X's package or importing it (the D4 vocabulary reuses names
 such as `Snap`). Spellings in other files are listed as `# not counted` rows.
-`create_ctr` / `open_ctr` are defined by BOTH stacks: a file inside a stack's
-package, or importing it, decides; a file importing both, or neither, is
-counted under stack `?` (a pinned row, so a new ambiguous use is visible);
+`create_ctr` / `open_ctr` were defined by BOTH stacks until deem.data was
+deleted (ADR 0039 M4b); a file importing neither is counted under stack `?`
+(a pinned row, so a new ambiguous use is visible);
 the compiler's own spellings (sema diagnostics, intrinsics) under `compiler`.
 
 Refusals (exit 2, not a pin diff):
   * a SYMBOL's definition count in the stacks' packages (mem/bt, lcm/canon,
-    lcm/deem/data) is not the one listed — a rename or a new
+    and, until ADR 0039 M4b, lcm/deem/data) is not the one listed — a rename or a new
     overload would otherwise zero or merge its rows silently;
-  * a `pub fn store_*` in memstore.logos, or a `pub fn|struct|trait` in
-    lcm/deem/data/handle.logos or store.logos, that no SYMBOL claims.
+  * a `pub fn store_*` in memstore.logos that no SYMBOL claims.
 
 Not measured: the `Snapshot` trait's methods (`commit`, `remove`, `status`,
 `set_as_branch`, ...) — the spelling is shared with unrelated types. They are
@@ -29,7 +28,7 @@ priced by the compiler when M2 splits `Snapshot` into Snapshot/Workspace.
 import os, re, sys
 from collections import defaultdict
 
-MB, DD = 'mem.bt', 'deem.data'
+MB = 'mem.bt'   # deem.data (the second stack) was deleted at ADR 0039 M4b
 
 # (symbol, stack, D4/D7 target, definition regex, expected definition count)
 SYMBOLS = [
@@ -73,30 +72,15 @@ SYMBOLS = [
     ('store_pack',             MB, 'VersionStore release', None, 1),
     ('store_save',             MB, 'model durability (D6), not vocabulary', None, 1),
     ('store_load',             MB, 'model durability (D6), not vocabulary', None, 1),
-    ('create_ctr',             None, 'Ctr: create in a Workspace', None, 2),
-    ('open_ctr',               None, 'Ctr: open in a Snapshot / Workspace', None, 2),
+    ('create_ctr',             None, 'Ctr: create in a Workspace', None, 1),
+    ('open_ctr',               None, 'Ctr: open in a Snapshot / Workspace', None, 1),
     ('create_ctr_rc',          MB, 'Ctr: create in a Workspace', None, 1),
     ('open_ctr_rc',            MB, 'Ctr: open in a Snapshot / Workspace', None, 1),
-    ('store_open',             DD, 'M4: port to VersionStore, delete', None, 1),
-    ('snap_fork',              DD, 'M4: port to VersionStore::fork, delete', None, 1),
-    ('Snap',                   DD, 'M4: Workspace (commit(self) consumes), delete', r'pub struct Snap<', 1),
-    ('SnapCtx',                DD, 'M4: delete', r'pub struct SnapCtx<', 1),
-    ('MutSnapshot',            DD, 'M4: delete', r'pub struct MutSnapshot<', 1),
-    ('LockingStore',           DD, 'M4: port merge/labels to VersionStore, delete', r'pub struct LockingStore<', 1),
-    ('locking_store_new',      DD, 'M4: delete', None, 1),
-    ('IStore',                 DD, 'M4: VersionStore, delete', r'pub trait IStore<', 1),
-    ('CommitEntry',            DD, 'M4: VersionStore log entry, delete', r'pub struct CommitEntry<', 1),
-    ('ContainerRef',           DD, 'M4: Ctr, delete', r'pub struct ContainerRef<', 1),
-    ('DirInsertOutcome',       DD, 'M4: delete', r'pub struct DirInsertOutcome<', 1),
-    ('InsertError',            DD, 'M4: delete', r'pub enum InsertError\b', 1),
 ]
-PKG = {MB: ('stdlib/mem/bt/', 'stdlib/lcm/canon/'), DD: ('stdlib/lcm/deem/data/',)}
-IMP = {MB: re.compile(r'^\s*use\s+logos\.(mem\.bt|lcm\.canon)\b', re.M),
-       DD: re.compile(r'^\s*use\s+logos\.lcm\.deem\.data\b', re.M)}
+PKG = {MB: ('stdlib/mem/bt/', 'stdlib/lcm/canon/')}
+IMP = {MB: re.compile(r'^\s*use\s+logos\.(mem\.bt|lcm\.canon)\b', re.M)}
 DOWNCAST = re.compile(r'dyn_data\([^;]*?\)\s*as\s*\*(const|mut)\s+MemorySnapshot\b')
-UNCLAIMED = [('stdlib/mem/bt/memstore.logos', r'^pub fn (store_\w+)'),
-             ('stdlib/lcm/deem/data/handle.logos', r'^pub (?:fn|struct|trait|enum) (\w+)'),
-             ('stdlib/lcm/deem/data/store.logos', r'^pub (?:fn|struct|trait|enum) (\w+)')]
+UNCLAIMED = [('stdlib/mem/bt/memstore.logos', r'^pub fn (store_\w+)')]
 # handle.logos / store.logos items that are internal to the package (no D4 role).
 INTERNAL = {'Store'}
 
@@ -142,7 +126,7 @@ def main():
     stdlib_text = {r: t for r, t in files if r.startswith('stdlib/')}
     # Definitions are looked up in the two stacks' own packages only; the D4
     # vocabulary (logos.mem.version) is the migration TARGET and reuses names.
-    stack_text = {r: t for r, t in stdlib_text.items() if r.startswith(PKG[MB] + PKG[DD])}
+    stack_text = {r: t for r, t in stdlib_text.items() if r.startswith(PKG[MB])}
     for sym, st, _, drx, want in SYMBOLS:
         rx = re.compile(drx if drx else r'^pub fn ' + re.escape(sym) + r'\b', re.M)
         n = sum(len(rx.findall(t)) for t in stack_text.values())

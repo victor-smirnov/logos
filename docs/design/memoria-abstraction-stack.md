@@ -35,7 +35,7 @@ Bottom to top. A layer sees only the concepts of the layer below.
 - The algorithms exist but are bound to concrete kinds: an ordered-map step and a multimap step (`btfl_step`) are separate hand runtimes (ADR 0023 open row). The missing parameter is the summary.
 - `trait Ctr` has `size` only; `Store` is an empty marker. The vocabulary lives in `Snapshot`, which mixes layer 2 (residency pins), layer 7 (lineage) and identity. ADR 0039 D4 / D7 split it.
 - Canon reaches layer 2 through a downcast, skipping the concept. Every generated family repeats it.
-- `logos.lcm.deem.data` duplicates layers 3-5 without persistence (ADR 0039 D11).
+- `logos.lcm.deem.data` duplicated layers 3-5 without persistence (ADR 0039 D11); deleted at ADR 0039 M4b.
 
 ## Order (rough)
 

@@ -2,7 +2,8 @@
 // is a `loop` whose `break` targets IT, so control leaves the loop and falls off
 // the end of `f` with no value. TWIN: pass/loop_break_targets_inner_admit.logos,
 // where the break targets a nested `while` and the `loop` genuinely diverges —
-// which is bt_upper_bound's shape (stdlib/lcm/deem/data/bt/descent.logos) and
+// which is the shape of a B-tree upper_bound descent (the retired deem.data
+// plane's bt_upper_bound had it) and
 // the reason a presence-of-token walk cannot be the predicate.
 package loop_div_d;
 fn f(n: i32) -> i32 {

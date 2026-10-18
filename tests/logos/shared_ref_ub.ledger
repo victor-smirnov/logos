@@ -152,12 +152,6 @@ stdlib/lang/cell/cell.logos	OnceCellTakeGuard	-
 stdlib/lang/fabric/fabric.logos	Buffer	-
 stdlib/lang/writ/objdata.logos	WritObjectData	-
 stdlib/lang/writ/row.logos	RowBuf	-
-stdlib/lcm/deem/data/bt/cow.logos	LeafDirNode	-
-stdlib/lcm/deem/data/bt/cow.logos	LeafNode	-
-stdlib/lcm/deem/data/bt/cow.logos	LeafNodeForBranch	-
-stdlib/lcm/deem/data/handle.logos	Snap	-
-stdlib/lcm/deem/data/handle.logos	Store	-
-stdlib/lcm/deem/data/store.logos	LockingStore	-
 stdlib/mem/any/anybox.logos	AnyBox	-
 stdlib/mem/bt/memstore.logos	SnapDesc	-
 stdlib/mem/deem/tpl.logos	Tpl	-
@@ -255,7 +249,6 @@ stdlib/lang/writ/typed_arr.logos	2
 stdlib/lang/writ/typed_value.logos	1
 stdlib/lang/writ/wmap.logos	4
 stdlib/lang/writ/wstring.logos	1
-stdlib/lcm/deem/data/bt/node.logos	1
 stdlib/mem/collections/hashmap/hashmap.logos	1
 stdlib/mem/collections/set/set.logos	1
 stdlib/mem/collections/vec/vec.logos	1

@@ -1342,9 +1342,8 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                       // --gen-dir: blob-subst chunks renamed to their dump
                       // file keep the same discovery-pass stub semantics.
                       || file_.ends_with(".gen.logos");
-    // Impl methods on a yet-to-be-derived target struct (e.g. cow.logos's
-    // `impl BTreeNode for BranchNode { ... }` where BranchNode is emitted
-    // by a #[derive_branch_node] hook on a sibling struct) cascade if
+    // Impl methods on a yet-to-be-derived target struct (an `impl Tr for X`
+    // where X is emitted by a derive hook on a sibling struct) cascade if
     // lowered: their bodies reference fields/methods of the unresolved
     // target. Skip them in metaprog discovery — the post-dispatch sema
     // pass lowers them for real once the derive has fired. Safe because
