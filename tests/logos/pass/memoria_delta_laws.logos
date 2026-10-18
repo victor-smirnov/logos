@@ -1,0 +1,231 @@
+// delta_laws — ADR 0039 M5: `delta_from` (delta_since) on the in-memory model,
+// checked against laws 3-5 on randomized histories, and its cost against the
+// state's size.
+//
+//   law 3  state(w) = state(v) ⊕ delta(v→w)          (applied to a model)
+//   law 4  delta(w→w) is empty
+//   law 5  delta(u→w) = delta(u→v) + delta(v→w)      (as Z-sets, after cancelling)
+//   cost   five point changes in a 20000-entry state open tens of nodes, not
+//          the hundreds of leaves the state spans (shared subtrees are skipped)
+//
+// The model is an array over the key domain (-1 = absent). Values stay below
+// 2^20 so a (key, value) pair packs into one u64 for the Z-set comparison.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.bt.ops;
+use logos.mem.sync;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.lang.option;
+use logos.lang.arith;
+use logos.mem.string;
+use logos.std.io;
+
+container Ledger {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+
+const L: u64 = 1u64;
+const D: i64 = 30000i64;           // key domain
+const N: i64 = 20000i64;           // initial entries
+
+struct Lcg { s: u64 }
+impl Lcg {
+    fn next(self: &mut Lcg) -> u64 { self.s = self.s.wrapping_mul(6364136223846793005u64).wrapping_add(1442695040888963407u64); return self.s >> 33u64; }
+}
+
+fn model_copy(m: &Vec<i64>) -> Vec<i64> {
+    let mut c: Vec<i64> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < m.len() { c.push(m.get(i)); i = i + 1i64; }
+    return c;
+}
+
+// Apply a delta to a model; false if a removal names an entry the model lacks.
+fn apply(m: &mut Vec<i64>, d: &BtDelta<u64, u64>) -> bool {
+    let mut i: i64 = 0i64;
+    while i < d.keys.len() {
+        let k: i64 = d.keys.get(i) as i64;
+        let v: i64 = d.vals.get(i) as i64;
+        if d.weights.get(i) < 0i64 {
+            if m.get(k) != v { return false; }
+            m.set(k, -1i64);
+        } else {
+            if m.get(k) != -1i64 { return false; }
+            m.set(k, v);
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn same(a: &Vec<i64>, b: &Vec<i64>) -> bool {
+    let mut i: i64 = 0i64;
+    while i < a.len() { if a.get(i) != b.get(i) { return false; } i = i + 1i64; }
+    return true;
+}
+
+// Add a delta into a Z-set keyed by the packed (key, value).
+fn zadd(z: &mut HashMap<u64, i64>, d: &BtDelta<u64, u64>) {
+    let mut i: i64 = 0i64;
+    while i < d.keys.len() {
+        let pk: u64 = (d.keys.get(i) << 20u64) | d.vals.get(i);
+        let w: i64 = d.weights.get(i);
+        let cur: i64 = match z.get(&pk) { Option::Some(c) => { *c } Option::None => { 0i64 } };
+        z.insert(pk, cur + w);
+        i = i + 1i64;
+    }
+}
+
+// Z-set equality after cancelling zero weights.
+fn zsame(a: &HashMap<u64, i64>, b: &HashMap<u64, i64>) -> bool {
+    let mut it = a.iter();
+    loop {
+        match it.next() {
+            Option::Some(kv) => {
+                let wb: i64 = match b.get(kv.0) { Option::Some(c) => { *c } Option::None => { 0i64 } };
+                if *kv.1 != wb { return false; }
+            }
+            Option::None => { break; }
+        }
+    }
+    let mut it2 = b.iter();
+    loop {
+        match it2.next() {
+            Option::Some(kv) => {
+                let wa: i64 = match a.get(kv.0) { Option::Some(c) => { *c } Option::None => { 0i64 } };
+                if *kv.1 != wa { return false; }
+            }
+            Option::None => { break; }
+        }
+    }
+    return true;
+}
+
+fn run_all() -> i32 {
+    let mut rng: Lcg = Lcg { s: 12345u64 };
+    let mut model: Vec<i64> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < D { model.push(-1i64); i = i + 1i64; }
+    let mut store: Arc<MemoryStore> = store_new();
+
+    // s0: N random entries
+    let s0: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let mut m = create_ctr::<typeof(Ledger)>(&s0, L);
+        let mut n: i64 = 0i64;
+        while n < N {
+            let k: i64 = (rng.next() % (D as u64)) as i64;
+            let v: i64 = (rng.next() % 1000000u64) as i64;
+            if model.get(k) == -1i64 { n = n + 1i64; }
+            model.set(k, v);
+            m.insert(k as u64, v as u64);
+        }
+    }
+    s0.commit();
+    let m0: Vec<i64> = model_copy(&model);
+
+    // s1, s2, s3: each a fork of the previous with random inserts / replaces / removes
+    let mut snaps: Vec<Arc<dyn Snapshot>> = Vec::new();
+    snaps.push(s0);
+    let mut models: Vec<Vec<i64>> = Vec::new();
+    models.push(m0);
+    let mut step: i64 = 1i64;
+    while step <= 3i64 {
+        let ops: i64 = if step == 3i64 { 5i64 } else { 300i64 };
+        let s: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+        {
+            let mut m = open_ctr::<typeof(Ledger)>(&s, L);
+            let mut o: i64 = 0i64;
+            while o < ops {
+                let k: i64 = (rng.next() % (D as u64)) as i64;
+                let r: u64 = rng.next() % 3u64;
+                if r == 0u64 && model.get(k) != -1i64 {
+                    let _ = m.remove(k as u64);
+                    model.set(k, -1i64);
+                } else {
+                    let v: i64 = (rng.next() % 1000000u64) as i64;
+                    m.insert(k as u64, v as u64);
+                    model.set(k, v);
+                }
+                o = o + 1i64;
+            }
+        }
+        s.commit();
+        snaps.push(s);
+        models.push(model_copy(&model));
+        step = step + 1i64;
+    }
+
+    // law 4 and law 3 for every ordered pair (v <= w)
+    let mut v: i64 = 0i64;
+    while v < 4i64 {
+        let mut w: i64 = v;
+        while w < 4i64 {
+            let hv = open_ctr::<typeof(Ledger)>(snaps.borrow(v), L);
+            let hw = open_ctr::<typeof(Ledger)>(snaps.borrow(w), L);
+            let d: BtDelta<u64, u64> = hw.delta_from(&hv);
+            if v == w && d.keys.len() != 0i64 { return 10i32; }             // law 4
+            let mut mm: Vec<i64> = model_copy(models.borrow(v));
+            if !apply(&mut mm, &d) { return 11i32; }                          // law 3: removals named held entries
+            if !same(&mm, models.borrow(w)) { return 12i32; }                 // law 3: the result is w's state
+            w = w + 1i64;
+        }
+        v = v + 1i64;
+    }
+
+    // law 5 for every u <= v <= w
+    let mut u: i64 = 0i64;
+    while u < 4i64 {
+        let mut v2: i64 = u;
+        while v2 < 4i64 {
+            let mut w2: i64 = v2;
+            while w2 < 4i64 {
+                let hu = open_ctr::<typeof(Ledger)>(snaps.borrow(u), L);
+                let hv = open_ctr::<typeof(Ledger)>(snaps.borrow(v2), L);
+                let hw = open_ctr::<typeof(Ledger)>(snaps.borrow(w2), L);
+                let mut zl: HashMap<u64, i64> = HashMap::new();
+                zadd(&mut zl, &hw.delta_from(&hu));
+                let mut zr: HashMap<u64, i64> = HashMap::new();
+                zadd(&mut zr, &hv.delta_from(&hu));
+                zadd(&mut zr, &hw.delta_from(&hv));
+                if !zsame(&zl, &zr) { return 20i32; }
+                w2 = w2 + 1i64;
+            }
+            v2 = v2 + 1i64;
+        }
+        u = u + 1i64;
+    }
+
+    // cost: s2 -> s3 is five point changes over ~20000 entries
+    let h2 = open_ctr::<typeof(Ledger)>(snaps.borrow(2i64), L);
+    let h3 = open_ctr::<typeof(Ledger)>(snaps.borrow(3i64), L);
+    let d23: BtDelta<u64, u64> = h3.delta_from(&h2);
+    if d23.visited > 60u64 { return 30i32; }
+    // from an absent base (container 2 is in no cut) the delta is the whole state, all +1
+    let hb = open_ctr::<typeof(Ledger)>(snaps.borrow(0i64), 2u64);
+    let full: BtDelta<u64, u64> = h3.delta_from(&hb);
+    let mut live: i64 = 0i64;
+    let mut q: i64 = 0i64;
+    while q < D { if models.borrow(3i64).get(q) != -1i64 { live = live + 1i64; } q = q + 1i64; }
+    if full.keys.len() != live { return 31i32; }
+    let mut z: i64 = 0i64;
+    while z < full.weights.len() { if full.weights.get(z) != 1i64 { return 32i32; } z = z + 1i64; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL delta_laws: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

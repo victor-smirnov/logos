@@ -34,6 +34,15 @@ use logos.mem.bt.btvec;
 // generated map families delegate into.
 use logos.mem.bt.pack;
 
+/// Why an insert was refused: the key or the value has another (tag, meta)
+/// than a DView map's first insert fixed, or the entry is over the
+/// container's frame limit (`frame_limit()`, ADR 0039 M1w).
+pub enum InsertError {
+    KeyType,
+    ValueType,
+    FrameLimit,
+}
+
 /// Typed wrapper over a container configuration document. Zero-field: the
 /// type carries only the CFG identity (content hash) + factory routing.
 pub struct CtrClass<const CFG: WritStatic> {}

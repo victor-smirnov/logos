@@ -87,7 +87,12 @@ pub unsafe fn btss_split_col(a: *mut PkdAlloc, ra: *mut PkdAlloc, slot: u32, at:
     }
     let mut lb2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(slot));
     let mut rb2: PdtBuf = pdtbuf_adopt((*ra).get::<u8>(slot));
-    let sp: PdtSplit = match lb2.prepare_split_to(&rb2, at as u64, PDT_CAP_KEEP) {
+    // PDT_CAP_EXACT: the rows that leave give their bytes back to the
+    // leaf's allocator. Under KEEP the column kept its capacity, so a leaf
+    // with two VLE columns (a `str` key and a `str` value) could split and
+    // still have no room for the retried row: the freed bytes were trapped
+    // in the other column.
+    let sp: PdtSplit = match lb2.prepare_split_to(&rb2, at as u64, PDT_CAP_EXACT) {
         Result::Ok(x) => x,
         Result::Err(_e) => {
             assert(false, "btss: leaf split prepare");
