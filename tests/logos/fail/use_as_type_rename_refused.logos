@@ -1,0 +1,7 @@
+// Renaming a TYPE by `use … as` is refused for now (Rust admits it): a type's identity is
+// still rebuilt from its written name in several positions, so a rename would resolve
+// to a look-alike. Importing it under its own name works.
+package use_as_type_rename_refused;
+use logos.mem.collections.vec.Vec as V;
+
+fn main() -> i32 { return 0; }

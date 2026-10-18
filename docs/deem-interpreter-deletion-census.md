@@ -7005,12 +7005,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12311 -> 12311 (+0), NOIMPORTED 7752 -> 7752 (+0), TIERCOMMIT 165 -> 164 (-1) — 2026-10-17: +1 pass/hashmap_get_unsafe_raw_api_refused (closed squeue #752); merge deem aa4583302.
 #                ALL 12311 -> 12311 (+0), NOIMPORTED 7752 -> 7752 (+0), TIERCOMMIT 164 -> 163 (-1) — 2026-10-18: str flip closes squeue #750 (row gone, fail fixture str_by_value_refused added).
 #                ALL 12311 -> 12315 (+4), NOIMPORTED 7752 -> 7756 (+4), TIERCOMMIT 163 -> 162 (-1) — 2026-10-18: E0106 zero-input default: pass elided_return_owning_and_raw_fat_not_lifetimes; squeue #751 closed as fail elided_return_no_input_lifetime_refused, plus 3 fail twins.
+#                ALL 12315 -> 12316 (+1), NOIMPORTED 7756 -> 7757 (+1), TIERCOMMIT 162 -> 162 (+0) — 2026-10-18: merge deem e1b77812f (its +1 wql_join_tree_key_e2e on top of main's E0106 pins).
+#                ALL 12316 -> 12321 (+5), NOIMPORTED 7757 -> 7762 (+5), TIERCOMMIT 162 -> 162 (+0) — 2026-10-18: E0659 + use-as: pass import_glob_ambiguous_unused_admitted, use_as_trait_rename_impl_and_bound; 3 fail twins.
 #                ALL 12311 -> 12312 (+1), NOIMPORTED 7752 -> 7753 (+1), TIERCOMMIT 163 -> 163 (+0) — 2026-10-18 wql_join_tree_key_e2e (the first fixture to reach JS_TREE: a key that orders but does not hash; one join, one output).
 #                ALL 12312 -> 12313 (+1), NOIMPORTED 7753 -> 7754 (+1), TIERCOMMIT 163 -> 163 (+0) — 2026-10-18 memoria_delta_laws (ADR 0039 M5: delta_since laws 3-5 on randomized histories).
-#                ALL 12315 -> 12317 (+2), NOIMPORTED 7756 -> 7758 (+2), TIERCOMMIT 162 -> 162 (+0) — 2026-10-18: merge main 7bc9b35a0 onto deem: the two deem lines above land on main's E0106 line.
 #                ALL 12317 -> 12318 (+1), NOIMPORTED 7758 -> 7759 (+1), TIERCOMMIT 162 -> 162 (+0) — 2026-10-18 memoria_ctr_frame_limit (ADR 0039 M1w S1: frame limit, split CAP_EXACT, str-key branch reserve).
-REGISTRY-ALL         12318
-REGISTRY-NOIMPORTED  7759
+#                ALL 12321 -> 12323 (+2), NOIMPORTED 7762 -> 7764 (+2), TIERCOMMIT 162 -> 162 (+0) — 2026-10-18: merge main 3ce71a1f3 onto deem: deem's memoria_delta_laws and memoria_ctr_frame_limit over main's E0659 line.
+REGISTRY-ALL         12323
+REGISTRY-NOIMPORTED  7764
 REGISTRY-TIERCOMMIT  162
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

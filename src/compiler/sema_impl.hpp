@@ -3347,6 +3347,10 @@ private:
         // enum-type qualifier so lookup paths can resolve `V1` as if it
         // were written `Type::V1`. Last-write-wins on name collision.
         std::unordered_map<std::string, std::string> variant_aliases;
+        // `use pkg.path.Item as Alias;` — Alias → (package, item name). A
+        // type-namespace binding: it answers a type / trait lookup of Alias
+        // and shadows every wildcard import of that name.
+        std::unordered_map<std::string, std::pair<std::string, std::string>> item_aliases;
     };
     ImportScope cur_imports_;
     ImportScope build_import_scope_(writ::TinyMapView root, bool diagnose);
@@ -6712,6 +6716,9 @@ private:
             auto it = type_aliases_.find(sema_key(cur_package_, name));
             if (it != type_aliases_.end()) return it;
         }
+        if (auto ait = cur_imports_.item_aliases.find(std::string(name));
+            ait != cur_imports_.item_aliases.end())
+            return type_aliases_.find(sema_key(ait->second.first, ait->second.second));
         auto it = type_aliases_.find(name);
         if (it != type_aliases_.end() && alias_owner_visible_(it->second.package)) return it;
         for (auto& pkg : cur_imports_.wildcard_packages) {
@@ -6956,6 +6963,8 @@ private:
     // here, so later passes never re-resolve the spelling in another scope.
     void resolve_bound_trait_(TraitBound& tb) {
         if (tb.trait_name.empty()) return;
+        refuse_ambiguous_trait_(tb.trait_name);
+        tb.trait_name = dealias_trait_name_(tb.trait_name);
         tb.canonical_trait = canonical_trait_name(tb.trait_name);
         tb.identity_trait  = impl_key_trait(tb.canonical_trait);
         tb.trait_def       = trait_def_of_key(tb.canonical_trait);
@@ -7513,6 +7522,38 @@ private:
     // Generic qualified lookup. PubCheck=true triggers check_pub_access on
     // imported-pkg hits; the branch is `if constexpr` so SemaEnumInfo /
     // SemaTraitInfo (no is_pub field) compile cleanly with PubCheck=false.
+    // E0659: a bare type-namespace name that two imported packages declare as
+    // DISTINCT public items is ambiguous at the use — rustc refuses a glob-glob
+    // conflict when the name is used, and the prelude yields to any explicit
+    // import. `first` is the hit the caller is about to return from `first_pkg`.
+    bool type_def_pub_(DefId id) {
+        if (auto it = structs_.find(id); it != structs_.end()) return it->second.is_pub;
+        if (auto it = datatypes_.find(id); it != datatypes_.end()) return it->second.is_pub;
+        if (auto it = enums_.find(id); it != enums_.end()) return it->second.is_pub;
+        if (auto* ti = trait_info(id)) return ti->is_pub;
+        return true;
+    }
+    void refuse_ambiguous_import_(std::string_view name, DefId first, const std::string& first_pkg) {
+        const auto& prelude = current_prelude_();
+        StrSet explicit_pkgs;
+        {
+            std::vector<std::string> out;
+            for (auto& pkg : cur_imports_.wildcard_packages)
+                if (pkg != prelude && explicit_pkgs.insert(pkg).second)
+                    collect_reexports(pkg, explicit_pkgs, out);
+        }
+        const bool first_explicit = explicit_pkgs.count(first_pkg) > 0;
+        for (auto& pkg : effective_import_pkgs()) {
+            if (pkg == first_pkg) continue;
+            if (first_explicit && !explicit_pkgs.count(pkg)) continue;
+            DefId d = defs_.find(DefNs::Type, pkg, name);
+            if (!d || d == first || !type_def_pub_(d)) continue;
+            error(std::format("`{}` is ambiguous (E0659): it is imported from both `{}` and `{}` — "
+                              "import the one meant explicitly, `use {}.{} as {};`",
+                              name, defs_.path(first), defs_.path(d), first_pkg, name, name));
+            return;
+        }
+    }
     template <bool PubCheck, class Map>
     auto lookup_qualified_(Map& m, std::string_view name)
         -> std::pair<std::string, typename Map::mapped_type*>
@@ -7525,6 +7566,19 @@ private:
         };
         if (!cur_package_.empty())
             if (auto* v = probe(cur_package_)) return {cur_package_, v};
+        if (auto ait = cur_imports_.item_aliases.find(std::string(name));
+            ait != cur_imports_.item_aliases.end()) {
+            const auto& [apkg, aitem] = ait->second;
+            auto it = m.find(type_id(apkg, aitem));
+            if (it == m.end()) return {std::string{}, nullptr};
+            if constexpr (PubCheck) {
+                auto mit = pkg_module_ids_.find(apkg);
+                std::string pkg_mod = (mit != pkg_module_ids_.end()) ? mit->second : std::string{};
+                check_pub_access(it->second.is_pub, it->second.package, aitem,
+                                 it->second.is_module_only, pkg_mod);
+            }
+            return {apkg, &it->second};
+        }
         // A type of ANOTHER kind this package declares under the name shadows
         // every import of it (Rust: one type namespace, the local item wins):
         // a local `enum Slot` is not an imported private `struct Slot`.
@@ -7545,6 +7599,7 @@ private:
                     (mit != pkg_module_ids_.end()) ? mit->second : std::string{};
                 if (pkg_mod != rit->second) continue;
             }
+            if constexpr (PubCheck) refuse_ambiguous_import_(name, type_id(pkg, name), pkg);
             if constexpr (PubCheck) {
                 // §4: pass the module-linkage info so a `pub(module)` type
                 // accessed from another module gets a "module-private"
@@ -7672,6 +7727,11 @@ private:
         if (name.find("::") != std::string_view::npos) return trait_by_key(name);
         if (auto id = defs_.find(DefNs::Type, cur_package_, name); id)
             if (auto* ti = trait_info(id)) return ti;
+        if (auto ait = cur_imports_.item_aliases.find(std::string(name));
+            ait != cur_imports_.item_aliases.end()) {
+            auto id = defs_.find(DefNs::Type, ait->second.first, ait->second.second);
+            return id ? trait_info(id) : nullptr;
+        }
         for (auto& pkg : effective_import_pkgs())
             if (auto id = defs_.find(DefNs::Type, pkg, name); id)
                 if (auto* ti = trait_info(id)) return ti;
@@ -7682,6 +7742,11 @@ private:
         if (name.find("::") != std::string_view::npos) return trait_by_key(name);
         if (auto id = defs_.find(DefNs::Type, cur_package_, name); id)
             if (auto* ti = trait_info(id)) return ti;
+        if (auto ait = cur_imports_.item_aliases.find(std::string(name));
+            ait != cur_imports_.item_aliases.end()) {
+            auto id = defs_.find(DefNs::Type, ait->second.first, ait->second.second);
+            return id ? trait_info(id) : nullptr;
+        }
         for (auto& pkg : effective_import_pkgs())
             if (auto id = defs_.find(DefNs::Type, pkg, name); id)
                 if (auto* ti = trait_info(id)) return ti;
@@ -7769,6 +7834,39 @@ private:
 
     // The path of the trait a written name denotes here, or the name itself
     // when it denotes none (the bound then refuses as unknown).
+    // E0659 for a trait name the USER wrote (impl header, bound, `dyn`):
+    // resolve_trait itself also answers the compiler's own spelled probes.
+    void refuse_ambiguous_trait_(std::string_view name) {
+        if (name.empty() || name.find("::") != std::string_view::npos) return;
+        if (defs_.find(DefNs::Type, cur_package_, name)) return;
+        if (cur_imports_.item_aliases.count(std::string(name))) return;
+        for (auto& pkg : effective_import_pkgs())
+            if (auto id = defs_.find(DefNs::Type, pkg, name); id && trait_info(id)) {
+                refuse_ambiguous_import_(name, id, pkg);
+                return;
+            }
+    }
+    // A trait is in scope through `use pkg.Trait as Alias;` too (Rust).
+    bool trait_aliased_(const std::string& pkg, std::string_view trait) const {
+        if (auto sep = trait.rfind("::"); sep != std::string_view::npos) trait = trait.substr(sep + 2);
+        for (auto& [alias, target] : cur_imports_.item_aliases)
+            if (target.first == pkg && target.second == trait) return true;
+        return false;
+    }
+    // `use pkg.Trait as Alias;`: a site that keys the impl / bound registries
+    // by the written trait name takes the alias's target registry key instead.
+    // A same-name `use pkg.Trait as Trait;` needs nothing: the bare name
+    // resolves through the alias wherever it is looked up.
+    std::string dealias_trait_name_(std::string_view name) {
+        if (auto it = cur_imports_.item_aliases.find(std::string(name));
+            it != cur_imports_.item_aliases.end() && it->second.second != name)
+            if (auto* ti = resolve_trait(name)) return trait_path(*ti);
+        return std::string(name);
+    }
+    bool renamed_alias_(std::string_view name) const {
+        auto it = cur_imports_.item_aliases.find(std::string(name));
+        return it != cur_imports_.item_aliases.end() && it->second.second != name;
+    }
     std::string canonical_trait_name(std::string_view name) {
         if (auto* ti = resolve_trait(name)) return trait_path(*ti);
         return std::string(name);

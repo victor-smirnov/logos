@@ -1,0 +1,7 @@
+// Two imported packages both export `trait Snapshot`; the name is never used, so nothing is
+// ambiguous (rustc 1.98.1 refuses a glob-glob conflict only at a use).
+package import_glob_ambiguous_unused_admitted;
+use logos.mem.bt.map;
+use logos.mem.version.vocab;
+
+fn main() -> i32 { return 0; }

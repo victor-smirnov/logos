@@ -1,0 +1,22 @@
+// `use pkg.Trait as Alias;` (Rust's renaming import): two packages export `trait Snapshot`;
+// one is imported under its own name (shadowing the glob, as `use a::Snapshot;` does in
+// Rust), the other renamed and implemented, bounded and called through the alias (rustc 1.98.1 twin: exit 0).
+package use_as_trait_rename_impl_and_bound;
+use logos.mem.collections.vec;
+use logos.mem.bt.map;
+use logos.mem.version.vocab;
+use logos.mem.bt.map.Snapshot as Snapshot;
+use logos.mem.version.vocab.Snapshot as VSnapshot;
+
+struct Y { v: u64 }
+impl VSnapshot for Y {
+    fn version(self: &Self) -> u64 { return self.v; }
+    fn parents(self: &Self) -> Vec<u64> { return Vec::new(); }
+}
+fn ver<T: VSnapshot>(t: &T) -> u64 { return t.version(); }
+fn take(m: &dyn Snapshot) -> u64 { return m.snapshot_id(); }
+
+fn main() -> i32 {
+    let y: Y = Y { v: 7u64 };
+    return (ver(&y) + y.version()) as i32 - 14i32;
+}

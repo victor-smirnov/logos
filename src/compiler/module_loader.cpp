@@ -205,6 +205,11 @@ static std::vector<UseRef> extract_uses(const writ::WritView& ast,
                 continue;
             }
         }
+        // `use pkg.path.Item as Alias;` loads the package before the item.
+        if (use_node.has_key(la::mod::ALIAS)) {
+            auto dot = dotted.rfind('.');
+            dotted = dot == std::string::npos ? std::string{} : dotted.substr(0, dot);
+        }
         if (!dotted.empty())
             result.push_back({dotted, from_module});
     }

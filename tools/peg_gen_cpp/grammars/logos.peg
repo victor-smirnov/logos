@@ -104,6 +104,10 @@
         // slots USE/MODULE nodes never populate (BODY/THEN).
         FROM_MODULE = 5    // reuses BODY — USE/MODULE never carry a body
         FROM_KW     = 9    // reuses THEN — USE/MODULE never carry a then-branch
+        // `use pkg.path.Item as Alias;` — Rust's renaming import: ALIAS binds the
+        // ITEM (the last dotted segment) of the package before it under a new name.
+        // Reuses FIELD — a USE never carries a field access.
+        ALIAS       = 21
     }
     // ── Group: variant ────────────────────────────────────────────────────
     // Fields scoped to VARIANT_DEF / ENUM_LIT_DATA / PAT_VARIANT_DATA nodes.
@@ -596,6 +600,8 @@
              => { CODE: USE, NAME_VAR: $3, IS_OPTIONAL: 1 }
                           / KW_USE HASH IDENT SEMI
              => { CODE: USE, NAME_VAR: $3 }
+                          / KW_USE IDENT path_dot_ident* KW_AS IDENT SEMI
+             => { CODE: USE, NAME: $2, PATH_PARTS: $3, ALIAS: $5 }
                           / KW_USE IDENT path_dot_ident* SEMI
              => { CODE: USE, NAME: $2, PATH_PARTS: $3 }
 

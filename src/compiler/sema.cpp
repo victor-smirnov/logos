@@ -2190,7 +2190,8 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::filter_visible_(
         if (fi->is_method && !fi->trait_name.empty()) {
             const auto& tp = fi->trait_package;
             if (!(tp.empty() || tp == cur_package_ ||
-                  std::find(imports.begin(), imports.end(), tp) != imports.end()))
+                  std::find(imports.begin(), imports.end(), tp) != imports.end() ||
+                  trait_aliased_(tp, fi->trait_name)))
                 continue;
             if (auto it = cur_imports_.pkg_from_module_id.find(fi->package);
                 it != cur_imports_.pkg_from_module_id.end() && fi->module_id != it->second) {
@@ -9149,6 +9150,14 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
 
     if (tc == la::DYN_TYPE) {
         auto tname = std::string(str_of(node.get(la::NAME.code)));
+        refuse_ambiguous_trait_(tname);
+        // A trait object is keyed by its trait's bare name downstream (KNOWN GAP
+        // below), so a RENAMED trait cannot name one yet.
+        if (renamed_alias_(tname))
+            error(std::format("`dyn {}`: a trait renamed by `use … as` cannot name a trait object yet — "
+                              "import it under its own name (`use {}.{} as {};`)", tname,
+                              cur_imports_.item_aliases[tname].first, cur_imports_.item_aliases[tname].second,
+                              cur_imports_.item_aliases[tname].second));
         // C5-cl-04 slice: `dyn Fn(…)` / `dyn FnMut(…)` / `dyn FnOnce(…)` —
         // Logos's Fn-family isn't a registered trait (it's a bound-check
         // shortcut), but the trait-object layout for these matches the

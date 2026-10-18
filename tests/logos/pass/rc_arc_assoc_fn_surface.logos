@@ -4,6 +4,7 @@
 // i64, Logos's usize-width integer). Checked under valgrind. rustc twin: 10.
 package rc_arc_assoc_fn_surface;
 use logos.lang.rc;
+use logos.lang.rc.Weak as Weak;   // logos.mem.sync exports a `Weak` too (E0659 without it)
 use logos.mem.sync;
 use logos.mem.string;
 fn main() -> i32 {

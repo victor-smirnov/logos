@@ -1,0 +1,10 @@
+// Two imported packages both export `trait Snapshot`: a bare use of the name is ambiguous
+// (rustc 1.98.1: E0659 for a glob-glob conflict at the use). It used to resolve silently
+// to whichever package was imported first.
+package import_glob_ambiguous_trait_refused;
+use logos.mem.bt.map;
+use logos.mem.version.vocab;
+
+fn f(s: &dyn Snapshot) -> i32 { return 0; }
+
+fn main() -> i32 { return 0; }

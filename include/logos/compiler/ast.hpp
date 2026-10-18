@@ -325,6 +325,7 @@ namespace mod {
     inline constexpr Key PATH_PARTS{"PATH_PARTS", 16};  // array of sub-nodes (one per component after NAME)
     inline constexpr Key FROM_MODULE{"FROM_MODULE", 5};  // reuses BODY — USE/MODULE never carry a body
     inline constexpr Key FROM_KW{"FROM_KW", 9};  // reuses THEN — USE/MODULE never carry a then-branch
+    inline constexpr Key ALIAS{"ALIAS", 21};
 } // namespace mod
 
 namespace variant {

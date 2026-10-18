@@ -1,0 +1,1 @@
+a trait renamed by `use … as` cannot name a trait object yet
