@@ -1,0 +1,112 @@
+// ADR 0039 row M6: the D5 law suite under the in-memory model (MemoryStore,
+// a Canon ordered map as the probe, `delta_from` as `delta_since`), and under
+// a planted violation of it: the same model with a delta that drops replaced
+// values. The model holds every law; the planted one must violate laws 3 and 5.
+package test;
+
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.sync;
+use logos.mem.collections.vec;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.bt.ops;
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.version.vocab;
+use logos.mem.version.laws;
+use logos.mem.bt.map.Snapshot as Snapshot;
+use logos.mem.version.vocab.Snapshot as VSnapshot;
+use logos.std.io;
+
+container LawProbe {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+
+const P: u64 = 1u64;
+
+pub struct MemSnap { s: Arc<dyn Snapshot>, lossy: bool }
+pub struct MemWs { s: Arc<dyn Snapshot>, base: u64, lossy: bool }
+pub struct MemModel { st: Arc<MemoryStore>, lossy: bool }
+
+fn probe_rows(s: &Arc<dyn Snapshot>) -> Vec<(u64, u64)> {
+    let mut out: Vec<(u64, u64)> = Vec::new();
+    let l = open_ctr::<typeof(LawProbe)>(s, P);
+    let mut cu = l.seek(0u64);
+    while cu.valid() { let k: u64 = cu.key(); let v: u64 = cu.value(); out.push((k, v)); cu = l.next(&cu); }
+    return out;
+}
+
+impl VSnapshot for MemSnap {
+    fn version(self: &MemSnap) -> u64 { return self.s.snapshot_id(); }
+    fn parents(self: &MemSnap) -> Vec<u64> {
+        let mut p: Vec<u64> = Vec::new();
+        if self.s.has_parent() { p.push(self.s.snapshot_parent()); }
+        return p;
+    }
+}
+
+impl Workspace for MemWs {
+    type Snap = MemSnap;
+    fn base(self: &MemWs) -> u64 { return self.base; }
+    fn commit(self: MemWs) -> MemSnap { self.s.commit(); return MemSnap { s: self.s, lossy: self.lossy }; }
+    fn abort(self: MemWs) { self.s.remove(); }
+}
+
+impl VersionStore for MemModel {
+    type Snap = MemSnap;
+    type Ws = MemWs;
+    fn root(self: &mut MemModel) -> MemSnap {
+        let s: Arc<dyn Snapshot> = store_fork_arc(&mut self.st);
+        { let _ = create_ctr::<typeof(LawProbe)>(&s, P); }
+        s.commit();
+        return MemSnap { s: s, lossy: self.lossy };
+    }
+    fn fork(self: &mut MemModel, base: &MemSnap) -> MemWs {
+        let id: u64 = base.s.snapshot_id();
+        let s: Arc<dyn Snapshot> = match store_fork_from(&mut self.st, id) {
+            Option::Some(f) => { f }
+            Option::None => { assert(false, "law probe: the base is not a committed snapshot"); store_fork_arc(&mut self.st) }
+        };
+        return MemWs { s: s, base: id, lossy: self.lossy };
+    }
+    fn heads(self: &MemModel) -> Vec<u64> { return store_heads(&self.st); }
+    fn release(self: &mut MemModel, s: MemSnap) { }
+    fn fork_cost(self: &MemModel) -> u32 { return FORK_COST_CONSTANT(); }
+}
+
+impl MapRead for MemSnap { fn rows(self: &MemSnap) -> Vec<(u64, u64)> { return probe_rows(&self.s); } }
+impl MapRead for MemWs { fn rows(self: &MemWs) -> Vec<(u64, u64)> { return probe_rows(&self.s); } }
+impl MapWrite for MemWs {
+    fn put(self: &mut MemWs, k: u64, v: u64) { let mut l = open_ctr::<typeof(LawProbe)>(&self.s, P); l.insert(k, v); }
+    fn del(self: &mut MemWs, k: u64) { let mut l = open_ctr::<typeof(LawProbe)>(&self.s, P); let _ = l.remove(k); }
+}
+impl MapDelta for MemSnap {
+    fn delta_since(self: &MemSnap, base: &MemSnap) -> Vec<(u64, u64, i64)> {
+        let hb = open_ctr::<typeof(LawProbe)>(&base.s, P);
+        let hs = open_ctr::<typeof(LawProbe)>(&self.s, P);
+        let d: BtDelta<u64, u64> = hs.delta_from(&hb);
+        let mut out: Vec<(u64, u64, i64)> = Vec::new();
+        let mut i: i64 = 0i64;
+        while i < d.keys.len() {
+            // the planted violation: a replaced value (-old +new on one key) is dropped
+            let replaced: bool = (i + 1i64 < d.keys.len() && d.keys.get(i + 1i64) == d.keys.get(i))
+                || (i > 0i64 && d.keys.get(i - 1i64) == d.keys.get(i));
+            if !(self.lossy && replaced) { out.push((d.keys.get(i), d.vals.get(i), d.weights.get(i))); }
+            i = i + 1i64;
+        }
+        return out;
+    }
+}
+
+fn main() -> i32 {
+    let mut mm: MemModel = MemModel { st: store_new(), lossy: false };
+    let a: String = run_laws::<MemModel>(&mut mm, "in-memory");
+    print_string(&a);
+    let mut lm: MemModel = MemModel { st: store_new(), lossy: true };
+    let b: String = run_laws::<MemModel>(&mut lm, "planted lossy-delta");
+    print_string(&b);
+    return 0i32;
+}
