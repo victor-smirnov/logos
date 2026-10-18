@@ -7007,8 +7007,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12311 -> 12312 (+1), NOIMPORTED 7752 -> 7753 (+1), TIERCOMMIT 163 -> 163 (+0) — 2026-10-18 wql_join_tree_key_e2e (the first fixture to reach JS_TREE: a key that orders but does not hash; one join, one output).
 #                ALL 12311 -> 12315 (+4), NOIMPORTED 7752 -> 7756 (+4), TIERCOMMIT 163 -> 162 (-1) — 2026-10-18: E0106 zero-input default: pass elided_return_owning_and_raw_fat_not_lifetimes; squeue #751 closed as fail elided_return_no_input_lifetime_refused, plus 3 fail twins.
 #                ALL 12315 -> 12316 (+1), NOIMPORTED 7756 -> 7757 (+1), TIERCOMMIT 162 -> 162 (+0) — 2026-10-18: merge deem e1b77812f (its +1 wql_join_tree_key_e2e on top of main's E0106 pins).
-REGISTRY-ALL         12316
-REGISTRY-NOIMPORTED  7757
+#                ALL 12316 -> 12321 (+5), NOIMPORTED 7757 -> 7762 (+5), TIERCOMMIT 162 -> 162 (+0) — 2026-10-18: E0659 + use-as: pass import_glob_ambiguous_unused_admitted, use_as_trait_rename_impl_and_bound; 3 fail twins.
+REGISTRY-ALL         12321
+REGISTRY-NOIMPORTED  7762
 REGISTRY-TIERCOMMIT  162
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
