@@ -45,6 +45,25 @@ pub fn ref_lineage_heads(l: &Rc<RefCell<RefLineage>>) -> Vec<u64> {
     return law_copy_u64s(&l.borrow().heads);
 }
 
+/// The change from `prev` to `cur`, both sorted by key: a merge of the two
+/// row lists (no tree, no sharing), the oracle for a model's `delta_since`.
+pub fn ref_rows_delta(cur: &Vec<(u64, u64)>, prev: &Vec<(u64, u64)>) -> Vec<(u64, u64, i64)> {
+    let mut out: Vec<(u64, u64, i64)> = Vec::new();
+    let mut i: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while i < prev.len() || j < cur.len() {
+        if j >= cur.len() || (i < prev.len() && prev[i].0 < cur[j].0) {
+            out.push((prev[i].0, prev[i].1, -1i64)); i = i + 1i64;
+        } else if i >= prev.len() || cur[j].0 < prev[i].0 {
+            out.push((cur[j].0, cur[j].1, 1i64)); j = j + 1i64;
+        } else {
+            if prev[i].1 != cur[j].1 { out.push((prev[i].0, prev[i].1, -1i64)); out.push((cur[j].0, cur[j].1, 1i64)); }
+            i = i + 1i64; j = j + 1i64;
+        }
+    }
+    return out;
+}
+
 impl Snapshot for RefSnap {
     fn version(self: &RefSnap) -> u64 { return self.ver; }
     fn parents(self: &RefSnap) -> Vec<u64> {
@@ -84,4 +103,8 @@ impl MapRead for RefWs {
 }
 impl MapWrite for RefWs {
     fn put(self: &mut RefWs, k: u64, v: u64) { law_put_sorted(&mut self.rows, k, v); }
+    fn del(self: &mut RefWs, k: u64) { law_del_sorted(&mut self.rows, k); }
+}
+impl MapDelta for RefSnap {
+    fn delta_since(self: &RefSnap, base: &RefSnap) -> Vec<(u64, u64, i64)> { return ref_rows_delta(&self.rows, &base.rows); }
 }

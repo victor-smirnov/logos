@@ -3,10 +3,24 @@ stdout:
 reference:
   law 1 committed immutable ok
   law 2 fork isolation ok
+  law 3 change capture exact ok
+  law 4 delta since self empty ok
+  law 5 delta composition ok
   law 6 fork cost declared ok
   lineage ok
 canary shared-rows:
   law 1 committed immutable VIOLATED
   law 2 fork isolation VIOLATED
+  law 3 change capture exact ok
+  law 4 delta since self empty ok
+  law 5 delta composition ok
+  law 6 fork cost declared ok
+  lineage ok
+canary lossy-delta:
+  law 1 committed immutable ok
+  law 2 fork isolation ok
+  law 3 change capture exact VIOLATED
+  law 4 delta since self empty ok
+  law 5 delta composition VIOLATED
   law 6 fork cost declared ok
   lineage ok

@@ -1,7 +1,9 @@
 // ADR 0039 row M2: the D5 law suite against the reference model (full copy
 // on fork) and against a canary model whose forks SHARE their parent's rows
-// (the defect row M3v names in logos.mem.bt's vector family). The reference
-// holds every law; the canary must violate laws 1 and 2, or the suite is blind.
+// (the defect row M3v names in logos.mem.bt's vector family), and against a
+// model whose delta drops replaced values (row M6's planted violation). The
+// reference holds every law; the shared-rows canary must violate laws 1 and 2
+// and the lossy-delta one laws 3 and 5, or the suite is blind.
 package test;
 
 use logos.lang.str;
@@ -50,7 +52,57 @@ impl VersionStore for LeakStore {
 }
 impl MapRead for LeakSnap { fn rows(self: &LeakSnap) -> Vec<(u64, u64)> { return law_copy_rows(&self.rows.borrow()); } }
 impl MapRead for LeakWs { fn rows(self: &LeakWs) -> Vec<(u64, u64)> { return law_copy_rows(&self.rows.borrow()); } }
-impl MapWrite for LeakWs { fn put(self: &mut LeakWs, k: u64, v: u64) { law_put_sorted(&mut self.rows.borrow_mut(), k, v); } }
+impl MapWrite for LeakWs {
+    fn put(self: &mut LeakWs, k: u64, v: u64) { law_put_sorted(&mut self.rows.borrow_mut(), k, v); }
+    fn del(self: &mut LeakWs, k: u64) { law_del_sorted(&mut self.rows.borrow_mut(), k); }
+}
+impl MapDelta for LeakSnap {
+    fn delta_since(self: &LeakSnap, base: &LeakSnap) -> Vec<(u64, u64, i64)> { return ref_rows_delta(&self.rows.borrow(), &base.rows.borrow()); }
+}
+
+// The reference model with a delta that loses every replaced value
+// (a key carrying both -old and +new).
+pub struct LossySnap { inner: RefSnap }
+pub struct LossyWs { inner: RefWs }
+pub struct LossyStore { inner: RefStore }
+impl Snapshot for LossySnap {
+    fn version(self: &LossySnap) -> u64 { return self.inner.version(); }
+    fn parents(self: &LossySnap) -> Vec<u64> { return self.inner.parents(); }
+}
+impl Workspace for LossyWs {
+    type Snap = LossySnap;
+    fn base(self: &LossyWs) -> u64 { return self.inner.base(); }
+    fn commit(self: LossyWs) -> LossySnap { return LossySnap { inner: self.inner.commit() }; }
+    fn abort(self: LossyWs) { self.inner.abort(); }
+}
+impl VersionStore for LossyStore {
+    type Snap = LossySnap;
+    type Ws = LossyWs;
+    fn root(self: &mut LossyStore) -> LossySnap { return LossySnap { inner: self.inner.root() }; }
+    fn fork(self: &mut LossyStore, base: &LossySnap) -> LossyWs { return LossyWs { inner: self.inner.fork(&base.inner) }; }
+    fn heads(self: &LossyStore) -> Vec<u64> { return self.inner.heads(); }
+    fn release(self: &mut LossyStore, s: LossySnap) { self.inner.release(s.inner); }
+    fn fork_cost(self: &LossyStore) -> u32 { return self.inner.fork_cost(); }
+}
+impl MapRead for LossySnap { fn rows(self: &LossySnap) -> Vec<(u64, u64)> { return self.inner.rows(); } }
+impl MapRead for LossyWs { fn rows(self: &LossyWs) -> Vec<(u64, u64)> { return self.inner.rows(); } }
+impl MapWrite for LossyWs {
+    fn put(self: &mut LossyWs, k: u64, v: u64) { self.inner.put(k, v); }
+    fn del(self: &mut LossyWs, k: u64) { self.inner.del(k); }
+}
+impl MapDelta for LossySnap {
+    fn delta_since(self: &LossySnap, base: &LossySnap) -> Vec<(u64, u64, i64)> {
+        let d: Vec<(u64, u64, i64)> = self.inner.delta_since(&base.inner);
+        let mut out: Vec<(u64, u64, i64)> = Vec::new();
+        let mut i: i64 = 0i64;
+        while i < d.len() {
+            let replaced: bool = (i + 1i64 < d.len() && d[i + 1i64].0 == d[i].0) || (i > 0i64 && d[i - 1i64].0 == d[i].0);
+            if !replaced { out.push(d[i]); }
+            i = i + 1i64;
+        }
+        return out;
+    }
+}
 
 fn main() -> i32 {
     let mut rs: RefStore = ref_store_new();
@@ -59,5 +111,8 @@ fn main() -> i32 {
     let mut ls: LeakStore = LeakStore { lin: ref_lineage_new() };
     let b: String = run_laws::<LeakStore>(&mut ls, "canary shared-rows");
     print_string(&b);
+    let mut lo: LossyStore = LossyStore { inner: ref_store_new() };
+    let c: String = run_laws::<LossyStore>(&mut lo, "canary lossy-delta");
+    print_string(&c);
     return 0i32;
 }

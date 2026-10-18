@@ -2,8 +2,9 @@
 //
 // The law suite of ADR 0039 D5, generic over the vocabulary. A model is
 // checked through a law probe: one ordered u64 -> u64 map in a cut.
-// Laws 3-5 (change capture) arrive with `Versioned` (row M5); law 7 holds
-// by construction (`release` consumes) and is pinned by a refusal fixture.
+// Laws 3-5 read the probe's change between two cuts (`MapDelta`, row M5);
+// law 7 holds by construction (`release` consumes) and is pinned by a
+// refusal fixture.
 
 package logos.mem.version.laws;
 
@@ -19,6 +20,14 @@ pub trait MapRead {
 /// Writes the probe map of a workspace.
 pub trait MapWrite {
     fn put(self: &mut Self, k: u64, v: u64);
+    fn del(self: &mut Self, k: u64);
+}
+/// Reads the probe's change between two cuts of one lineage: `self` is the
+/// later cut, `base` an earlier one. Entries are (key, value, weight): +1 a
+/// row `self` holds and `base` does not, -1 the reverse; a replaced value is
+/// -old +new.
+pub trait MapDelta {
+    fn delta_since(self: &Self, base: &Self) -> Vec<(u64, u64, i64)>;
 }
 
 pub fn law_copy_rows(src: &Vec<(u64, u64)>) -> Vec<(u64, u64)> {
@@ -39,6 +48,45 @@ pub fn law_put_sorted(rows: &mut Vec<(u64, u64)>, k: u64, v: u64) {
     let mut j: i64 = 0i64;
     while j < rows.len() && rows[j].0 < k { j = j + 1i64; }
     if j < rows.len() && rows[j].0 == k { rows[j] = (k, v); } else { rows.insert(j, (k, v)); }
+}
+
+pub fn law_del_sorted(rows: &mut Vec<(u64, u64)>, k: u64) {
+    let mut j: i64 = 0i64;
+    while j < rows.len() && rows[j].0 < k { j = j + 1i64; }
+    if j < rows.len() && rows[j].0 == k { let _ = rows.remove(j); }
+}
+
+/// Adds a weighted row to a Z-set kept sorted by (key, value); a weight that
+/// cancels to zero removes the row.
+pub fn law_zadd(z: &mut Vec<(u64, u64, i64)>, k: u64, v: u64, w: i64) {
+    let mut j: i64 = 0i64;
+    while j < z.len() && (z[j].0 < k || (z[j].0 == k && z[j].1 < v)) { j = j + 1i64; }
+    if j < z.len() && z[j].0 == k && z[j].1 == v {
+        let s: i64 = z[j].2 + w;
+        if s == 0i64 { let _ = z.remove(j); } else { z[j] = (k, v, s); }
+    } else if w != 0i64 {
+        z.insert(j, (k, v, w));
+    }
+}
+
+pub fn law_zadd_all(z: &mut Vec<(u64, u64, i64)>, d: &Vec<(u64, u64, i64)>) {
+    let mut i: i64 = 0i64;
+    while i < d.len() { law_zadd(z, d[i].0, d[i].1, d[i].2); i = i + 1i64; }
+}
+
+pub fn law_zadd_rows(z: &mut Vec<(u64, u64, i64)>, rows: &Vec<(u64, u64)>, w: i64) {
+    let mut i: i64 = 0i64;
+    while i < rows.len() { law_zadd(z, rows[i].0, rows[i].1, w); i = i + 1i64; }
+}
+
+pub fn law_same_zset(a: &Vec<(u64, u64, i64)>, b: &Vec<(u64, u64, i64)>) -> bool {
+    if a.len() != b.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < a.len() {
+        if a[i].0 != b[i].0 || a[i].1 != b[i].1 || a[i].2 != b[i].2 { return false; }
+        i = i + 1i64;
+    }
+    return true;
 }
 
 pub fn law_same_rows(a: &Vec<(u64, u64)>, b: &Vec<(u64, u64)>) -> bool {
@@ -105,6 +153,55 @@ pub fn law_lineage<VS: VersionStore>(vs: &mut VS, base: &VS::Snap) -> bool {
     return h1.len() == h0.len() && p.len() == 1i64 && p[0] == base.version() && has_new && !has_base;
 }
 
+/// Law 3: change capture is exact. state(w) = state(v) + delta(v -> w) as
+/// Z-sets, over a replace, an insert and a removal.
+pub fn law_delta_exact<VS: VersionStore>(vs: &mut VS, s: &VS::Snap) -> bool
+    where VS::Snap: MapRead + MapDelta, VS::Ws: MapRead + MapWrite {
+    let mut w = vs.fork(s);
+    w.put(1u64, 111u64);
+    w.put(5001u64, 7u64);
+    w.del(2u64);
+    let s2 = w.commit();
+    let d: Vec<(u64, u64, i64)> = s2.delta_since(s);
+    let mut lhs: Vec<(u64, u64, i64)> = Vec::new();
+    law_zadd_rows(&mut lhs, &s.rows(), 1i64);
+    law_zadd_all(&mut lhs, &d);
+    let mut rhs: Vec<(u64, u64, i64)> = Vec::new();
+    law_zadd_rows(&mut rhs, &s2.rows(), 1i64);
+    vs.release(s2);
+    return law_same_zset(&lhs, &rhs);
+}
+
+/// Law 4: the change of a cut since itself is empty.
+pub fn law_delta_self_empty<VS: VersionStore>(s: &VS::Snap) -> bool where VS::Snap: MapDelta {
+    return s.delta_since(s).len() == 0i64;
+}
+
+/// Law 5: composition. delta(u -> w) = delta(u -> v) + delta(v -> w). Key
+/// 6000 is inserted in v and replaced in w, so the two sides see it differently.
+pub fn law_delta_compose<VS: VersionStore>(vs: &mut VS, u: &VS::Snap) -> bool
+    where VS::Snap: MapRead + MapDelta, VS::Ws: MapRead + MapWrite {
+    let mut a = vs.fork(u);
+    a.put(3u64, 35u64);
+    a.put(6000u64, 1u64);
+    a.del(4u64);
+    let v = a.commit();
+    let mut b = vs.fork(&v);
+    b.put(3u64, 34u64);
+    b.put(6000u64, 2u64);
+    b.del(5u64);
+    b.put(1500u64, 2u64);
+    let w = b.commit();
+    let mut whole: Vec<(u64, u64, i64)> = Vec::new();
+    law_zadd_all(&mut whole, &w.delta_since(u));
+    let mut parts: Vec<(u64, u64, i64)> = Vec::new();
+    law_zadd_all(&mut parts, &v.delta_since(u));
+    law_zadd_all(&mut parts, &w.delta_since(&v));
+    vs.release(w);
+    vs.release(v);
+    return law_same_zset(&whole, &parts);
+}
+
 /// Law 6: the model declares a fork cost class.
 pub fn law_fork_cost_declared<VS: VersionStore>(vs: &VS) -> bool {
     let c: u32 = vs.fork_cost();
@@ -118,18 +215,23 @@ fn law_line(m: &mut String, name: &str, ok: bool) {
 }
 
 /// Runs every law against `vs`, one line per law.
+/// The base state spans many nodes of a tree model (keys 1..=2000), so the
+/// change-capture laws see shared and unshared subtrees side by side.
 pub fn run_laws<VS: VersionStore>(vs: &mut VS, label: &str) -> String
-    where VS::Snap: MapRead, VS::Ws: MapRead + MapWrite {
+    where VS::Snap: MapRead + MapDelta, VS::Ws: MapRead + MapWrite {
     let r = vs.root();
     let mut w = vs.fork(&r);
-    w.put(1u64, 10u64);
-    w.put(2u64, 20u64);
+    let mut k: u64 = 1u64;
+    while k <= 2000u64 { w.put(k, k * 10u64 + 3u64); k = k + 1u64; }
     let s1 = w.commit();
     let mut m: String = String::new();
     m.push_str(label);
     m.push_str(":\n");
     law_line(&mut m, "law 1 committed immutable", law_committed_immutable::<VS>(vs, &s1));
     law_line(&mut m, "law 2 fork isolation", law_fork_isolation::<VS>(vs, &s1));
+    law_line(&mut m, "law 3 change capture exact", law_delta_exact::<VS>(vs, &s1));
+    law_line(&mut m, "law 4 delta since self empty", law_delta_self_empty::<VS>(&s1));
+    law_line(&mut m, "law 5 delta composition", law_delta_compose::<VS>(vs, &s1));
     law_line(&mut m, "law 6 fork cost declared", law_fork_cost_declared::<VS>(vs));
     law_line(&mut m, "lineage", law_lineage::<VS>(vs, &s1));
     vs.release(s1);
