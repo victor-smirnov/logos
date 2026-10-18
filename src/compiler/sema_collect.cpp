@@ -1802,7 +1802,10 @@ const obl::Env& SemaChecker::obl_env_() {
     };
     e.object_implements = [this](TypeRef obj, std::string_view trait) {
         if (TypeRef(obj).trait_name().empty()) return false;
-        const SemaTraitInfo* dyn_ti = resolve_trait(TypeRef(obj).trait_name());
+        // `dyn Tr: Tr` is built in; an owning `Box<dyn Tr>` implements nothing by
+        // being one (Rust: `Box<dyn Error>` is not `Error`).
+        if (TypeRef(obj).owning_trait_object()) return false;
+        const SemaTraitInfo* dyn_ti = trait_of_object_(obj);
         if (!dyn_ti) return false;
         std::set<DefId> seen;
         std::function<bool(DefId)> reaches = [&](DefId d) -> bool {

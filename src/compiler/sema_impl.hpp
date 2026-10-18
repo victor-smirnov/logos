@@ -2390,9 +2390,11 @@ private:
                                   std::vector<TypeRef> args = {},
                                   bool req_send = false,
                                   bool req_sync = false,
-                                  std::string lt = {}) {  // lt = the `+ 'a` object-lifetime bound
+                                  std::string lt = {},   // lt = the `+ 'a` object-lifetime bound
+                                  std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::UnsizedDyn;
         t.trait_name = std::string(tname);
+        t.pkg_name = std::string(pkg);   // the trait's package when it must be said (a homonym)
         t.type_args = std::move(args);
         t.lifetime = std::move(lt);
         // `dyn Trait + Send/Sync` inside an owning container (`Box<dyn …>`):
@@ -7845,6 +7847,15 @@ private:
                 refuse_ambiguous_import_(name, id, pkg);
                 return;
             }
+    }
+    // The trait a trait-object type names — by the package the type carries,
+    // else by its name in this scope.
+    SemaTraitInfo* trait_of_object_(TypeRef t) {
+        std::string n(TypeRef(t).trait_name());
+        if (n.empty()) return nullptr;
+        if (auto pk = TypeRef(t).pkg_name(); !pk.empty())
+            if (auto* ti = trait_info(trait_def_of_key(std::string(pk) + "::" + n))) return ti;
+        return resolve_trait(n);
     }
     // A trait is in scope through `use pkg.Trait as Alias;` too (Rust).
     bool trait_aliased_(const std::string& pkg, std::string_view trait) const {

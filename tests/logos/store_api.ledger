@@ -7,8 +7,8 @@ MemorySnapshot	mem.bt	stdlib/mem/bt	78	1	Snapshot + Workspace instance; NodeStor
 MemorySnapshot	mem.bt	tests/logos/pass	35	9	Snapshot + Workspace instance; NodeStore (D7)
 dyn Snapshot	mem.bt	stdlib/lcm/canon	20	2	Snapshot (read) / Workspace (write) — split at M2
 dyn Snapshot	mem.bt	stdlib/mem/bt	14	2	Snapshot (read) / Workspace (write) — split at M2
-dyn Snapshot	mem.bt	tests/logos/fail	13	13	Snapshot (read) / Workspace (write) — split at M2
-dyn Snapshot	mem.bt	tests/logos/pass	154	90	Snapshot (read) / Workspace (write) — split at M2
+dyn Snapshot	mem.bt	tests/logos/fail	12	12	Snapshot (read) / Workspace (write) — split at M2
+dyn Snapshot	mem.bt	tests/logos/pass	155	91	Snapshot (read) / Workspace (write) — split at M2
 NodeStore	mem.bt	stdlib/mem/bt	8	2	NodeStore (D7): node placement + the directory
 NodeStore	mem.bt	tests/logos/pass	3	1	NodeStore (D7): node placement + the directory
 node_store_of	mem.bt	stdlib/mem/bt	2	1	NodeStore (D7): the checked step to the privileged tier

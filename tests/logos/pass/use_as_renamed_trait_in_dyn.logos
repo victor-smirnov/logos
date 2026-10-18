@@ -1,8 +1,7 @@
-// A trait renamed by `use … as` cannot name a trait object yet: a trait object is keyed by its
-// trait's name downstream, so the rename is refused at the `dyn` instead of resolving to a homonym.
-// (Rust admits it; the trait-object identity step lifts this.)
-package use_as_renamed_trait_in_dyn_refused;
-use logos.mem.collections.vec;
+// A trait renamed by `use … as` names a trait object: the object type carries the trait's
+// identity (its name and package), so `dyn VSnapshot` dispatches vocab's Snapshot although
+// map's Snapshot owns the bare name here (rustc 1.98.1: admitted).
+package use_as_renamed_trait_in_dyn;use logos.mem.collections.vec;
 use logos.mem.bt.map;
 use logos.mem.version.vocab;
 use logos.mem.bt.map.Snapshot as Snapshot;

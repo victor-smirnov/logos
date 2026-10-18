@@ -1,0 +1,25 @@
+// Two traits named Snapshot (logos.mem.bt.map, logos.mem.version.vocab) in one program: the
+// renamed one names `&dyn` and `Box<dyn>` objects, dispatches through them, and instantiates a
+// `T: ?Sized` generic at `dyn VSnapshot` — the object type is the trait's identity, not its
+// spelling (rustc 1.98.1 twin: exit 0).
+package use_as_renamed_trait_object_homonyms;
+use logos.mem.collections.vec;
+use logos.mem.bt.map.Snapshot as Snapshot;
+use logos.mem.version.vocab.Snapshot as VSnapshot;
+
+struct Y { v: u64 }
+impl VSnapshot for Y {
+    fn version(self: &Self) -> u64 { return self.v; }
+    fn parents(self: &Self) -> Vec<u64> { return Vec::new(); }
+}
+fn via_dyn(t: &dyn VSnapshot) -> u64 { return t.version(); }
+fn boxed(b: Box<dyn VSnapshot>) -> u64 { return b.version(); }
+fn size_of_ref<T: ?Sized>(t: &T) -> u64 { return 1u64; }
+
+fn main() -> i32 {
+    let y: Y = Y { v: 7u64 };
+    let d: &dyn VSnapshot = &y;
+    let b: Box<dyn VSnapshot> = Box::new(Y { v: 5u64 });
+    let n: u64 = size_of_ref::<dyn VSnapshot>(d);
+    return (via_dyn(&y) + d.version() + boxed(b) + n) as i32 - 20i32;
+}

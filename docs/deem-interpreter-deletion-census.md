@@ -7012,8 +7012,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12317 -> 12318 (+1), NOIMPORTED 7758 -> 7759 (+1), TIERCOMMIT 162 -> 162 (+0) — 2026-10-18 memoria_ctr_frame_limit (ADR 0039 M1w S1: frame limit, split CAP_EXACT, str-key branch reserve).
 #                ALL 12321 -> 12323 (+2), NOIMPORTED 7762 -> 7764 (+2), TIERCOMMIT 162 -> 162 (+0) — 2026-10-18: merge main 3ce71a1f3 onto deem: deem's memoria_delta_laws and memoria_ctr_frame_limit over main's E0659 line.
 #                ALL 12323 -> 12325 (+2), NOIMPORTED 7764 -> 7766 (+2), TIERCOMMIT 162 -> 162 (+0) — 2026-10-18 memoria_ctr_writ_cells (ADR 0039 M1w S2) and version_laws_memory (M6: the law suite under the in-memory model).
-REGISTRY-ALL         12325
-REGISTRY-NOIMPORTED  7766
+#                ALL 12321 -> 12323 (+2), NOIMPORTED 7762 -> 7764 (+2), TIERCOMMIT 162 -> 162 (+0) — 2026-10-18: trait-object identity: renamed trait names a dyn; owning trait object is not its trait.
+#                ALL 12323 -> 12327 (+4), NOIMPORTED 7764 -> 7768 (+4), TIERCOMMIT 162 -> 162 (+0) — 2026-10-18: merge main 1fc043382 onto deem: deem's memoria_delta_laws, memoria_ctr_frame_limit, memoria_ctr_writ_cells, version_laws_memory over main's trait-object line.
+REGISTRY-ALL         12327
+REGISTRY-NOIMPORTED  7768
 REGISTRY-TIERCOMMIT  162
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
