@@ -1586,6 +1586,37 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
         unsafe { logos_emit_item_blob_subst(&rq); }
     }
 
+    // ── delta_since (ADR 0039 M5): the change from `base`'s cut to this one ──
+    // `state(self) - state(base)` as a Z-set over the entries, skipping every
+    // subtree the two cuts share (bt_delta). FSE values only for now: a
+    // volume family's value is a view, compared by bytes — a later arm.
+    if !vol {
+        let dq: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.ops;
+            use logos.mem.bt.memstore;
+            use logos.mem.bt.map;
+            impl #nm {
+                /// The entries that turn `base`'s state of this container into
+                /// this handle's: +1 added, -1 removed (a changed value is both).
+                /// `base` is the same container in an earlier cut of the lineage;
+                /// a container `base`'s cut lacks counts as empty.
+                pub fn delta_from(self: &#nm, base: &#nm) -> BtDelta<#(kid), #(vo)> {
+                    unsafe {
+                        let mut br: *mut u8 = 0i64 as *mut u8;
+                        let mut bl: u32 = 0u32;
+                        if base.snap.has_container(base.ctr_id) {
+                            let be: DirEntry = base.ms().root_of(base.ctr_id);
+                            br = be.root; bl = be.level;
+                        }
+                        let e: DirEntry = self.ms().root_of(self.ctr_id);
+                        return bt_delta::<#(kid), #(vi), #(vo), #(lid), #(bid)>(br, bl, e.root, e.level);
+                    }
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&dq); }
+    }
+
     // ── the BATCH surface (slice 2): make_buffer / insert_batch ────────────
     // (and the u64-cell `remove`). A `str` key's batch is M4b S3's rest.
     if !kstr {

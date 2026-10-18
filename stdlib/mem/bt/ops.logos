@@ -501,3 +501,146 @@ pub fn bt_size<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBra
 // concrete wrapper — not a generic struct here — is where `insert`/`get_or`/
 // `size`/`free` become one-line calls into `bt_*::<K, V, ConcreteLeaf,
 // ConcreteBranch>`.
+
+// ── delta_since: the change between two versions of one container (ADR 0039 M5) ──
+//
+// `base` and `next` are the roots of ONE container in two snapshots of a
+// lineage. The answer is the Z-set `state(next) - state(base)`: an entry only
+// in `next` with weight +1, only in `base` with -1, and a key whose value
+// changed as -old +new. A copy-on-write store shares every block a write did
+// not touch, so equal child pointers mean equal subtrees, and the walk skips
+// them: its cost is the CHANGE (plus the path to it), not the state.
+//
+// Both trees are walked as a frontier of subtrees in key order, each carrying
+// a FENCE — the max key of the subtree before it (None = leftmost). The side
+// whose next subtree starts earlier advances; when both sides' next subtree is
+// the SAME block, every entry either side loaded so far lies left of it, so
+// the two loaded runs are merged and the block is skipped whole. Otherwise a
+// branch is expanded (the higher one first) and leaves are loaded.
+
+/// A container delta: parallel columns, `weights[i]` = +1 / -1.
+pub struct BtDelta<K, V> {
+    pub keys: Vec<K>,
+    pub vals: Vec<V>,
+    pub weights: Vec<i64>,
+    /// Nodes the walk opened (branches expanded + leaves loaded) — the cost.
+    pub visited: u64,
+}
+
+pub fn bt_delta_new<K, V>() -> BtDelta<K, V> {
+    return BtDelta { keys: Vec::<K>::new(), vals: Vec::<V>::new(), weights: Vec::<i64>::new(), visited: 0u64 };
+}
+
+// One side of the walk: the frontier (top = last) and the entries loaded but
+// not yet merged.
+struct BtDeltaSide<K, V> {
+    nodes: Vec<*mut u8>,
+    levels: Vec<u32>,
+    fences: Vec<Option<K>>,
+    pk: Vec<K>,
+    pv: Vec<V>,
+}
+
+fn bt_delta_side<K: Copy, V: Copy>(root: *mut u8, level: u32) -> BtDeltaSide<K, V> {
+    let mut s: BtDeltaSide<K, V> = BtDeltaSide { nodes: Vec::<*mut u8>::new(), levels: Vec::<u32>::new(),
+                                                 fences: Vec::<Option<K>>::new(), pk: Vec::<K>::new(), pv: Vec::<V>::new() };
+    if root != (0i64 as *mut u8) {
+        s.nodes.push(root); s.levels.push(level); s.fences.push(Option::None);
+    }
+    return s;
+}
+
+// Merge the two loaded runs (each sorted by key) into `out`, then clear them.
+fn bt_delta_flush<K: Copy + PartialOrd, V: Copy + PartialEq>(a: &mut BtDeltaSide<K, V>, b: &mut BtDeltaSide<K, V>,
+                                                             out: &mut BtDelta<K, V>) {
+    let mut i: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while i < a.pk.len() || j < b.pk.len() {
+        if j >= b.pk.len() || (i < a.pk.len() && a.pk.get(i) < b.pk.get(j)) {
+            out.keys.push(a.pk.get(i)); out.vals.push(a.pv.get(i)); out.weights.push(-1i64);
+            i = i + 1i64;
+        } else if i >= a.pk.len() || b.pk.get(j) < a.pk.get(i) {
+            out.keys.push(b.pk.get(j)); out.vals.push(b.pv.get(j)); out.weights.push(1i64);
+            j = j + 1i64;
+        } else {
+            if !(a.pv.get(i) == b.pv.get(j)) {
+                out.keys.push(a.pk.get(i)); out.vals.push(a.pv.get(i)); out.weights.push(-1i64);
+                out.keys.push(b.pk.get(j)); out.vals.push(b.pv.get(j)); out.weights.push(1i64);
+            }
+            i = i + 1i64;
+            j = j + 1i64;
+        }
+    }
+    a.pk.clear(); a.pv.clear(); b.pk.clear(); b.pv.clear();
+}
+
+// Replace the top subtree of `s` by its children (a branch) or its entries (a leaf).
+fn bt_delta_open<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
+        s: &mut BtDeltaSide<K, VOut>, out_visited: &mut u64) {
+    let top: i64 = s.nodes.len() - 1i64;
+    let node: *mut u8 = s.nodes.get(top);
+    let level: u32 = s.levels.get(top);
+    let fence: Option<K> = s.fences.get(top);
+    s.nodes.pop(); s.levels.pop(); s.fences.pop();
+    *out_visited = *out_visited + 1u64;
+    if level == 0u32 {
+        let lf: L = L::adopt(node);
+        let n: u32 = lf.count();
+        let mut i: u32 = 0u32;
+        while i < n { s.pk.push(lf.key_at(i)); s.pv.push(lf.val_at(i)); i = i + 1u32; }
+        return;
+    }
+    let br: B = B::adopt(node);
+    let n: u32 = br.child_count();
+    // children go on the stack right-to-left, so the leftmost is on top
+    let mut c: u32 = n;
+    while c > 0u32 {
+        c = c - 1u32;
+        s.nodes.push(br.child_addr(c));
+        s.levels.push(level - 1u32);
+        if c == 0u32 { s.fences.push(fence); } else { s.fences.push(Option::Some(br.sep_at(c - 1u32))); }
+    }
+}
+
+// Does fence `a` start strictly before fence `b`? (None = leftmost.)
+fn bt_fence_lt<K: Copy + PartialOrd>(a: Option<K>, b: Option<K>) -> bool {
+    match a {
+        Option::None => { match b { Option::None => { return false; } Option::Some(_y) => { return true; } } }
+        Option::Some(x) => { match b { Option::None => { return false; } Option::Some(y) => { return x < y; } } }
+    }
+}
+
+/// `state(next) - state(base)` for one container (see above). A root of null
+/// is an absent container (no entries).
+pub fn bt_delta<K: Copy + PartialOrd, VIn: Copy, VOut: Copy + PartialEq, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
+        base: *mut u8, base_level: u32, next: *mut u8, next_level: u32) -> BtDelta<K, VOut> {
+    let mut out: BtDelta<K, VOut> = bt_delta_new::<K, VOut>();
+    let mut a: BtDeltaSide<K, VOut> = bt_delta_side::<K, VOut>(base, base_level);
+    let mut b: BtDeltaSide<K, VOut> = bt_delta_side::<K, VOut>(next, next_level);
+    let mut visited: u64 = 0u64;
+    loop {
+        let ha: bool = a.nodes.len() > 0i64;
+        let hb: bool = b.nodes.len() > 0i64;
+        if !ha && !hb { break; }
+        if ha && hb && a.nodes.get(a.nodes.len() - 1i64) == b.nodes.get(b.nodes.len() - 1i64) {
+            bt_delta_flush::<K, VOut>(&mut a, &mut b, &mut out);
+            a.nodes.pop(); a.levels.pop(); a.fences.pop();
+            b.nodes.pop(); b.levels.pop(); b.fences.pop();
+            continue;
+        }
+        if !hb { bt_delta_open::<K, VIn, VOut, L, B>(&mut a, &mut visited); continue; }
+        if !ha { bt_delta_open::<K, VIn, VOut, L, B>(&mut b, &mut visited); continue; }
+        let fa: Option<K> = a.fences.get(a.fences.len() - 1i64);
+        let fb: Option<K> = b.fences.get(b.fences.len() - 1i64);
+        if bt_fence_lt::<K>(fa, fb) { bt_delta_open::<K, VIn, VOut, L, B>(&mut a, &mut visited); continue; }
+        if bt_fence_lt::<K>(fb, fa) { bt_delta_open::<K, VIn, VOut, L, B>(&mut b, &mut visited); continue; }
+        // same start, different blocks: open the higher subtree (a leaf each: both)
+        let la: u32 = a.levels.get(a.levels.len() - 1i64);
+        let lb: u32 = b.levels.get(b.levels.len() - 1i64);
+        if la >= lb { bt_delta_open::<K, VIn, VOut, L, B>(&mut a, &mut visited); }
+        if lb >= la { bt_delta_open::<K, VIn, VOut, L, B>(&mut b, &mut visited); }
+    }
+    bt_delta_flush::<K, VOut>(&mut a, &mut b, &mut out);
+    out.visited = visited;
+    return out;
+}
