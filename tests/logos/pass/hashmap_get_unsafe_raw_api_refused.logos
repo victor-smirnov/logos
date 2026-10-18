@@ -1,0 +1,12 @@
+// Closed squeue hashmap_get_unsafe_raw_api_refused (#752): HashMap::get/get_mut are Rust's safe Option<&V>/Option<&mut V> (step 3); the raw forms are transitional *_ptr names.
+package hashmap_get_unsafe_raw_api_refused;
+use logos.std.fmt;
+use logos.mem.collections.hashmap;
+fn main() {
+    let mut m: HashMap<i64, i64> = HashMap::new();
+    m.insert(1, 10);
+    m.insert(2, 20);
+    let a: i64 = *m.get(&1).unwrap();
+    if let Some(v) = m.get_mut(&2) { *v += 1; }
+    println!("{} {} {}", a, m.get(&2).copied().unwrap_or(0), m.get(&3).is_none());
+}

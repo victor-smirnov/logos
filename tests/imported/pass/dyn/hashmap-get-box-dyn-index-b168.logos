@@ -16,7 +16,7 @@ fn main() -> i32 {
     let mut m: HashMap<i64, Box<dyn Sh>> = hashmap_new::<i64, Box<dyn Sh>>();
     unsafe {
         m.insert(1i64, box_new(Sq { s: 3i64 }));
-        let p = m.get(&1i64);
+        let p: *const Box<dyn Sh> = m.get(&1i64).unwrap() as *const Box<dyn Sh>;
         return p[0].area() as i32;
     }
 }

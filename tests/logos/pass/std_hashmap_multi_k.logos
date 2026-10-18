@@ -12,9 +12,9 @@ fn main() -> i32 {
         (*pmu).insert(3000 as u64, 3);
         if (*pmu).len() != 3 as i64 { return 1; }
         let k2: u64 = 2000 as u64;
-        let p: *const i32 = (*pmu).get(&k2);
-        if p == 0 as *const i32 { return 2; }
-        if *p != 2 { return 3; }
+        let p: Option<&i32> = (*pmu).get(&k2);
+        if p.is_none() { return 2; }
+        if *p.unwrap() != 2 { return 3; }
 
         // bool keys (only 2 possible)
         let mut mb: HashMap<bool, i32> = hashmap_new::<bool, i32>();
@@ -23,10 +23,10 @@ fn main() -> i32 {
         (*pmb).insert(false, 222);
         if (*pmb).len() != 2 as i64 { return 4; }
         let t: bool = true;
-        let pt: *const i32 = (*pmb).get(&t);
+        let pt: &i32 = (*pmb).get(&t).unwrap();
         if *pt != 111 { return 5; }
         let f: bool = false;
-        let pf: *const i32 = (*pmb).get(&f);
+        let pf: &i32 = (*pmb).get(&f).unwrap();
         if *pf != 222 { return 6; }
 
         // i64 keys, negative values
@@ -35,7 +35,7 @@ fn main() -> i32 {
         (*pmi).insert(-1 as i64, 7);
         (*pmi).insert(-100 as i64, 8);
         let k_neg: i64 = -1 as i64;
-        let pn: *const i32 = (*pmi).get(&k_neg);
+        let pn: &i32 = (*pmi).get(&k_neg).unwrap();
         if *pn != 7 { return 7; }
 
         return 9;

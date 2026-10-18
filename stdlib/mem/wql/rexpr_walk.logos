@@ -7516,7 +7516,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // `&mut self` — `__mc` (the `*const` the iterator needs) cannot
             // lend one. Same map, no mutation, and the key came from
             // that map's own live keys, so the pointer is never null here.
-            let vok_e: ExprBlob = parse_expr(if is_fl { "f64_from_bits(unsafe { (*((*__mp).get(__kp))).1 })" } else { "*__kp" });
+            let vok_e: ExprBlob = parse_expr(if is_fl { "f64_from_bits(unsafe { (*((*__mp).get_ptr(__kp))).1 })" } else { "*__kp" });
             let ko_e:  ExprBlob = parse_expr(if is_fl { "f64_data_key(__kv)" } else { "__kv" });
             let impr:  ExprBlob = parse_expr(if fnid == AGG_MIN() { "__vo < __bo" }  else { "__vo > __bo" });
             let rcmp:  ExprBlob = parse_expr(if fnid == AGG_MIN() { "__ko < __nbo" } else { "__ko > __nbo" });
