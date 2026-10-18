@@ -30,8 +30,8 @@ using writ::MemHolder;
 //
 // A `loop` diverges only when no `break` targets it (rustc types `loop` as `!`
 // on exactly this rule, and on syntactic targeting, not on reachability).
-// PRESENCE OF THE TOKEN IS NOT THE PROPERTY: in `bt_upper_bound`
-// (stdlib/lcm/deem/data/bt/descent.logos) the fn body's last statement is a
+// PRESENCE OF THE TOKEN IS NOT THE PROPERTY: in a B-tree `upper_bound`
+// descent (the retired deem.data plane's bt_upper_bound) the fn body's last statement is a
 // `loop` whose only `break` sits in a nested `while` — it targets the `while`,
 // the `loop` still diverges, and that fn's return-reachability depends on it.
 // Targeting mirrors lower_loop / the BREAK arm's frame search exactly:

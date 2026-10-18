@@ -1691,7 +1691,7 @@ struct QMods<'d> {
     limit_param:    &'d str,
 }
 
-fn qmods_none() -> QMods {
+fn qmods_none<'a>() -> QMods<'a> {
     return QMods { has_sort: false, sort_key: null_sref(), sort_desc: false,
                    distinct: false,
                    has_limit: false, limit_n: 0i64, limit_is_param: false, limit_param: "" };
@@ -3623,7 +3623,7 @@ fn empty_blobs(n: i64) -> Vec<ExprBlob> {
     return v;
 }
 
-fn nest_steps_new(n: i64) -> NestSteps {
+fn nest_steps_new<'a>(n: i64) -> NestSteps<'a> {
     let mut sl: Vec<i64> = Vec::<i64>::new();
     let mut k: i64 = 0i64;
     while k < n { sl.push(k + 1i64); k = k + 1i64; }
@@ -4780,7 +4780,7 @@ struct NdvFacts<'d> {
     pub dr: [i64; 16],
 }
 
-fn ndv_col_ref(e: SExpr) -> (&str, &str) {
+fn ndv_col_ref<'a>(e: SExpr) -> (&'a str, &'a str) {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;

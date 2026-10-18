@@ -57,7 +57,7 @@ fn K_VALUE()     -> u8 { return 7 as u8; }   // clause → expr; LIT_INT → tok
 fn K_ITEMS()     -> u8 { return 2 as u8; }   // GENERIC_INST: type-arg array
 
 // SView (borrowed AST bytes) → str (shares the AST arena for the hook's life).
-fn sv_str(sv: SView) -> &str {
+fn sv_str<'a>(sv: SView) -> &'a str {
     if sv.ptr == (0 as *const u8) || sv.len == (0 as u64) { return ""; }
     return unsafe { str_from_raw(sv.ptr, sv.len as i64) };
 }

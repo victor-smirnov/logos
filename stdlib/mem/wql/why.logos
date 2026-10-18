@@ -252,7 +252,7 @@ pub struct Why<'d> {
 
 /// An UNSET record — `WG_UNSET`, which every renderer names as a defect. One nest is
 /// the floor because a query that emitted none would have no body.
-pub fn why_new() -> Why {
+pub fn why_new<'a>() -> Why<'a> {
     return Why { ground: WG_UNSET(), axis: AX_NONE(), nfl: 0i64, nperm: 0i64, nadm: 0i64,
                  ncand: 0i64, nnest: 1i64, rjn: [0i64; 8],
                  key: String::new(), keywhy: "", nsd: 0i64,
@@ -281,7 +281,7 @@ pub fn why_set(w: &mut Why, g: i32, ax: i32) {
 /// name: the caller that knows the shape of the query is the only thing that knows
 /// whether the axis existed, and making it say so is what stops the next ground
 /// added to the table from inheriting a neighbour's census.
-pub fn why_of(g: i32, ax: i32) -> Why {
+pub fn why_of<'a>(g: i32, ax: i32) -> Why<'a> {
     let mut w: Why = why_new();
     why_set(&mut w, g, ax);
     return w;

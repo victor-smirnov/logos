@@ -17939,6 +17939,9 @@ sym	logos_lang.logos.lang.ptr$read__g__pcst_T__u16
 sym	logos_lang.logos.lang.ptr$read__g__pcst_T__u32
 sym	logos_lang.logos.lang.ptr$read__g__pcst_T__u64
 sym	logos_lang.logos.lang.ptr$read__g__pcst_T__u8
+sym	logos_lang.logos.lang.ptr$read_unaligned__g__pcst_T__bool
+sym	logos_lang.logos.lang.ptr$read_unaligned__g__pcst_T__i64
+sym	logos_lang.logos.lang.ptr$read_unaligned__g__pcst_T__u64
 sym	logos_lang.logos.lang.range$range_from_i32__f__i32
 sym	logos_lang.logos.lang.range$range_from_i64__f__i64
 sym	logos_lang.logos.lang.range$range_full__f__void
@@ -18100,8 +18103,6 @@ sym	logos_lang.logos.lang.writ.typed_arr$writ_build_map_u32_anyval__f__pcst_u32_
 sym	logos_lang.logos.lang.writ.typed_arr$writ_build_map_u64_anyval__f__pcst_u64__pcst_i64__i64
 sym	logos_lang.logos.lang.writ.wstatic$writ_static_size__f__pcst_u8
 sym	logos_lang.logos.lang.writ.wstring$wstring_in_alloc__f__pmut_Allocator$M043b025249fdbcba__slice_str
-sym	logos_lcm.logos.lcm.deem.data.bt.shuttle$shuttle_max_u64__f__pcst_PrimVec$M20a6d5936e80944c$G1$u64__u64
-sym	logos_lcm.logos.lcm.deem.data.bt.shuttle$shuttle_sum_u64__f__pcst_PrimVec$M20a6d5936e80944c$G1$u64__u64
 sym	logos_lcm.logos.lcm.fiber$current_fiber__f__void
 sym	logos_lcm.logos.lcm.fiber$fiber_store_cqe_result__f__i64__i64
 sym	logos_lcm.logos.lcm.fiber$fls_get__f__i64
@@ -18244,6 +18245,7 @@ sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot$M56fcb7879b553d46__dump_ctr_
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot$M56fcb7879b553d46__dump_dir__f__ref_MemorySnapshot$M56fcb7879b553d46
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot$M56fcb7879b553d46__dump_dir_path__f__ref_MemorySnapshot$M56fcb7879b553d46__u64__u32
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot$M56fcb7879b553d46__get_child__f__ref_MemorySnapshot$M56fcb7879b553d46__u64
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot$M56fcb7879b553d46__has_container__f__ref_MemorySnapshot$M56fcb7879b553d46__u64
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot$M56fcb7879b553d46__has_ctr__f__ref_MemorySnapshot$M56fcb7879b553d46__u64
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot$M56fcb7879b553d46__has_ctr_meta__f__ref_MemorySnapshot$M56fcb7879b553d46__u64
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot$M56fcb7879b553d46__has_ctr_user_meta__f__ref_MemorySnapshot$M56fcb7879b553d46__u64
@@ -18546,7 +18548,6 @@ sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca4
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__as_mut_slice__g__refmut_Vec$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__as_ref__g__ref_Vec$M4edea24aa4768b45$G1$E
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__as_slice__g__ref_Vec$M4edea24aa4768b45$G1$T
-sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__at_const__g__ref_Vec$M4edea24aa4768b45$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__borrow__g__ref_Vec$M4edea24aa4768b45$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__borrow_mut__g__refmut_Vec$M4edea24aa4768b45$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__default__g__void
@@ -18558,7 +18559,6 @@ sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca4
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__index_mut__g__refmut_Vec$M4edea24aa4768b45$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__into_iter__g__Vec$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__len__g__ref_Vec$M4edea24aa4768b45$G1$T
-sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__length__g__ref_Vec$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__push__g__refmut_Vec$M4edea24aa4768b45$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Json$Md11f8e355a678ea3__as_mut__g__refmut_Vec$M4edea24aa4768b45$G1$E
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Json$Md11f8e355a678ea3__as_mut_slice__g__refmut_Vec$M4edea24aa4768b45$G1$T
@@ -20225,12 +20225,20 @@ sym	logos_mem.logos.mem.bt.btfl$btfl_cut__f__ref_BtflStage$M90a0dcbecd9304e8__u6
 sym	logos_mem.logos.mem.bt.btfl$btfl_stage_new__f__void
 sym	logos_mem.logos.mem.bt.btss$btss_count__f__pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_mem.logos.mem.bt.btss$btss_fits_row__f__pmut_PkdAlloc$M19266910bb066e1b__u32
+sym	logos_mem.logos.mem.bt.btss$btss_fits_row_span__f__pmut_PkdAlloc$M19266910bb066e1b__u32__slice_u8
 sym	logos_mem.logos.mem.bt.btss$btss_fmt_slot__f__pmut_PkdAlloc$M19266910bb066e1b__u32__bool__bool
+sym	logos_mem.logos.mem.bt.btss$btss_key_weight__f__pmut_PkdAlloc$M19266910bb066e1b__u32
+sym	logos_mem.logos.mem.bt.btss$btss_lower_bound_bytes__f__pmut_PkdAlloc$M19266910bb066e1b__slice_u8
 sym	logos_mem.logos.mem.bt.btss$btss_lower_bound_i64__f__pmut_PkdAlloc$M19266910bb066e1b__i64
 sym	logos_mem.logos.mem.bt.btss$btss_lower_bound_u64__f__pmut_PkdAlloc$M19266910bb066e1b__u64
 sym	logos_mem.logos.mem.bt.btss$btss_put_cell__f__pmut_PkdAlloc$M19266910bb066e1b__u32__u32__u64
+sym	logos_mem.logos.mem.bt.btss$btss_put_span__f__pmut_PkdAlloc$M19266910bb066e1b__u32__u32__slice_u8
+sym	logos_mem.logos.mem.bt.btss$btss_row_bytes__f__pmut_PkdAlloc$M19266910bb066e1b__u32__u32
+sym	logos_mem.logos.mem.bt.btss$btss_set_span__f__pmut_PkdAlloc$M19266910bb066e1b__u32__u32__slice_u8
 sym	logos_mem.logos.mem.bt.btss$btss_split_col__f__pmut_PkdAlloc$M19266910bb066e1b__pmut_PkdAlloc$M19266910bb066e1b__u32__u32
 sym	logos_mem.logos.mem.bt.btss$btss_split_index_volume__f__pmut_PkdAlloc$M19266910bb066e1b
+sym	logos_mem.logos.mem.bt.btss$btss_val_weight__f__pmut_PkdAlloc$M19266910bb066e1b__u32
+sym	logos_mem.logos.mem.bt.btss$bytes_cmp__f__slice_u8__slice_u8
 sym	logos_mem.logos.mem.bt.btvec$btvec_buf_new__f__u64
 sym	logos_mem.logos.mem.bt.check$check_tree__f__pmut_u8__u32__refmut_String$M5ca39a0a178b867d
 sym	logos_mem.logos.mem.bt.check$check_tree_report__f__pmut_u8__u32
@@ -21639,8 +21647,8 @@ vtable	logos.mem.bt.map.BtBranch	slots=[adopt,new_sibling,block,child_count,sep_
 vtable	logos.mem.bt.map.BtLeaf	slots=[adopt,new_sibling,block,count,key_at,val_at,lower_bound,try_insert,with_entry,split_into,cow_clone,free]
 vtable	logos.mem.bt.map.Ctr	slots=[size]
 vtable	logos.mem.bt.map.Multimap	slots=[size,find,insert]
-vtable	logos.mem.bt.map.NodeStore	slots=[snapshot_id,snapshot_uid,commit,remove,status,snapshot_parent,has_parent,set_as_branch,set_as_master,node_store,snap_pin,snap_unpin,leaf_pin,leaf_unpin,assert_writable,root_of,root_of_mut,set_root,as_any]
-vtable	logos.mem.bt.map.Snapshot	slots=[snapshot_id,snapshot_uid,commit,remove,status,snapshot_parent,has_parent,set_as_branch,set_as_master,node_store,snap_pin,snap_unpin,leaf_pin,leaf_unpin]
+vtable	logos.mem.bt.map.NodeStore	slots=[snapshot_id,snapshot_uid,commit,remove,status,snapshot_parent,has_parent,has_container,set_as_branch,set_as_master,node_store,snap_pin,snap_unpin,leaf_pin,leaf_unpin,assert_writable,root_of,root_of_mut,set_root,as_any]
+vtable	logos.mem.bt.map.Snapshot	slots=[snapshot_id,snapshot_uid,commit,remove,status,snapshot_parent,has_parent,has_container,set_as_branch,set_as_master,node_store,snap_pin,snap_unpin,leaf_pin,leaf_unpin]
 vtable	logos.mem.bt.map.Store	slots=[]
 vtable	logos.mem.bt.map.StoreProfile	slots=[alloc,pkd,ncols,snapshot,set_snapshot,rc,inc_rc,dec_rc,child_slot,set_child_slot,free,no_children,block_size]
 vtable	logos.mem.bt.node.NodeProfile	slots=[alloc,pkd,ncols,snapshot,set_snapshot,rc,inc_rc,dec_rc,child_slot,set_child_slot,free,no_children,block_size]

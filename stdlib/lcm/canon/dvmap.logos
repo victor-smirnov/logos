@@ -1,0 +1,138 @@
+// logos.lcm.canon.dvmap — the runtime-typed (DView) ordered map over Canon
+// (ADR 0039 M4b; it replaces deem.data's DView containers).
+//
+// A `container M { kind ordered_map; entry { key: DView, val: DView } }` is a
+// `str`-keyed, `str`-valued Canon family underneath (both columns VLE), with a
+// DView surface the factory adds on top. This module is what that surface calls:
+//
+//   * TAGS. The map is homogeneous: the first insert fixes the key's and the
+//     value's (tag, meta); a later insert of another type is refused
+//     (InsertError::KeyType / ValueType). The four words live in the
+//     container's user-metadata slot, which rides every root change; a map
+//     emptied (clear / the last remove) loses them and accepts any type again.
+//
+//   * KEY BYTES. The tree orders keys by plain byte comparison, so a key is
+//     stored as an ORDER-PRESERVING PREFIX followed by its raw object bytes:
+//     a fixed-width integer as big-endian (sign bit flipped for i64), then the
+//     same value little-endian as the object; a string is its bytes alone (its
+//     byte order IS its order). Equal prefixes imply equal objects (the prefix
+//     is a bijection of the value), so the suffix never decides an order — it
+//     is there so a read can hand back a view of the object in place.
+//
+//   * VIEWS. A key or value read back is a DView pointing INTO the node block:
+//     valid until the map is next written, the in-container borrow contract.
+//     The object bytes are unaligned there; DView's Datum read is unaligned.
+//
+// The key bytes travel through the backing family as a `&str` that may not be
+// UTF-8: an internal encoding that never reaches user code as text.
+package logos.lcm.canon.dvmap;
+
+use logos.lang.writ.dview;       // DView, htag_size
+use logos.lang.writ.anyval;      // W_I64 / W_STRING
+use logos.mem.collections.vec;
+use logos.lang.slice;
+use logos.lang.ptr;              // read_unaligned
+
+/// Why a DView insert was refused: the key or the value has another (tag,
+/// meta) than the map's first insert fixed.
+pub enum InsertError {
+    KeyType,
+    ValueType,
+}
+
+/// The map's element types: the key's and the value's (tag, meta).
+pub struct DvTags {
+    pub ktag: u64,
+    pub kmeta: u64,
+    pub vtag: u64,
+    pub vmeta: u64,
+}
+
+/// The tag record's size in the user-metadata slot.
+pub const DV_TAGS_BYTES: u64 = 32u64;
+
+/// Read the record at `p` (the slot's first byte; unaligned).
+pub fn dv_tags_read(p: *const u8) -> DvTags {
+    unsafe {
+        return DvTags {
+            ktag: read_unaligned::<u64>(p as *const u64),
+            kmeta: read_unaligned::<u64>(p.byte_add(8i64) as *const u64),
+            vtag: read_unaligned::<u64>(p.byte_add(16i64) as *const u64),
+            vmeta: read_unaligned::<u64>(p.byte_add(24i64) as *const u64),
+        };
+    }
+}
+
+fn push_le(out: &mut Vec<u8>, v: u64, n: u64) {
+    let mut i: u64 = 0u64;
+    while i < n { out.push(((v >> (i * 8u64)) & 255u64) as u8); i = i + 1u64; }
+}
+
+fn push_be(out: &mut Vec<u8>, v: u64, n: u64) {
+    let mut i: u64 = n;
+    while i > 0u64 { i = i - 1u64; out.push(((v >> (i * 8u64)) & 255u64) as u8); }
+}
+
+/// The record's bytes (four little-endian words).
+pub fn dv_tags_bytes(t: &DvTags, out: &mut Vec<u8>) {
+    push_le(out, t.ktag, 8u64);
+    push_le(out, t.kmeta, 8u64);
+    push_le(out, t.vtag, 8u64);
+    push_le(out, t.vmeta, 8u64);
+}
+
+fn load_le_n(p: *const u8, n: u64) -> u64 {
+    let mut v: u64 = 0u64;
+    let mut i: u64 = 0u64;
+    while i < n {
+        v = v | ((unsafe { *p.byte_add(i as i64) } as u64) << (i * 8u64));
+        i = i + 1u64;
+    }
+    return v;
+}
+
+fn is_string_tag(tag: u64) -> bool {
+    return dv_space(tag) == DV_SPACE_WRIT && dv_code(tag) == W_STRING;
+}
+
+/// `k`'s stored key bytes: the order-preserving prefix, then (for a
+/// fixed-width object) the raw object bytes.
+pub fn dv_key_bytes(k: &DView, out: &mut Vec<u8>) {
+    let tag: u64 = k.type_code();
+    let p: *const u8 = k.obj_ptr();
+    let n: u64 = k.obj_len();
+    let sz: u64 = htag_size(tag, k.meta_word());
+    if !is_string_tag(tag) && sz > 0u64 && n == sz && n <= 8u64 {
+        let mut v: u64 = load_le_n(p, n);
+        if dv_space(tag) == DV_SPACE_WRIT && dv_code(tag) == W_I64 {
+            v = v ^ (1u64 << 63u64);              // signed order as unsigned
+        }
+        push_be(out, v, n);
+        let mut i: u64 = 0u64;
+        while i < n { out.push(unsafe { *p.byte_add(i as i64) }); i = i + 1u64; }
+        return;
+    }
+    let mut i: u64 = 0u64;
+    while i < n { out.push(unsafe { *p.byte_add(i as i64) }); i = i + 1u64; }
+}
+
+/// The DView a stored key `b` decodes to under the map's key (tag, meta): a
+/// view of its object bytes in place (the suffix of a fixed-width key).
+pub fn dv_key_view(b: &[u8], tag: u64, meta: u64) -> DView {
+    let sz: u64 = htag_size(tag, meta);
+    let len: u64 = b.len() as u64;
+    if !is_string_tag(tag) && sz > 0u64 && len == 2u64 * sz {
+        return DView::from_parts(unsafe { b.as_ptr().byte_add(sz as i64) }, sz, tag, meta);
+    }
+    return DView::from_parts(b.as_ptr(), len, tag, meta);
+}
+
+/// A value's bytes read back as a DView under the map's value (tag, meta).
+pub fn dv_val_view(b: &[u8], tag: u64, meta: u64) -> DView {
+    return DView::from_parts(b.as_ptr(), b.len() as u64, tag, meta);
+}
+
+/// The object bytes of `v`, as the slice the backing family stores.
+pub fn dv_obj_slice<'a>(v: &DView) -> &'a [u8] {
+    return unsafe { slice_from_raw::<u8>(v.obj_ptr(), v.obj_len() as i64) };
+}

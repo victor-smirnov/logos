@@ -207,7 +207,7 @@ pub struct JCh<'d> {
 }
 
 /// A chain of `n` steps: `n + 1` slots, each at its default.
-pub fn jch_new(n: i64) -> JCh {
+pub fn jch_new<'a>(n: i64) -> JCh<'a> {
     let m: i64 = n + 1i64;
     return JCh { n: n,
                  src:  str_vec(m),
@@ -307,7 +307,7 @@ fn jo_why(w: Why) -> JoinOrder {
 /// Every call below is inside `decide_join_orders`, which runs only where the query
 /// HAS a join — so all but one of them pass `AX_REFUSED`, and the one that does not
 /// (a chain with no step, an invariant since `WG_NO_STEP` was refuted) is the one place the axis genuinely does not exist.
-fn jo_ground(g: i32, ax: i32) -> JoinOrder {
+fn jo_ground<'a>(g: i32, ax: i32) -> JoinOrder<'a> {
     return jo_why(why_of(g, ax));
 }
 
@@ -1043,7 +1043,7 @@ pub fn jch_from_core<'d>(cl: &CClause<'d>) -> JCh<'d> {
 /// other form is not emitted as a nest and gets no decision). `sort_key` — the
 /// folded `order by` key (null = none).
 /// No decision (an entry that is not a join-chain nest).
-pub fn join_plan_none() -> JoinPlan {
+pub fn join_plan_none<'a>() -> JoinPlan<'a> {
     return JoinPlan { decided: false, jo: jo_ground(WG_UNSET(), AX_NONE()),
                       szs: [String::new(), String::new(), String::new(), String::new()],
                       ats: [-1i64; 4], key_tn: String::from_str("i64"), key_kv: String::from_str("i64") };

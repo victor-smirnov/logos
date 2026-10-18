@@ -18,6 +18,7 @@
 package logos.lang.writ.dview;
 
 use logos.lang.cmp;                 // Ordering
+use logos.lang.ptr;                 // read_unaligned — a view into packed storage
 use logos.lang.clone;              // Copy
 use logos.lang.option;
 use logos.lang.str;                // str_from_raw (String materialization)
@@ -86,8 +87,11 @@ pub trait Datum {
     // assoc-fn-on-type-param mono gap, like datum_tag.
     /// Materializes `Self` from a storage-form `DView` (inverse of `as_datum`).
     /// Default reads a sized POD by value; `self` is a phantom pointer, never read.
+    /// UNALIGNED read: a view may point into packed storage (a VLE column of a
+    /// persistent node), where a typed `*ptr` load would assume an alignment
+    /// the bytes do not have.
     fn from_datum(self: *const Self, d: DView) -> Self {
-        return unsafe { *(d.obj_ptr() as *const Self) };
+        return unsafe { read_unaligned::<Self>(d.obj_ptr() as *const Self) };
     }
 }
 impl Datum for i64  { fn datum_tag(self: *const i64)  -> u64 { return W_I64; } }

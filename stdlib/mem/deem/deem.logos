@@ -138,7 +138,7 @@ fn sstr(s: &String) -> &str {
 }
 
 // SView2 (rodata-blob string view) → str.
-fn sview2_str(v: SView2) -> &str {
+fn sview2_str<'a>(v: SView2) -> &'a str {
     if v.ptr == (0 as *const u8) { return ""; }
     return unsafe { str_from_raw(v.ptr, v.len as i64) };
 }
@@ -195,7 +195,7 @@ pub struct SchemaCatalog<'d> {
 }
 
 impl<'d> SchemaCatalog<'d> {
-    pub fn new() -> SchemaCatalog {
+    pub fn new<'a>() -> SchemaCatalog<'a> {
         return SchemaCatalog {
             s_names: vec_new::<&str>(), s_codes: vec_new::<u64>(), s_n: 0i64,
             f_owner: vec_new::<i64>(), f_names: vec_new::<&str>(), f_keys: vec_new::<i64>(),
@@ -364,7 +364,7 @@ impl<'d> SchemaCatalog<'d> {
     // targets resolve by name against pass 1). The `str` views point INTO the
     // rodata blob: zero-copy, 'static. Unknown entry kinds are skipped
     // (forward-compatible envelope).
-    pub fn from_static(blob: WritStatic) -> SchemaCatalog {
+    pub fn from_static<'a>(blob: WritStatic) -> SchemaCatalog<'a> {
         let mut c: SchemaCatalog = SchemaCatalog::new();
         c.merge_static(blob);
         return c;
@@ -568,7 +568,7 @@ pub struct QEnv<'d> {
 
 impl<'d> QEnv<'d> {
     /// Creates an empty environment with no bindings and no registered UDFs/UDAs.
-    pub fn new() -> QEnv {
+    pub fn new<'a>() -> QEnv<'a> {
         let dfn: QFn      = qfn_nop;
         let din: QAggInit = qagg_init_nop;
         let dst: QAggStep = qagg_step_nop;
@@ -783,14 +783,14 @@ fn node_schema_code(w: WAny) -> u64 {
 // A WString pointee's bytes as a `str` view (provenance-laundering: the input
 // is a RAW resolve()d pointer, so the view ties to the owning arena, not to a
 // local WAny — the generated parsers' wstr_as_str idiom).
-fn wstr_at<'a>(p: *const u8) -> &str {
+fn wstr_at<'a>(p: *const u8) -> &'a str {
     if (p as i64) == 0i64 { return ""; }
     let ws: &WString = unsafe { &*(p as *const WString) };
     return ws.as_str();
 }
 
 // A string-typed WAny's payload ("" for null/non-string).
-fn wany_str(v: WAny) -> &str {
+fn wany_str<'a>(v: WAny) -> &'a str {
     if !v.is_string() { return ""; }
     return wstr_at(v.resolve());
 }
@@ -799,7 +799,7 @@ fn wany_str(v: WAny) -> &str {
 // anything else referencable becomes a Node handle. This is the ELEMENT
 // conversion for iterated Writ arrays — it makes scalar-element arrays
 // (WRef<str> etc., FK_EARR) and schema'd-node arrays iterate uniformly.
-fn wany_to_rt(v: WAny) -> RtVal {
+fn wany_to_rt<'a>(v: WAny) -> RtVal<'a> {
     if v.is_null()   { return RtVal::Null; }
     if v.is_string() { return RtVal::S(wstr_at(v.resolve())); }
     if v.is_bool()   { return RtVal::B(v.as_bool()); }
@@ -890,7 +890,7 @@ pub type QAggFin  = fn(RtVal) -> RtVal;
 
 // Registry no-op seeds (the fixed-slot tables need an initial value).
 fn qfn_nop<'d>(_a: &[RtVal<'d>]) -> RtVal<'d> { return RtVal::Null; }
-fn qagg_init_nop() -> RtVal { return RtVal::Null; }
+fn qagg_init_nop<'a>() -> RtVal<'a> { return RtVal::Null; }
 fn qagg_step_nop<'d>(acc: RtVal<'d>, _v: RtVal<'d>) -> RtVal<'d> { return acc; }
 fn qagg_fin_nop(acc: RtVal) -> RtVal { return acc; }
 
@@ -1180,7 +1180,7 @@ pub struct QRelReg<'d> {
     rel_agg: [i32; 16],
 }
 
-fn qrelreg_new() -> QRelReg {
+fn qrelreg_new<'a>() -> QRelReg<'a> {
     return QRelReg {
         n: 0i64, names: [""; 16], ncols: [0i64; 16], coff: [0i64; 16],
         cnames: vec_new::<&str>(), ctys: vec_new::<i64>(),

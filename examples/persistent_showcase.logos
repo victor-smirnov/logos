@@ -1,192 +1,111 @@
 //
-// logos.lcm.deem.data showcase — a tour of the public API.
+// Persistent showcase — CoW snapshots over Memoria containers.
 //
-// What the package gives you:
-//   1. Store         — owns the commit DAG, allocates block + snapshot ids
-//   2. Snap          — a mutable snapshot rooted in a directory tree
-//   3. ContainerRef  — handle to one persistent map inside a Snap
-//   4. CoW + dyn-trait dispatch  — every mutation that crosses a snapshot
-//      boundary forks the touched node; reads are share-by-rc
-//   5. Multi-parent CommitEntry  — full DAG topology (single-parent for
-//      now, merge surface lands later)
+// Two u64→u64 ordered maps in one store; commit, read a fork of the commit,
+// mutate another fork (inserts, a replace, removals), then re-fork the first
+// commit to show it is untouched, and print the snapshot DAG.
 //
-// Demonstrated flows:
-//   1.  Open a store, begin a snapshot, create a container.
-//   2.  Insert / replace / get / contains / remove.
-//   3.  Commit; fork from the commit; read the inherited state.
-//   4.  Mutate the fork — original commit stays untouched.
-//   5.  Multiple containers per snapshot.
-//   6.  DAG navigation: parents_of / children_of / roots / commit_count.
-//
-// The surface is now Rust-shaped: `cr.insert(k, v)` / `cr.get(k) -> Option<V>`
-// / safe `iter()`; STORE_CFG is inferred from the snap (only the container CFG
-// is named); commit is guarded against open containers. Type inference carries
-// the `let` types, so bindings read clean.
 
 package persistent_showcase;
 
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
 use logos.mem.collections.vec;
-use logos.lang.mem;
-use logos.lang.cmp; use logos.lang.fabric;
-use logos.lang.writ.wstatic;
-
-use logos.lcm.deem.data.bt.node;
-use logos.lcm.deem.data.bt.cow;
-use logos.lcm.deem.data.store;
-use logos.lcm.deem.data.handle;
+use logos.lang.option;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
 
-// ── Configs ───────────────────────────────────────────────────────────
-//
-// Two WritStatic literals describe the store and the map: ID widths,
-// CFG-derived layout (key/value types, fanout). Everything keys off
-// these — different (store, map) configs yield distinct types end-to-end.
-pub const StoreCfg: WritStatic = @{
-    "name":     "showcase",
-    "ctr_id":   <type:u64>,
-    "snp_id":   <type:u64>,
-    "block_id": <type:u64>,
-};
-
-pub const ScoresCfg: WritStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
-pub const TagsCfg:   WritStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
-
-// ── Helpers ───────────────────────────────────────────────────────────
+container Scores {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
 
 fn section(label: &str) {
-    unsafe { printf("\n=== %s ===\n" as *const u8, label.as_ptr()); }
+    unsafe { printf("\n=== %.*s ===\n" as *const u8, label.len() as i32, label.as_ptr()); }
 }
 
-fn fill_range(cr: &mut ContainerRef<StoreCfg, ScoresCfg>, lo: u64, hi: u64, mul: u64) {
-    let mut i = lo;
-    while i < hi {
-        cr.insert(i, i * mul);
-        i = i + 1u64;
-    }
-}
-
-// Safe: get() is safe (returns Option<V>); only the extern printf is unsafe.
-fn dump_entry(cr: &ContainerRef<StoreCfg, ScoresCfg>, key: u64) {
-    match cr.get(key) {
-        Option::Some(out) => {
-            unsafe { printf("  scores[%lu] = %lu\n" as *const u8, key, out); }
-        }
-        Option::None => {
-            unsafe { printf("  scores[%lu] = (none)\n" as *const u8, key); }
-        }
+fn show(key: u64, v: Option<u64>) {
+    match v {
+        Option::Some(out) => { unsafe { printf("  scores[%lu] = %lu\n" as *const u8, key, out); } }
+        Option::None      => { unsafe { printf("  scores[%lu] = (none)\n" as *const u8, key); } }
     }
 }
 
 fn main() -> i32 {
-    let mut store = store_open::<StoreCfg>();
+    let mut store: Arc<MemoryStore> = store_new();
 
-    // ── 1. Build commit C0 — scores: [0..30) → key*2; tags: [0..10) → key+100 ──
     section("commit C0: two containers");
-    let mut c0 = 0u64;
+    let s0: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     {
-        let mut snap = store.fork(GENESIS);
-
-        // STORE_CFG is inferred from `snap`, so only the container CFG is named.
-        // Each container is scoped so it closes before commit (open containers
-        // would block the commit).
-        {
-            let mut scores = create_ctr::<ScoresCfg>(&mut snap, 1u64);
-            fill_range(&mut scores, 0u64, 30u64, 2u64);
-            unsafe { printf("  scores.len = %lu\n" as *const u8, scores.len()); }
-        }
-        {
-            // Different CFG → different ContainerRef instantiation, distinct
-            // layout. Two containers coexist via dir lookup. (We reuse a
-            // ScoresCfg-typed handle for the second container because TagsCfg
-            // has the same K/V — purely showcase, not real usage.)
-            let mut tags = create_ctr::<ScoresCfg>(&mut snap, 2u64);
-            let mut k = 0u64;
-            while k < 10u64 {
-                tags.insert(k, k + 100u64);
-                k = k + 1u64;
-            }
-            unsafe { printf("  tags.len   = %lu\n" as *const u8, tags.len()); }
-        }
-
-        c0 = snap.commit();
+        let mut scores = create_ctr::<typeof(Scores)>(&s0, 1u64);
+        let mut i: u64 = 0u64;
+        while i < 30u64 { scores.insert(i, i * 2u64); i = i + 1u64; }
+        unsafe { printf("  scores.len = %lu\n" as *const u8, scores.size()); }
     }
-    unsafe { printf("  → commit id = %ld\n" as *const u8, c0); }
+    {
+        let mut tags = create_ctr::<typeof(Scores)>(&s0, 2u64);
+        let mut k: u64 = 0u64;
+        while k < 10u64 { tags.insert(k, k + 100u64); k = k + 1u64; }
+        unsafe { printf("  tags.len   = %lu\n" as *const u8, tags.size()); }
+    }
+    s0.commit();
+    let c0: u64 = s0.snapshot_id();
+    unsafe { printf("  -> commit id = %lu\n" as *const u8, c0); }
 
-    // ── 2. Read-only fork of C0 — verify both containers are visible ──
     section("read fork of C0");
-    {
-        let mut snap = store.fork(c0);
-        let scores = open_ctr::<ScoresCfg>(&mut snap, 1u64).unwrap();
-        dump_entry(&scores, 0u64);
-        dump_entry(&scores, 15u64);
-        dump_entry(&scores, 29u64);
-        // open_ctr returns Option<ContainerRef> — None on miss (Rust parity).
-        let absent = open_ctr::<ScoresCfg>(&mut snap, 99u64).is_none();
-        unsafe { printf("  open(99) absent = %d\n" as *const u8, absent as i32); }
+    match store_fork_from(&mut store, c0) {
+        Option::Some(sf) => {
+            let scores = open_ctr::<typeof(Scores)>(&sf, 1u64);
+            show(0u64, scores.find(0u64));
+            show(15u64, scores.find(15u64));
+            show(29u64, scores.find(29u64));
+            let absent: bool = try_open_ctr::<typeof(Scores)>(&sf, 99u64).is_none();
+            unsafe { printf("  open(99) absent = %d\n" as *const u8, absent as i32); }
+        }
+        Option::None => { return 1; }
     }
 
-    // ── 3. Mutating fork — extends scores; original commit untouched ──
     section("mutating fork from C0");
-    let mut c1 = 0u64;
+    let s1: Arc<dyn Snapshot> = match store_fork_from(&mut store, c0) { Option::Some(s) => { s } Option::None => { return 2; } };
     {
-        let mut snap = store.fork(c0);
-        {
-            let mut scores = open_ctr::<ScoresCfg>(&mut snap, 1u64).unwrap();
-            fill_range(&mut scores, 30u64, 60u64, 5u64);
+        let mut scores = open_ctr::<typeof(Scores)>(&s1, 1u64);
+        let mut i: u64 = 30u64;
+        while i < 60u64 { scores.insert(i, i * 5u64); i = i + 1u64; }
+        scores.insert(7u64, 9999u64);
+        show(7u64, scores.find(7u64));
+        let mut rk: u64 = 10u64;
+        while rk < 15u64 { let _ = scores.remove(rk); rk = rk + 1u64; }
+        unsafe { printf("  fork scores.len = %lu\n" as *const u8, scores.size()); }
+    }
+    s1.commit();
+    let c1: u64 = s1.snapshot_id();
 
-            // Replace existing key (insert returns Some(old) on replace).
-            scores.insert(7u64, 9999u64);
-            dump_entry(&scores, 7u64);
-
-            // Remove a slice of keys.
-            let mut rk = 10u64;
-            while rk < 15u64 {
-                scores.remove(rk);
-                rk = rk + 1u64;
-            }
-            unsafe { printf("  fork scores.len = %lu\n" as *const u8, scores.len()); }
+    section("re-fork C0 -- isolation check");
+    match store_fork_from(&mut store, c0) {
+        Option::Some(sf) => {
+            let scores = open_ctr::<typeof(Scores)>(&sf, 1u64);
+            unsafe { printf("  C0 scores.len = %lu (expect 30)\n" as *const u8, scores.size()); }
+            show(7u64, scores.find(7u64));
+            show(12u64, scores.find(12u64));
+            unsafe { printf("  C0 contains(35) = %d (expect 0)\n" as *const u8, scores.contains_key(35u64) as i32); }
         }
-        c1 = snap.commit();
+        Option::None => { return 3; }
     }
 
-    // ── 4. Re-fork C0 — must NOT see C1's writes ──
-    section("re-fork C0 — isolation check");
-    {
-        let mut snap = store.fork(c0);
-        let scores = open_ctr::<ScoresCfg>(&mut snap, 1u64).unwrap();
-        unsafe {
-            printf("  C0 scores.len = %lu (expect 30)\n" as *const u8, scores.len());
-        }
-        // key 7 still has the original value; keys [10..15) still present
-        dump_entry(&scores, 7u64);
-        dump_entry(&scores, 12u64);
-        // key 35 (only in C1) absent
-        unsafe {
-            printf("  C0 contains(35) = %d (expect 0)\n" as *const u8,
-                   scores.contains(35u64) as i32);
-        }
-    }
-
-    // ── 5. DAG topology ──
     section("DAG topology");
-    {
-        unsafe {
-            printf("  commit_count = %ld\n" as *const u8, store.commit_count());
-            let rs = store.roots();
-            printf("  roots.len = %ld" as *const u8, rs.len());
-            if rs.len() > 0i64 { printf(" (first = %ld)" as *const u8, rs.get(0i64)); }
-            printf("\n" as *const u8);
-
-            let parents_c1 = store.parents_of(c1);
-            printf("  parents_of(C1).len = %ld" as *const u8, parents_c1.len());
-            if parents_c1.len() > 0i64 { printf(" (first = %ld)" as *const u8, parents_c1.get(0i64)); }
-            printf("\n" as *const u8);
-
-            let children_c0 = store.children_of(c0);
-            printf("  children_of(C0).len = %ld\n" as *const u8, children_c0.len());
-        }
-    }
-
+    let rs: Vec<u64> = store_roots(&store);
+    unsafe { printf("  roots.len = %ld" as *const u8, rs.len()); }
+    if rs.len() > 0i64 { unsafe { printf(" (first = %lu)" as *const u8, rs.get(0i64)); } }
+    unsafe { printf("\n" as *const u8); }
+    let pc1: Vec<u64> = store_parents(&store, c1);
+    unsafe { printf("  parents_of(C1).len = %ld" as *const u8, pc1.len()); }
+    if pc1.len() > 0i64 { unsafe { printf(" (first = %lu)" as *const u8, pc1.get(0i64)); } }
+    unsafe { printf("\n" as *const u8); }
+    let cc0: Vec<u64> = store_children_of(&store, c0);
+    unsafe { printf("  children_of(C0).len = %ld\n" as *const u8, cc0.len()); }
     return 0;
 }

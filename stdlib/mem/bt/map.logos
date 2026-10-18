@@ -90,6 +90,13 @@ pub trait Snapshot {
     fn snapshot_parent(self: &Self) -> u64;
     /// True iff this snapshot has a parent (is not a root).
     fn has_parent(self: &Self) -> bool { return self.snapshot_parent() != 0u64; }
+    /// Is container `ctr_id` registered in this snapshot? The question
+    /// `try_open_ctr` asks. A model that cannot answer it refuses loudly — a
+    /// default "no" would be a look-alike answer.
+    fn has_container(self: &Self, ctr_id: u64) -> bool {
+        assert(false, "Snapshot::has_container: this snapshot model does not answer container existence");
+        return false;
+    }
     /// Rebinds this snapshot to a named branch: `commit` will advance THAT
     /// branch to this id (Memoria `set_as_branch`). The branch is created if it
     /// does not exist yet.

@@ -246,7 +246,7 @@ pub struct CProgram<'d> {
 
 // The program's rel names, in order — a program with no rel has no rel array
 // at all (`has_rels`), not an empty one.
-fn prog_rel_names(root: WAny) -> Vec<&str> {
+fn prog_rel_names<'a>(root: WAny) -> Vec<&'a str> {
     let mut out: Vec<&str> = Vec::<&str>::new();
     let prog: RQProgram = root.view::<RQProgram>();
     if !prog.has_rels() { return out; }
@@ -391,7 +391,7 @@ pub fn lower_query<'d>(lx: &CLower<'d>, q: WAny, env: &mut CEnvelope<'d>) -> CCl
     }
 }
 
-pub fn envelope_new() -> CEnvelope {
+pub fn envelope_new<'a>() -> CEnvelope<'a> {
     return CEnvelope { mode: CMode::All, distinct: false, order: Option::None, desc: false,
                        limit: CLimit::None, result_ty: "" };
 }
@@ -831,7 +831,7 @@ fn core_dump_mode(mode: &str) -> bool {
 }
 
 /// An empty program (the registry's placeholder before a plan exists).
-pub fn core_empty() -> CProgram {
+pub fn core_empty<'a>() -> CProgram<'a> {
     return CProgram { rels: Vec::<CRel>::new(),
                       entry: CRule { clause: CClause { head: WAny::null(), body: Vec::<CLit>::new(), group: Option::None, gpath: Option::None },
                                      env: envelope_new() },

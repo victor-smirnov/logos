@@ -136,9 +136,15 @@ pub fn create_ctr<C: CtrFamily>(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> C::Han
 
 /// Open an existing container `ctr_id` in `snap` through its family handle.
 /// Existence is not checked here (wave-parity with the generated handle's
-/// `open`); the Option-returning form arrives with the deem-pair retirement.
+/// `open`); `try_open_ctr` is the form that asks.
 pub fn open_ctr<C: CtrFamily>(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> C::Handle {
     return C::open(snap, ctr_id);
+}
+
+/// `open_ctr` that answers None when `snap` has no container `ctr_id`.
+pub fn try_open_ctr<C: CtrFamily>(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> Option<C::Handle> {
+    if !snap.has_container(ctr_id) { return Option::None; }
+    return Option::Some(C::open(snap, ctr_id));
 }
 
 // ── the Rc plane (S3 Store-dyn design) ──────────────────────────────────────

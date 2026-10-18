@@ -428,7 +428,7 @@ pub fn ms_sel_item(sel: WRef<SExpr>, ci: i64, ncols: i64) -> SExpr {
 
 // `v.f` → (v, f); anything else → ("", "").
 pub struct MsCol<'d> { pub var: &'d str, pub fld: &'d str }
-pub fn ms_col_ref(e: SExpr) -> MsCol {
+pub fn ms_col_ref<'a>(e: SExpr) -> MsCol<'a> {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
@@ -807,7 +807,7 @@ fn cm_rel_verdict(p: &CProgram, ri: i64) -> i32 {
     return MS_DEMAND();
 }
 
-fn cm_head(head: WAny, cols: Vec<i64>, ncols: i64) -> MtHead {
+fn cm_head<'a>(head: WAny, cols: Vec<i64>, ncols: i64) -> MtHead<'a> {
     let mut hd: MtHead = MtHead { hv: Vec::<&str>::new(), hf: Vec::<&str>::new(), hi: Vec::<i64>::new() };
     let sel: WRef<SExpr> = WRef::<SExpr>::from_any(head);
     let mut k: i64 = 0i64;
@@ -885,7 +885,7 @@ fn fresh_atom<'d>(src: CSrc<'d>, name: &'d str, var: &'d str) -> CLit<'d> {
                               conds: Vec::<WAny>::new(), strat: 0i32, jsel: -1i32, ground: 0i64 });
 }
 
-fn on_cond(e: WRef<SExpr>) -> CLit { return CLit::Cond(CCond { e: e.any(), site: CSite::On }); }
+fn on_cond<'a>(e: WRef<SExpr>) -> CLit<'a> { return CLit::Cond(CCond { e: e.any(), site: CSite::On }); }
 
 // The magic rule for an occurrence whose SIPS visit came after `order[0..upto)`.
 fn cm_magic_body<'d>(cl: &CClause<'d>, names: &Vec<&'d str>, lit: &Vec<i64>, atoms: &Vec<MtAtom<'d>>, order: &Vec<i64>, upto: i64,

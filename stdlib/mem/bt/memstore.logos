@@ -499,6 +499,7 @@ impl BlockStore for MemorySnapshot {
 // privileged capability (node_alloc/root_of/set_root/…) is inherent above and
 // deliberately NOT here.
 impl Snapshot for MemorySnapshot {
+    pub fn has_container(self: &MemorySnapshot, ctr_id: u64) -> bool { return self.has_ctr(ctr_id); }
     pub fn snapshot_id(self: &MemorySnapshot) -> u64 {
         return unsafe { (*self.desc).id };
     }

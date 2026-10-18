@@ -200,7 +200,7 @@ impl SLit     { pub fn as_ref(self: SLit)     -> WAny { return unsafe { WAny::re
 /// or "" when it has none (or is not a number, or was built by the optimizer,
 /// which records no token). `txt` is the token as written (#724).
 impl SLit {
-    pub fn suffix(self: SLit) -> &str {
+    pub fn suffix(self: SLit) -> &'static str {
         let v: WAny = self.val;
         if v.is_string() || v.is_bool() { return ""; }
         let tx: &str = self.txt;

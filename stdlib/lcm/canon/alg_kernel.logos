@@ -105,7 +105,7 @@ fn ak_lit(n: i64, suffix: &str) -> ExprBlob {
 
 // Ident is a BORROWING view; these names are built in locals that drop
 // before the quote blobs pack their bytes — leak the backing for the
-// metafn's lifetime (the derive_branch_node discipline).
+// metafn's lifetime (the discipline every name-building derive hook follows).
 unsafe fn ak_leak_ident(s: &String) -> Ident {
     let n: i64 = s.len();
     let p: *mut u8 = alloc(n);

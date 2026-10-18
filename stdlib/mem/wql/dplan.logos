@@ -464,7 +464,7 @@ pub struct DNest<'d> {
     pub jground: Vec<i64>,
 }
 
-pub fn dnest_new() -> DNest {
+pub fn dnest_new<'a>() -> DNest<'a> {
     return DNest { base_src: "", base_ty: "", base_var: "", n: 0i64,
                     src: Vec::<&str>::new(), ty: Vec::<&str>::new(), var: Vec::<&str>::new(),
                     anti: Vec::<bool>::new(), outer: Vec::<i32>::new(), onw: Vec::<i64>::new(), edge: Vec::<bool>::new(),

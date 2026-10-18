@@ -258,7 +258,10 @@ pub fn step_upsert<K: Copy + PartialOrd, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn
     }
     let mut rt: L = lf.new_sibling(snp);
     lf.split_into(&mut rt);
-    if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }
+    let landed: bool = if key <= lf.key_at(lf.count() - 1u32) { lf.try_insert(key, val) } else { rt.try_insert(key, val) };
+        // A split exists to make room: a row that still does not fit is a
+        // broken weight law or an oversized row, never a silent no-op.
+        assert(landed, "bt insert: the entry does not fit even after the leaf split");
     return BtInsRet { ok: true, addr: node, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: true, rsep: rt.key_at(rt.count() - 1u32), rcnt: [rt.count() as u64], rptr: rt.block() };
 }
 
@@ -319,7 +322,10 @@ pub unsafe fn bt_cow_insert<K: Copy + PartialOrd, VIn: Copy, VOut: Copy, L: BtLe
         }
         let mut rt: L = lf.new_sibling(cur);
         lf.split_into(&mut rt);
-        if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }
+        let landed: bool = if key <= lf.key_at(lf.count() - 1u32) { lf.try_insert(key, val) } else { rt.try_insert(key, val) };
+        // A split exists to make room: a row that still does not fit is a
+        // broken weight law or an oversized row, never a silent no-op.
+        assert(landed, "bt insert: the entry does not fit even after the leaf split");
         return BtInsRet { ok: true, addr: work, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: true, rsep: rt.key_at(rt.count() - 1u32), rcnt: [rt.count() as u64], rptr: rt.block() };
     }
     let work: *mut u8 = bt_branch_private::<K, B, P>(node, cur);
@@ -370,7 +376,8 @@ pub unsafe fn bt_cow_with_entry<K: Copy + PartialOrd, VIn: Copy, VOut: Copy, L: 
         }
         let mut rt: L = lf.new_sibling(cur);
         lf.split_into(&mut rt);
-        if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.with_entry(key, f); } else { let _ = rt.with_entry(key, f); }
+        let landed: bool = if key <= lf.key_at(lf.count() - 1u32) { lf.with_entry(key, f) } else { rt.with_entry(key, f) };
+        assert(landed, "bt with_entry: the entry does not fit even after the leaf split");
         return BtInsRet { ok: true, addr: work, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: true, rsep: rt.key_at(rt.count() - 1u32), rcnt: [rt.count() as u64], rptr: rt.block() };
     }
     let work: *mut u8 = bt_branch_private::<K, B, P>(node, cur);

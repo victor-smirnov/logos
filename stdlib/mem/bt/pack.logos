@@ -47,6 +47,7 @@ use logos.lang.mem;              // alloc/dealloc/copy_bytes — staging + priva
 use logos.lang.slice;            // slice_from_raw — span reads without a local-borrow chain
 use logos.lang.result;
 use logos.lang.panic;
+use logos.mem.bt.btss;            // bytes_cmp — the order of a `str` key column
 
 // ── PdtBuf columns (FSE / VLE) ──────────────────────────────────────────────
 
@@ -672,6 +673,7 @@ struct PkRow {
     sep: u64,
     cnt: u64,
     ptr: *mut u8,
+    sepb: Vec<u8>,     // the separator's bytes when the key column is VLE (a `str` key)
 }
 
 // Max merged rows a fresh donor-shaped leaf admits within `budget` bytes,
@@ -771,6 +773,7 @@ fn pk_pack_leaves<P: NodeProfile>(m: &PkMerged, donor: *mut u8, snp: u64,
             sep: pk_merged_key::<P>(m, done + take - 1u64),
             cnt: take,
             ptr: lf,
+            sepb: vec_new::<u8>(),
         });
         done = done + take;
     }
@@ -826,6 +829,7 @@ fn pk_pack_branches<P: NodeProfile>(rows: &Vec<PkRow>, snp: u64, branch_bytes: u
             sep: rows.borrow((done + take - 1u64) as i64).sep,
             cnt: sub,
             ptr: cur,
+            sepb: vec_new::<u8>(),
         });
         done = done + take;
         if done < total {
@@ -846,6 +850,99 @@ fn pk_lower_bound(b: &ColRef, key: u64, signed: bool) -> u64 {
         i = i + 1u64;
     }
     return n;
+}
+
+// ── a KEY in the removal walk: a u64 cell under a sign verdict, or the bytes
+// of a `str` key (a VLE key column, kept in byte order by the writers).
+struct PkKey {
+    cell: u64,
+    signed: bool,
+    bytes: Vec<u8>,
+    is_bytes: bool,
+}
+
+fn pk_key_cell(cell: u64, signed: bool) -> PkKey {
+    return PkKey { cell: cell, signed: signed, bytes: vec_new::<u8>(), is_bytes: false };
+}
+
+fn pk_key_of_bytes(b: &[u8]) -> PkKey {
+    let mut v: Vec<u8> = vec_new::<u8>();
+    let mut i: i64 = 0i64;
+    while i < b.len() { v.push(b[i]); i = i + 1i64; }
+    return PkKey { cell: 0u64, signed: false, bytes: v, is_bytes: true };
+}
+
+// Row `i` of a VLE column as a view of its bytes (until the column is written).
+fn pk_col_bytes<'a>(b: &ColRef, i: u64) -> &'a [u8] {
+    let off: u64 = b.row_offset(0u32, 0u32, i);
+    let len: u64 = b.row_len(0u32, 0u32, i);
+    return unsafe { slice_from_raw::<u8>(b.payload(0u32, 0u32).byte_add(off as i64), len as i64) };
+}
+
+// lower_bound of `k` over a key/separator column of either kind.
+fn pk_key_lb(b: &ColRef, k: &PkKey) -> u64 {
+    if !k.is_bytes { return pk_lower_bound(b, k.cell, k.signed); }
+    let mut lo: u64 = 0u64;
+    let mut hi: u64 = b.size();
+    while lo < hi {
+        let mid: u64 = lo + (hi - lo) / 2u64;
+        if bytes_cmp(pk_col_bytes(b, mid), k.bytes.as_slice()) < 0i32 { lo = mid + 1u64; } else { hi = mid; }
+    }
+    return lo;
+}
+
+// Is row `pos` of key column `b` exactly `k`?
+fn pk_key_hit(b: &ColRef, pos: u64, k: &PkKey) -> bool {
+    if pos >= b.size() { return false; }
+    if !k.is_bytes { return b.get(0u32, pos) == k.cell; }
+    return bytes_cmp(pk_col_bytes(b, pos), k.bytes.as_slice()) == 0i32;
+}
+
+// A row whose separator is row `i` of key/separator column `b` — the bytes
+// COPIED when the column is VLE, since the row outlives the column's block.
+fn pk_row_of(b: &ColRef, i: u64, cnt: u64, ptr: *mut u8) -> PkRow {
+    if b.vle_dim_count() > 0u32 {
+        let src: &[u8] = pk_col_bytes(b, i);
+        let mut v: Vec<u8> = vec_new::<u8>();
+        let mut j: i64 = 0i64;
+        while j < src.len() { v.push(src[j]); j = j + 1i64; }
+        return PkRow { sep: 0u64, cnt: cnt, ptr: ptr, sepb: v };
+    }
+    return PkRow { sep: b.get(0u32, i), cnt: cnt, ptr: ptr, sepb: vec_new::<u8>() };
+}
+
+// Write row `r`'s separator into row `i` of branch `a` — a cell, or (VLE) the
+// bytes replaced by remove + insert (the branch row reserve covers the
+// longest key, so the insert cannot fail on an admitted branch).
+fn pk_set_sep(a: &mut NodeView, i: u64, r: &PkRow) {
+    if pk_slot(a, PKB_SEP).vle_dim_count() == 0u32 {
+        a.col_mut(PKB_SEP).set(0u32, i, r.sep);
+        return;
+    }
+    let mut vals: PdtVals = pdt_vals_new();
+    vals.push_span(r.sepb.as_slice());
+    assert(a.col_mut(PKB_SEP).remove_rows(i, i + 1u64, PDT_CAP_KEEP), "pack: separator remove failed to prepare");
+    assert(a.col_mut(PKB_SEP).insert_vals(i, 1u64, &vals), "pack: separator re-insert does not fit");
+}
+
+// The rows [0, n) of column `b` as a carrier the column's own insert takes
+// (cells, or VLE spans copied).
+fn pk_col_vals(b: &ColRef, n: u64) -> PdtVals {
+    let mut vals: PdtVals = pdt_vals_new();
+    let mut i: u64 = 0u64;
+    if b.vle_dim_count() > 0u32 {
+        while i < n { vals.push_span(pk_col_bytes(b, i)); i = i + 1u64; }
+    } else {
+        while i < n { vals.cells.push(b.get(0u32, i)); i = i + 1u64; }
+    }
+    return vals;
+}
+
+// The payload a VLE column holds, as the weight oracle's per-dim vector
+// (empty for FSE).
+fn pk_col_pay(b: &ColRef) -> u64 {
+    if b.vle_dim_count() > 0u32 { return b.payload_used(0u32, 0u32); }
+    return 0u64;
 }
 
 // The recursive CoW splice. OWNERSHIP: takes the parent's one ref to
@@ -950,7 +1047,7 @@ fn pk_splice_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, fi
             let kbf: ColRef = pk_slot(&a, 0u32);
             let cnt: u64 = kbf.size();
             let mut one: Vec<PkRow> = vec_new::<PkRow>();
-            one.push(PkRow { sep: kbf.get(0u32, cnt - 1u64), cnt: cnt, ptr: work });
+            one.push(PkRow { sep: kbf.get(0u32, cnt - 1u64), cnt: cnt, ptr: work, sepb: vec_new::<u8>() });
             return one;
         }
         // overflow: repack (prefix ++ staging ++ suffix) into fresh leaves
@@ -1069,6 +1166,7 @@ fn pk_splice_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, fi
                             sep: sub.borrow(q).sep,
                             cnt: sub.borrow(q).cnt,
                             ptr: sub.borrow(q).ptr,
+                            sepb: vec_new::<u8>(),
                         });
                         q = q + 1i64;
                     }
@@ -1077,6 +1175,7 @@ fn pk_splice_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, fi
                         sep: sbx.get(0u32, i),
                         cnt: cbx.get(0u32, i),
                         ptr: snap.resolve(pbx.get(0u32, i)).ptr(),
+                        sepb: vec_new::<u8>(),
                     });
                 }
                 i = i + 1u64;
@@ -1107,7 +1206,7 @@ fn pk_splice_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, fi
     }
     let sbt: ColRef = pk_slot(&a, PKB_SEP);
     let mut one: Vec<PkRow> = vec_new::<PkRow>();
-    one.push(PkRow { sep: sbt.get(0u32, nn - 1u64), cnt: tot, ptr: work });
+    one.push(PkRow { sep: sbt.get(0u32, nn - 1u64), cnt: tot, ptr: work, sepb: vec_new::<u8>() });
     return one;
 }
 
@@ -1144,7 +1243,11 @@ fn pk_leaves_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
     let kd: PdtDescr = pk_slot(&la, 0u32).descr();
     let vd: PdtDescr = pk_slot(&la, 1u32).descr();
     let n: u64 = pk_slot(&la, 0u32).size() + pk_slot(&ra, 0u32).size();
-    let kw: u32 = pdtbuf_compute_block_size(&kd, n, &pdt_payload_zero(&kd));
+    let mut kpay: Vec<u64> = vec_new::<u64>();
+    if kd.vle_dim_count() > 0u32 {
+        kpay.push(pk_col_pay(&pk_slot(&la, 0u32)) + pk_col_pay(&pk_slot(&ra, 0u32)));
+    }
+    let kw: u32 = pdtbuf_compute_block_size(&kd, n, &kpay);
     let mut vpay: Vec<u64> = vec_new::<u64>();
     if vd.vle_dim_count() > 0u32 {
         vpay.push(pk_slot(&la, 1u32).payload_used(0u32, 0u32)
@@ -1168,23 +1271,21 @@ fn pk_leaf_absorb<P: NodeProfile>(dst: *mut u8, src: *mut u8, at_front: bool) {
             return;
         }
         let pos: u64 = if at_front { 0u64 } else { pk_slot(&da, 0u32).size() };
-        // keys
+        // keys — cells, or a `str` key's bytes (copied into the carrier)
         {
-            let us: PdtUpdate = match da.price_insert(0u32, pos, sn, PDT_CAP_KEEP) {
+            let kvals: PdtVals = pk_col_vals(&pk_slot(&sa, 0u32), sn);
+            let us: PdtUpdate = match da.price_insert_vals(0u32, pos, sn, PDT_CAP_KEEP, &kvals) {
                 Result::Ok(u) => u,
                 Result::Err(_e) => {
                     assert(false, "pack: admitted leaf merge rejected keys (weight law broken?)");
                     return;
                 }
             };
-            let mut cells: Vec<u64> = vec_new::<u64>();
-            let sb: ColRef = pk_slot(&sa, 0u32);
-            let mut i: u64 = 0u64;
-            while i < sn {
-                cells.push(sb.get(0u32, i));
-                i = i + 1u64;
+            if pk_slot(&da, 0u32).vle_dim_count() > 0u32 {
+                da.col_mut(0u32).commit_planned_vals(&us, &kvals);
+            } else {
+                da.col_mut(0u32).commit_planned(&us, &kvals.cells);
             }
-            da.col_mut(0u32).commit_planned(&us, &cells);
         }
         // values — read the SHAPE, then drop the view: everything below moves
         // the region, and the checker will not let a view survive it.
@@ -1231,11 +1332,19 @@ fn pk_leaf_absorb<P: NodeProfile>(dst: *mut u8, src: *mut u8, at_front: bool) {
 // Can the BRANCH nodes merge (3-col row admission)?
 fn pk_branches_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
     let mut la: NodeView = node_view_at(l);
-    let n: u64 = pk_slot(&la, PKB_SEP).size() + pk_slot(&node_view_at(r), PKB_SEP).size();
+    let mut ra: NodeView = node_view_at(r);
+    let n: u64 = pk_slot(&la, PKB_SEP).size() + pk_slot(&ra, PKB_SEP).size();
     let d: PdtDescr = pk_key_descr();
     let w: u32 = pdtbuf_compute_block_size(&d, n, &pdt_payload_zero(&d));
+    // the separator column: FSE cells, or a `str` key's bytes
+    let sd: PdtDescr = pk_slot(&la, PKB_SEP).descr();
+    let mut spay: Vec<u64> = vec_new::<u64>();
+    if sd.vle_dim_count() > 0u32 {
+        spay.push(pk_col_pay(&pk_slot(&la, PKB_SEP)) + pk_col_pay(&pk_slot(&ra, PKB_SEP)));
+    }
+    let sw: u32 = pdtbuf_compute_block_size(&sd, n, &spay);
     let mut ws: Vec<u32> = vec_new::<u32>();
-    ws.push(w);
+    ws.push(sw);
     ws.push(w);
     ws.push(w);
     return pack_node_weight(&ws) <= la.block_size();
@@ -1253,6 +1362,19 @@ fn pk_branch_absorb<P: StoreProfile>(snap: &P::Store, dst: *mut u8, src: *mut u8
     }
     let pos: u64 = if at_front { 0u64 } else { pk_slot(&da, PKB_SEP).size() };
     let mut s: u32 = 0u32;
+    if pk_slot(&da, PKB_SEP).vle_dim_count() > 0u32 {
+        // a `str` key's separators: bytes, copied into the carrier
+        let svals: PdtVals = pk_col_vals(&pk_slot(&sa, PKB_SEP), sn);
+        let us: PdtUpdate = match da.price_insert_vals(PKB_SEP, pos, sn, PDT_CAP_KEEP, &svals) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => {
+                assert(false, "pack: admitted branch merge rejected separators (weight law broken?)");
+                return;
+            }
+        };
+        da.col_mut(PKB_SEP).commit_planned_vals(&us, &svals);
+        s = 1u32;
+    }
     while s < 3u32 {
         let us: PdtUpdate = match da.price_insert(s, pos, sn, PDT_CAP_KEEP) {
             Result::Ok(u) => u,
@@ -1298,12 +1420,13 @@ fn pk_try_merge<P: StoreProfile>(snap: &P::Store, a: &mut NodeView, ci: u64, wor
             } else {
                 pk_branch_absorb::<P>(snap, work_child, sib, false);
             }
-            // the merged row inherits the RIGHT sibling's separator
-            let rsep: u64 = pk_slot(a, PKB_SEP).get(0u32, ci + 1u64);
+            // the merged row inherits the RIGHT sibling's separator (copied:
+            // its row is removed below)
+            let rsep: PkRow = pk_row_of(&pk_slot(a, PKB_SEP), ci + 1u64, 0u64, sib);
             let rcnt: u64 = pk_slot(a, PKB_CNT).get(0u32, ci + 1u64);
             unsafe { tree_release(sib, child_level); }
             pk_branch_remove_row(a, ci + 1u64);
-            a.col_mut(PKB_SEP).set(0u32, ci, rsep);
+            pk_set_sep(a, ci, &rsep);
             let oc: u64 = pk_slot(a, PKB_CNT).get(0u32, ci);
             a.col_mut(PKB_CNT).set(0u32, ci, oc + rcnt);
             return;
@@ -1339,12 +1462,12 @@ fn pk_try_merge<P: StoreProfile>(snap: &P::Store, a: &mut NodeView, ci: u64, wor
 // the parent's one ref to `node`; when the returned rows do not contain
 // `node`, the original ref was released inside. ZERO rows = the subtree
 // vanished (the parent removes its row).
-fn pk_remove_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, key: u64, signed: bool,
+fn pk_remove_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, key: &PkKey,
                                  cur: u64) -> Vec<PkRow> {
     if level == 0u32 {
         let work: *mut u8 = pk_private::<P>(snap, node, cur, false);
         let mut a: NodeView = node_view_at(work);
-        let pos: u64 = pk_lower_bound(&pk_slot(&a, 0u32), key, signed);
+        let pos: u64 = pk_key_lb(&pk_slot(&a, 0u32), key);
         // the pre-checked key IS here (btss_remove verified read-only)
         assert(a.col_mut(0u32).remove_rows(pos, pos + 1u64, PDT_CAP_EXACT),
                "pack: key remove failed to prepare");
@@ -1360,23 +1483,23 @@ fn pk_remove_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, ke
             return vec_new::<PkRow>();
         }
         let mut one: Vec<PkRow> = vec_new::<PkRow>();
-        one.push(PkRow { sep: kbf.get(0u32, cnt - 1u64), cnt: cnt, ptr: work });
+        one.push(pk_row_of(&kbf, cnt - 1u64, cnt, work));
         return one;
     }
     let work: *mut u8 = pk_private::<P>(snap, node, cur, true);
     let mut a: NodeView = node_view_at(work);
     let sb: ColRef = pk_slot(&a, PKB_SEP);
     let n: u64 = sb.size();
-    let mut ci: u64 = pk_lower_bound(&sb, key, signed);
+    let mut ci: u64 = pk_key_lb(&sb, key);
     if ci >= n {
         ci = n - 1u64;
     }
     let old_child: *mut u8 = snap.resolve(pk_slot(&a, PKB_CHILD).get(0u32, ci)).ptr();
-    let sub: Vec<PkRow> = pk_remove_rec::<P>(snap, old_child, level - 1u32, key, signed, cur);
+    let sub: Vec<PkRow> = pk_remove_rec::<P>(snap, old_child, level - 1u32, key, cur);
     if sub.length() == 0i64 {
         pk_branch_remove_row(&mut a, ci);
     } else {
-        a.col_mut(PKB_SEP).set(0u32, ci, sub.borrow(0i64).sep);
+        pk_set_sep(&mut a, ci, sub.borrow(0i64));
         a.col_mut(PKB_CNT).set(0u32, ci, sub.borrow(0i64).cnt);
         a.col_mut(PKB_CHILD).set(0u32, ci, sub.borrow(0i64).ptr as u64);
         // the C++ step-4 analog: try to merge the touched child with a
@@ -1399,7 +1522,7 @@ fn pk_remove_rec<P: StoreProfile>(snap: &P::Store, node: *mut u8, level: u32, ke
         i = i + 1u64;
     }
     let mut one: Vec<PkRow> = vec_new::<PkRow>();
-    one.push(PkRow { sep: pk_slot(&a, PKB_SEP).get(0u32, nn - 1u64), cnt: tot, ptr: work });
+    one.push(pk_row_of(&pk_slot(&a, PKB_SEP), nn - 1u64, tot, work));
     return one;
 }
 
@@ -1417,6 +1540,17 @@ pub struct BtssRemRet {
 /// is a one-child branch. An emptied container becomes a fresh empty leaf.
 pub fn btss_remove<P: StoreProfile>(snap: &P::Store, root: *mut u8, level: u32,
                                    key: u64, signed: bool) -> BtssRemRet {
+    return btss_remove_key::<P>(snap, root, level, &pk_key_cell(key, signed));
+}
+
+/// `btss_remove` for a `str`-keyed map: `key` is the key's bytes.
+pub fn btss_remove_bytes<P: StoreProfile>(snap: &P::Store, root: *mut u8, level: u32,
+                                         key: &[u8]) -> BtssRemRet {
+    return btss_remove_key::<P>(snap, root, level, &pk_key_of_bytes(key));
+}
+
+fn btss_remove_key<P: StoreProfile>(snap: &P::Store, root: *mut u8, level: u32,
+                                   key: &PkKey) -> BtssRemRet {
     // read-only existence check + leaf-shape capture (the fresh-empty-root donor)
     let mut kd: PdtDescr = pk_key_descr();
     let mut vd: PdtDescr = pk_key_descr();
@@ -1427,7 +1561,7 @@ pub fn btss_remove<P: StoreProfile>(snap: &P::Store, root: *mut u8, level: u32,
         while lvl > 0u32 {
             let mut a: NodeView = node_view_at(node);
             let sb: ColRef = pk_slot(&a, PKB_SEP);
-            let mut ci: u64 = pk_lower_bound(&sb, key, signed);
+            let mut ci: u64 = pk_key_lb(&sb, key);
             if ci >= sb.size() {
                 ci = sb.size() - 1u64;
             }
@@ -1436,8 +1570,8 @@ pub fn btss_remove<P: StoreProfile>(snap: &P::Store, root: *mut u8, level: u32,
         }
         let mut a: NodeView = node_view_at(node);
         let kb: ColRef = pk_slot(&a, 0u32);
-        let pos: u64 = pk_lower_bound(&kb, key, signed);
-        if pos >= kb.size() || kb.get(0u32, pos) != key {
+        let pos: u64 = pk_key_lb(&kb, key);
+        if !pk_key_hit(&kb, pos, key) {
             return BtssRemRet { found: false, root: root, level: level };
         }
         kd = kb.descr();
@@ -1445,7 +1579,7 @@ pub fn btss_remove<P: StoreProfile>(snap: &P::Store, root: *mut u8, level: u32,
         leaf_bytes = P::block_size(node);
     }
     let cur: u64 = snap.snapshot_id();
-    let rows: Vec<PkRow> = pk_remove_rec::<P>(snap, root, level, key, signed, cur);
+    let rows: Vec<PkRow> = pk_remove_rec::<P>(snap, root, level, key, cur);
     if rows.length() == 0i64 {
         // the container emptied: a fresh empty leaf becomes the root
         unsafe {

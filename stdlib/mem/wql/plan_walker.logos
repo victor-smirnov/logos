@@ -289,7 +289,7 @@ fn check_stratified(prm: &mut MacroParams, deps: &RelDeps, scc: &RelScc) -> bool
 // condensation consumes; recursion is realized by the semi-naïve fixpoint.
 struct SrcRes<'d> { ok: bool, is_rel: bool, idx: i64, row_ty: &'d str }
 
-fn src_fail() -> SrcRes { return SrcRes { ok: false, is_rel: false, idx: -1i64, row_ty: "" }; }
+fn src_fail<'a>() -> SrcRes<'a> { return SrcRes { ok: false, is_rel: false, idx: -1i64, row_ty: "" }; }
 
 fn resolve_source<'a>(prm: &'a MacroParams, src: &'a str, cur_rel: i64, deps: &mut RelDeps) -> SrcRes<'a> {
     let i: i64 = prm.index_of(src);
@@ -578,7 +578,7 @@ fn check_edge_step(bv: &str, path: &Vec<&str>, var: &str,
 
 struct ClauseVars<'d> { pub name: Vec<&'d str>, pub n: i64 }
 
-fn clause_vars_new() -> ClauseVars {
+fn clause_vars_new<'a>() -> ClauseVars<'a> {
     return ClauseVars { name: Vec::<&str>::new(), n: 0i64 };
 }
 
@@ -887,7 +887,7 @@ struct WardX<'d> {
     pub pbod: Vec<i64>,   // rule r → body index within that rel
 }
 
-fn wardx_new() -> WardX {
+fn wardx_new<'a>() -> WardX<'a> {
     return WardX {
         vv: Vec::<&str>::new(), vc: Vec::<&str>::new(), par: Vec::<i64>::new(), nvar: 0i64,
         exn: Vec::<&str>::new(), exi: Vec::<i64>::new(), nexn: 0i64, exctr: 100000i64,
@@ -989,7 +989,7 @@ fn sx_has_fresh(e: SExpr) -> bool {
 }
 
 // Decode `rv.col` (an SField whose base is a simple root var); ok=false otherwise.
-fn sx_colref(e: SExpr) -> ColRef {
+fn sx_colref<'a>(e: SExpr) -> ColRef<'a> {
     match e {
         SExpr::Field(f) => {
             if f.base.any().is_null() { return ColRef { ok: false, rv: "", col: "" }; }
@@ -1003,7 +1003,7 @@ fn sx_colref(e: SExpr) -> ColRef {
 }
 
 // A bare identifier (null-base field or comprehension var), or "" if `e` is not one.
-fn sx_bare_ident(e: SExpr) -> &str {
+fn sx_bare_ident<'a>(e: SExpr) -> &'a str {
     match e {
         SExpr::Field(f) => { if f.base.any().is_null() { return f.name; } return ""; }
         SExpr::Var(v)   => { return v.name; }
@@ -1795,7 +1795,7 @@ fn reg_native(prm: &mut MacroParams, disp: &str, rowty: &str,
 // planner knows by convention, and not inside the container's own handler.
 
 /// The column named by a root-shaped field reference (`e.key`), or "".
-fn pw_field_col(e: SExpr) -> &str {
+fn pw_field_col<'a>(e: SExpr) -> &'a str {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
@@ -1814,7 +1814,7 @@ fn pw_field_col(e: SExpr) -> &str {
 /// which node kind a name arrives as depends on how far resolution has got, and
 /// guessing it is how the parameter case was missed twice. Whether the name is a
 /// query PARAMETER is not decided here; `MacroParams::ty_of` is the authority.
-fn pw_bare_name(e: SExpr) -> &str {
+fn pw_bare_name<'a>(e: SExpr) -> &'a str {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
