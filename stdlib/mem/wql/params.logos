@@ -49,44 +49,6 @@ unsafe fn mp_str_range(src: &str, start: i64, len: i64) -> &str {
 // helpers BUILD a name with that prefix rather than writing `"fn "`: since
 // ADR 0024 S5 the visibility of a generated item is decided in exactly one
 // place.
-// A column type in the row's LOGOS spelling: Deem's `str` column is a borrowed
-// `&str` (the rows borrow the sources), wherever it sits in the type text
-// (`str`, `Option<str>`), and a `: str` result annotation likewise. An `&str`
-// already written stays as it is.
-pub fn push_logos_col_ty(out: &mut String, ty: &str) {
-    let n: i64 = ty.len();
-    let mut i: i64 = 0i64;
-    while i < n {
-        let c: u8 = str_byte_at(ty, i);
-        if c == 115u8 && i + 3i64 <= n && str_byte_at(ty, i + 1i64) == 116u8 && str_byte_at(ty, i + 2i64) == 114u8
-           && (i == 0i64 || !col_ty_word_byte(str_byte_at(ty, i - 1i64)))
-           && (i + 3i64 == n || !col_ty_word_byte(str_byte_at(ty, i + 3i64)))
-           && !str_is_pointee(ty, i) {
-            out.push_u8(38u8);
-        }
-        out.push_u8(c);
-        i = i + 1i64;
-    }
-}
-
-// The `str` at `i` is already behind a pointer: `&str`, `&'r str`,
-// `&mut str`, `*const str`.
-fn str_is_pointee(ty: &str, i: i64) -> bool {
-    let mut b: i64 = i - 1i64;
-    while b >= 0i64 && str_byte_at(ty, b) == 32u8 { b = b - 1i64; }
-    if b < 0i64 { return false; }
-    if str_byte_at(ty, b) == 38u8 { return true; }
-    let e: i64 = b + 1i64;
-    while b >= 0i64 && col_ty_word_byte(str_byte_at(ty, b)) { b = b - 1i64; }
-    if b >= 0i64 && str_byte_at(ty, b) == 39u8 { return true; }   // a region `'r`
-    let w: &str = unsafe { mp_str_range(ty, b + 1i64, e - b - 1i64) };
-    return str_eq(w, "mut") || str_eq(w, "const");
-}
-
-fn col_ty_word_byte(c: u8) -> bool {
-    return (c >= 97u8 && c <= 122u8) || (c >= 65u8 && c <= 90u8) || (c >= 48u8 && c <= 57u8) || c == 95u8 || c == 46u8 || c == 58u8;
-}
-
 pub fn vis_is_priv(fn_name: &str) -> bool {
     return fn_name.len() > 0i64 && str_byte_at(fn_name, 0i64) == 45u8;
 }

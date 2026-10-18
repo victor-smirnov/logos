@@ -317,14 +317,14 @@ fn emit_inc_fn(name: &str, params: &str, ret: &str, body: ExprBlob, kind: i32, t
             // a weight w is |w| copies of the rows with w's sign; a delta on a
             // source other than the first is not replayable over one input,
             // and `?` says so
-            w.push_str("            let __osg: str = if __wd < 0i64 { \"-\" } else { \"+\" };\n");
+            w.push_str("            let __osg: &str = if __wd < 0i64 { \"-\" } else { \"+\" };\n");
             w.push_str("            let mut __ow: i64 = if __wd < 0i64 { 0i64 - __wd } else { __wd };\n");
             w.push_str("            if __src != 0i32 { wql_oracle_str(__od, \"?\"); wql_oracle_nl(__od); __ow = 0i64; }\n");
             w.push_str("            while __ow > 0i64 {\n            ");
             w.push_str(string_as_str(&prm.oracle_inc_rows));
             w.push_str("            __ow = __ow - 1i64; }\n");
         } else {
-            w.push_str("            let __osg: str = \""); if kind == 0i32 { w.push_str("+"); } else { w.push_str("-"); } w.push_str("\";\n            ");
+            w.push_str("            let __osg: &str = \""); if kind == 0i32 { w.push_str("+"); } else { w.push_str("-"); } w.push_str("\";\n            ");
             w.push_str(string_as_str(&prm.oracle_inc_rows));
         }
         w.push_str("            wql_oracle_close(__od);\n            return Result::Ok(__on);\n        }\n");
