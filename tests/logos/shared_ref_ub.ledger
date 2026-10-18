@@ -149,7 +149,6 @@ stdlib/lcm/sync/sync.logos	RwLock	axis_rwlock
 TRANSITIVE
 stdlib/lang/cell/cell.logos	LazyCell	axis_lazycell
 stdlib/lang/cell/cell.logos	OnceCellTakeGuard	-
-stdlib/lang/fabric/fabric.logos	Buffer	-
 stdlib/lang/writ/objdata.logos	WritObjectData	-
 stdlib/lang/writ/row.logos	RowBuf	-
 stdlib/mem/any/anybox.logos	AnyBox	-
