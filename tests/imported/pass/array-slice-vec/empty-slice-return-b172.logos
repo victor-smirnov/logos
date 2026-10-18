@@ -9,11 +9,11 @@
 // lowered to an i32 zero and failed MLIR verification (return-type mismatch).
 package av_empty_slice_return;
 
-fn indirect_get_slice() -> &[u64] {
+fn indirect_get_slice() -> &'static [u64] {
     return &[];
 }
 
-fn get_slice() -> &[u64] {
+fn get_slice() -> &'static [u64] {
     let ret: &[u64] = indirect_get_slice();
     return ret;
 }

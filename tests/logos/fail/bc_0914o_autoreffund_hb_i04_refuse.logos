@@ -24,7 +24,7 @@ fn mkg(s: *mut i64) -> G<i64> {
 }
 fn rd(s: *mut i64) -> i64 { return unsafe { *s }; }
 
-fn leak(s: *mut i64) -> &i64 {
+fn leak<'a>(s: *mut i64) -> &'a i64 {
     return mkg(s).peek();
 }
 fn main() -> i32 {

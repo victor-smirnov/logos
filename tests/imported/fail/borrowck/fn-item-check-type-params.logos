@@ -4,7 +4,7 @@
 package fn_item_check_type_params;
 struct W<'a> { r: &'a i64 }
 fn extend_lt<T>(val: &i64) -> W { return W { r: val }; }
-fn test_call() -> W {
+fn test_call() -> W<'static> {
     let s: i64 = 5i64;
     return extend_lt::<i64>(&s);
 }

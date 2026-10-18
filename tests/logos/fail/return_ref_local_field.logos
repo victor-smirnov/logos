@@ -5,7 +5,7 @@
 // See docs/internals/borrow-escape-analysis-design.md §4(c).
 package return_ref_local_field;
 struct C { x: i64 }
-fn bad() -> &i64 {
+fn bad() -> &'static i64 {
     let c: C = C { x: 1i64 };
     return &c.x;            // ERROR: dangling (reported as "temporary value" — AddrOfTemp wording)
 }

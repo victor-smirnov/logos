@@ -24,6 +24,6 @@ struct S  { a: i64, b: i64, i: In }
 
 const K: S = S { a: 5i64, b: 6i64, i: In { a: 5i64 } };
 
-fn f() -> &i64 { return &K.i.a; }
+fn f() -> &'static i64 { return &K.i.a; }
 
 fn main() -> i32 { let p: &i64 = f(); return *p as i32; }

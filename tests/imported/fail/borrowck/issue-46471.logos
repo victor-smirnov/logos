@@ -3,7 +3,7 @@
 // shelf: pin
 // upstream: borrowck/issue-46471.rs  E0515
 package issue_46471;
-fn foo() -> &i64 {
+fn foo() -> &'static i64 {
     let x = 0i64;
     return &x;
 }

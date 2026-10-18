@@ -25,7 +25,7 @@ impl<T> Holder<T> {
     fn pass<'b>(&mut self, r: &'b mut T) -> &'b mut T { return &mut *r; }
 }
 
-unsafe fn gmint<T>(p: *mut T) -> &mut T { return &mut *p; }
+unsafe fn gmint<'a, T>(p: *mut T) -> &'a mut T { return &mut *p; }
 
 unsafe fn main() -> i32 {
     let p: *mut Box2 = malloc(8i64) as *mut Box2;

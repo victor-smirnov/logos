@@ -1,7 +1,7 @@
 package r;
 use logos.lang.option;
 
-unsafe fn make_some() -> Option<&str> { return Option::Some("hello"); }
+unsafe fn make_some() -> Option<&'static str> { return Option::Some("hello"); }
 
 fn main() -> i32 {
     let o: Option<&str> = unsafe { make_some() };

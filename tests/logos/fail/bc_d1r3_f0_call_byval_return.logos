@@ -18,5 +18,5 @@ impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
 }
 fn idb(b: B) -> B { return b; }
-fn leak() -> B { let c: C = C { v: 1i64 }; let b: B = c.mk(); return idb(b); }
+fn leak() -> B<'static> { let c: C = C { v: 1i64 }; let b: B = c.mk(); return idb(b); }
 fn main() -> i64 { let b: B = leak(); return *b.p; }

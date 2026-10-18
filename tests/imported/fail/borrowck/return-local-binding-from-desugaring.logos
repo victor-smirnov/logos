@@ -7,7 +7,7 @@ package return_local_binding_from_desugaring;
 struct Item { n: i64 }
 struct Holder<'a> { r: &'a i64 }
 fn mk() -> Item { return Item { n: 5i64 }; }
-fn group_by() -> Holder {
+fn group_by() -> Holder<'static> {
     let x = mk();
     return Holder { r: &x.n };   // E0515: returns a value referencing local data
 }

@@ -10,7 +10,7 @@ pub fn ok(s: &str) -> &str {
     return t.0;
 }
 
-pub fn ok_static() -> &str {
+pub fn ok_static() -> &'static str {
     let mut t: (&str, i64) = ("", 0i64);
     t.0 = "abcde";
     return t.0;

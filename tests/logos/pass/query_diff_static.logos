@@ -150,7 +150,7 @@ fn eq2(a: &mut Vec<i64>, b: &mut Vec<i64>) -> bool {
 // Chosen as in `query_diff_str_adv`: the EMPTY string, a prefix chain a/aa/aaa,
 // "B"(66) vs "a"(97) so byte order and case order disagree, plus duplicates via
 // the per-iteration span — forcing empty keys, prefix boundaries and collisions.
-fn pool(i: i64) -> &str {
+fn pool(i: i64) -> &'static str {
     if i == 0i64 { return ""; }
     if i == 1i64 { return "a"; }
     if i == 2i64 { return "aa"; }

@@ -7,5 +7,5 @@ package cond_move_glue_name_borrow_fail;
 // program with the binding named `zz_0` was correctly refused. The exemption is
 // now granted on PROVENANCE (`stmt_keys::COMPILER_GLUE`, stamped by the
 // emitter), so the name buys nothing and this refuses like any other dangle.
-fn bad() -> &i64 { let t: i64 = 9; let __cmfd_0: &i64 = &t; return __cmfd_0; }
+fn bad() -> &'static i64 { let t: i64 = 9; let __cmfd_0: &i64 = &t; return __cmfd_0; }
 fn main() -> i32 { let r: &i64 = bad(); return 0i32; }

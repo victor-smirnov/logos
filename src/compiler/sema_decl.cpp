@@ -450,6 +450,71 @@ void SemaChecker::compute_fn_lifetime_outlives(
     lifetime_outlives.insert(lifetime_outlives.end(), impl_scope_outlives_.begin(), impl_scope_outlives_.end());
 }
 
+// T2-19 (E0106) for one signature — a free fn, a method, or a trait method
+// declaration: `ptypes` are the input types (receiver included), `ret_ast`
+// the written return type (null when absent).
+void SemaChecker::check_output_elision_(TypeRef ret_type, TinyMapView ret_ast,
+                                        const std::vector<TypeRef>& ptypes, bool has_self_ref) {
+    {
+        // An elided output reference: STRUCTURALLY in the resolved return type
+        // (`&T`, `(&T, &U)`, `[&T; N]`, an alias of one), or WRITTEN anywhere in
+        // its AST — `Vec<&T>` — where a substituted arg (`FilterIter<Self, &T>`,
+        // Item := &T) is the bound's lifetime, not an elision, and is not read.
+        std::function<bool(TypeRef)> has_elided_ref = [&](TypeRef t) -> bool {
+            if (!t) return false;
+            auto k = TypeRef(t).kind();
+            if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) &&
+                TypeRef(t).lifetime().empty())
+                return true;
+            // A slice / trait object IS a borrow, so an unannotated one in the
+            // return type is an elided output region exactly as `&T` is. Reading
+            // only `Ref`/`MutRef` here is why `fn f(a: &Writ, s: str) -> str`
+            // never reached the ambiguity test below.
+            if (TypeRef(t).fat_borrow() && TypeRef(t).lifetime().empty())
+                return true;
+            // A lifetime-carrying ADT with an elided argument (`-> B` for
+            // `struct B<'a>`, or `B<'_>`) is an elided output region too (#465).
+            if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct ||
+                k == LogosType::Kind::Enum) {
+                auto la = TypeRef(t).lifetime_args();
+                if (la.size() < decl_lt_arity_(t)) return true;
+                for (auto& l : la) if (l == "'_" || l == "_") return true;
+            }
+            if (TypeRef(t).pointee() && has_elided_ref(TypeRef(t).pointee())) return true;
+            if (TypeRef(t).elem() && has_elided_ref(TypeRef(t).elem())) return true;
+            for (auto e : TypeRef(t).tuple_elems()) if (has_elided_ref(e)) return true;
+            return false;
+        };
+        bool ret_written_elided = !ret_ast.is_null() && ast_elided_ref_(ret_ast);
+        if (ret_type && (has_elided_ref(ret_type) || ret_written_elided)) {
+            // Fire on the AMBIGUOUS case: 2+ DISTINCT input lifetimes (a named
+            // one counts once, each elided slot — `&`, `'_`, an ADT's missing
+            // lifetime arg — is fresh) and no `&self`, so elision rule 2/3 can't
+            // pick a source.
+            if (!has_self_ref && distinct_input_lts_(ptypes) >= 2) {
+                error(std::format("missing lifetime specifier (E0106): this function's return "
+                      "type contains a borrowed value with an elided lifetime, but "
+                      "the signature has more than one input lifetime and no `&self` "
+                      "— annotate which input the result borrows from (e.g. `&'a`); "
+                      "the return type is `{}`",
+                      type_str(ret_type, true)));
+            }
+            // No input lifetime and no `&self` — nothing for the elided output to
+            // borrow from (`&'static` or a named lifetime must be written).
+            // A `<metaprog-thunk>` is compiler-synthesized: its result is serialized
+            // back into the program as a constant, so its region is 'static.
+            if (!has_self_ref && file_ != "<metaprog-thunk>" &&
+                distinct_input_lts_(ptypes) == 0) {
+                error(std::format("missing lifetime specifier (E0106): this function's return "
+                      "type contains a borrowed value, but there is no value for it to be "
+                      "borrowed from — consider `&'static` or a named lifetime; the return "
+                      "type is `{}`",
+                      type_str(ret_type, true)));
+            }
+        }
+    }
+}
+
 DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                                   std::vector<TypeParam>* out_type_params,
                                   std::string_view name_override) {
@@ -1126,79 +1191,19 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // `fn g()->&i32` (no source). Only fire on UNANNOTATED output refs — an
     // explicit `&'a`/`&'static` is the user's choice.
     {
-        // An elided output reference: STRUCTURALLY in the resolved return type
-        // (`&T`, `(&T, &U)`, `[&T; N]`, an alias of one), or WRITTEN anywhere in
-        // its AST — `Vec<&T>` — where a substituted arg (`FilterIter<Self, &T>`,
-        // Item := &T) is the bound's lifetime, not an elision, and is not read.
-        std::function<bool(TypeRef)> has_elided_ref = [&](TypeRef t) -> bool {
-            if (!t) return false;
-            auto k = TypeRef(t).kind();
-            if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) &&
-                TypeRef(t).lifetime().empty())
-                return true;
-            // A slice / trait object IS a borrow, so an unannotated one in the
-            // return type is an elided output region exactly as `&T` is. Reading
-            // only `Ref`/`MutRef` here is why `fn f(a: &Writ, s: str) -> str`
-            // never reached the ambiguity test below.
-            if ((k == LogosType::Kind::Slice || k == LogosType::Kind::UnsizedSlice ||
-                 (k == LogosType::Kind::TraitObject && !TypeRef(t).owning_trait_object())) &&
-                TypeRef(t).lifetime().empty())
-                return true;
-            // A lifetime-carrying ADT with an elided argument (`-> B` for
-            // `struct B<'a>`, or `B<'_>`) is an elided output region too (#465).
-            if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct ||
-                k == LogosType::Kind::Enum) {
-                auto la = TypeRef(t).lifetime_args();
-                if (la.size() < decl_lt_arity_(t)) return true;
-                for (auto& l : la) if (l == "'_" || l == "_") return true;
-            }
-            if (TypeRef(t).pointee() && has_elided_ref(TypeRef(t).pointee())) return true;
-            if (TypeRef(t).elem() && has_elided_ref(TypeRef(t).elem())) return true;
-            for (auto e : TypeRef(t).tuple_elems()) if (has_elided_ref(e)) return true;
-            return false;
-        };
-        bool ret_written_elided = node.has_key(la::RET_TYPE) &&
-            !node.get(la::RET_TYPE.code).is_null() &&
-            ast_elided_ref_(map_of(node.get(la::RET_TYPE.code)));
-        if (ret_type && (has_elided_ref(ret_type) || ret_written_elided)) {
-            std::vector<TypeRef> ptypes;
-            bool has_self_ref = false;
-            for (auto& p : params) {
-                if (!p.type) continue;
-                ptypes.push_back(p.type);
-                if (p.name == "self") {
-                    auto pk = TypeRef(p.type).kind();
-                    if (pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef)
-                        has_self_ref = true;
-                }
-            }
-            // Fire on the AMBIGUOUS case: 2+ DISTINCT input lifetimes (a named
-            // one counts once, each elided slot — `&`, `'_`, an ADT's missing
-            // lifetime arg — is fresh) and no `&self`, so elision rule 2/3 can't
-            // pick a source. (The 0-input case — a ref returned from no borrowed
-            // input, e.g. `Box::leak` returning `&'static` — is left to explicit
-            // annotation / the dangling-borrow check, to avoid flagging
-            // legitimate `'static`-source functions.)
-            if (!has_self_ref && distinct_input_lts_(ptypes) >= 2) {
-                error(std::format("missing lifetime specifier (E0106): this function's return "
-                      "type contains a borrowed value with an elided lifetime, but "
-                      "the signature has more than one input lifetime and no `&self` "
-                      "— annotate which input the result borrows from (e.g. `&'a`); "
-                      "the return type is `{}`",
-                      type_str(ret_type, true)));
-            }
-            // squeue elided_return_no_input_lifetime_admitted: no input lifetime and
-            // no `&self` — nothing for the elided output to borrow from. Enumeration
-            // mode until the corpus is annotated (`&'static`, or a named lifetime).
-            static const bool e0106_zero = [] { const char* v = std::getenv("LOGOS_E0106_ZERO"); return v && *v == '1'; }();
-            if (e0106_zero && !has_self_ref && distinct_input_lts_(ptypes) == 0) {
-                error(std::format("missing lifetime specifier (E0106): this function's return "
-                      "type contains a borrowed value, but there is no value for it to be "
-                      "borrowed from — consider `&'static` or a named lifetime; the return "
-                      "type is `{}`",
-                      type_str(ret_type, true)));
+        std::vector<TypeRef> ptypes;
+        bool has_self_ref = false;
+        for (auto& p : params) {
+            if (!p.type) continue;
+            ptypes.push_back(p.type);
+            if (p.name == "self") {
+                auto pk = TypeRef(p.type).kind();
+                if (pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef)
+                    has_self_ref = true;
             }
         }
+        check_output_elision_(ret_type, node.has_key(la::RET_TYPE) ? map_of(node.get(la::RET_TYPE.code)) : TinyMapView{},
+                              ptypes, has_self_ref);
     }
 
     // E0277: a parameter or result must be Sized — a bare `str` by value

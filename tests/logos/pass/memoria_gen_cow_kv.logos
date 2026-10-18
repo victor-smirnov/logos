@@ -36,7 +36,7 @@ const CTR: u64 = 1u64;
 
 // str value for key k — lengths cycle [5, 13, 1, 18] so the volume-balanced split
 // is byte-driven, not count-driven.
-fn vstr(k: u64) -> &str {
+fn vstr(k: u64) -> &'static str {
     let m: u64 = k % 4u64;
     if m == 0u64 { return "alpha"; }                 // 5
     if m == 1u64 { return "bravo-charlie"; }         // 13

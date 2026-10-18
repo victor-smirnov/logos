@@ -12,5 +12,5 @@
 // 71 -> 71) where 1 is correct.
 // TWIN: pass/bc_slice_borrow_param_admit (the same spelling over a PARAM).
 package bc_slice_range_return_local_fail;
-fn function(x: i64) -> &[i64] { let a: [i64; 3] = [x, x, x]; return &a[0..2]; }
+fn function(x: i64) -> &'static [i64] { let a: [i64; 3] = [x, x, x]; return &a[0..2]; }
 fn main() -> i32 { return function(1i64)[0] as i32; }

@@ -1,0 +1,9 @@
+// Closed squeue elided_return_no_input_lifetime_admitted: `fn name() -> &str` with no
+// reference input is E0106 as in rustc 1.98.1 — nothing for the elided output to borrow from.
+package elided_return_no_input_lifetime_refused;
+
+fn name() -> &str { return "x"; }
+
+fn main() -> i32 {
+    return (name().len() - 1) as i32;
+}

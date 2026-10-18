@@ -20,6 +20,6 @@
 // and a literal IS promoted, which is what the admit twin pins.
 package bc_return_borrow_of_operator_temp_fail;
 
-fn f() -> &i64 { return &(2i64 + 3i64); }
+fn f() -> &'static i64 { return &(2i64 + 3i64); }
 
 fn main() -> i32 { let p: &i64 = f(); return *p as i32; }

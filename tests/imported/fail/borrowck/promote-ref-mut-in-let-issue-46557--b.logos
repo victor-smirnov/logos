@@ -3,7 +3,7 @@
 // shelf: pin
 // upstream: promote-ref-mut-in-let-issue-46557.rs (ampersand arm) E0515
 package promote_ref_mut_in_let_issue_46557_b;
-fn gimme_static_mut_ampersand() -> &mut u32 {
+fn gimme_static_mut_ampersand() -> &'static mut u32 {
     return &mut 1234543u32;
 }
 fn main() -> i32 { return *gimme_static_mut_ampersand() as i32; }

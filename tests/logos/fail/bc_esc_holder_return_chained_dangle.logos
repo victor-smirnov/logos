@@ -41,7 +41,7 @@ impl<'a> W<'a> {
 
 pub fn mk<'a>(s: &'a str) -> W<'a> { return W { v: s }; }
 
-pub fn bad() -> &str {
+pub fn bad() -> &'static str {
     let o: String = String::from("hello");
     return mk(o.as_str()).get();
 }

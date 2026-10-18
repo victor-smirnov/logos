@@ -19,7 +19,7 @@ fn takes_fat(r: &mut Box2) -> i64 { return r.v; }
 struct Plain { v: i64 }
 fn takes_thin(r: &mut Plain) -> i64 { return r.v; }
 
-unsafe fn mk_fat(p: *mut Box2, z: *mut u8) -> (&mut Box2, i64) {
+unsafe fn mk_fat<'a>(p: *mut Box2, z: *mut u8) -> (&'a mut Box2, i64) {
     return (zone_mut_ref::<Box2>(p, z), 1i64);
 }
 

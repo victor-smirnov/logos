@@ -5,7 +5,7 @@
 // CONTROL for t01: differs in ONE thing — the closure parameter's borrow leaves by
 // RETURN instead of by store into the `&mut Sink` out-parameter. Refused.
 package anonymous_region_in_apit_ctl_return_channel;
-fn qux() -> &i64 {
+fn qux() -> &'static i64 {
     let c = |baz: &i64| -> &i64 { return baz; };
     let local: i64 = 5i64;
     return c(&local);

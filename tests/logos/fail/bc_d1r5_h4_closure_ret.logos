@@ -11,7 +11,7 @@ impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-fn mkb() -> B {
+fn mkb() -> B<'static> {
     let c: C = C { v: 1i64 };
     let f = || -> B { return c.mk(); };
     return f();

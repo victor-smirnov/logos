@@ -4,7 +4,7 @@
 package borrowck_borrow_from_temporary;
 struct Foo { v: i64 }
 fn id(x: Foo) -> Foo { return x; }
-fn foo() -> &i64 {
+fn foo() -> &'static i64 {
     let r: &Foo = &id(Foo { v: 3i64 });
     return &r.v;
 }

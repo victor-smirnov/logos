@@ -3322,6 +3322,18 @@ void SemaChecker::collect_trait(TinyMapView node) {
             for (auto pt : mi.param_types)
                 check_struct_bound_lifetimes_(pt, std::format("trait {}: method '{}'", tname, mi.name));
             check_struct_bound_lifetimes_(mi.ret_type, std::format("trait {}: method '{}'", tname, mi.name));
+            {
+            auto saved_line = node_line_; auto saved_span = node_span_; auto saved_ctx = ctx_;
+            node_line_ = get_line(m); node_span_ = get_span(m);
+            ctx_ = std::format("trait {}: method '{}'", tname, mi.name);
+            check_output_elision_(mi.ret_type,
+                                  m.has_key(la::RET_TYPE) ? map_of(m.get(la::RET_TYPE.code)) : TinyMapView{},
+                                  mi.param_types,
+                                  mi.has_self_receiver && !mi.param_types.empty() &&
+                                      (TypeRef(mi.param_types[0]).kind() == LogosType::Kind::Ref ||
+                                       TypeRef(mi.param_types[0]).kind() == LogosType::Kind::MutRef));
+            node_line_ = saved_line; node_span_ = saved_span; ctx_ = saved_ctx;
+            }
             // P2-15: a `where Self: Sized` method is excluded from the vtable, so
             // it never affects object-safety (the trait-method where-clause is now
             // captured under WHERE — grammar fix). Scan for a `Self: Sized` bound.

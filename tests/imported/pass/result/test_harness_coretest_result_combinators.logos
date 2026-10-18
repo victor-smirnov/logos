@@ -28,13 +28,13 @@ use logos.lang.str;
 use logos.lang.option;
 use logos.lang.result;
 
-fn op1() -> Result<i32, &str> { return Ok(666i32); }
-fn op2() -> Result<i32, &str> { return Err("sadface"); }
+fn op1() -> Result<i32, &'static str> { return Ok(666i32); }
+fn op2() -> Result<i32, &'static str> { return Err("sadface"); }
 
-fn ok_667(i: i32)  -> Result<i32, &str> { return Ok(667i32); }
-fn err_bad(_i: i32) -> Result<i32, &str> { return Err("bad"); }
-fn plus_one(i: i32) -> Result<i32, &str> { return Ok(i + 1i32); }
-fn ret_bad(_i: i32) -> Result<i32, &str> { return Err("bad"); }
+fn ok_667(i: i32)  -> Result<i32, &'static str> { return Ok(667i32); }
+fn err_bad(_i: i32) -> Result<i32, &'static str> { return Err("bad"); }
+fn plus_one(i: i32) -> Result<i32, &'static str> { return Ok(i + 1i32); }
+fn ret_bad(_i: i32) -> Result<i32, &'static str> { return Err("bad"); }
 fn from_err(e: &str) -> Result<i32, &str> { return Err(e); }
 fn const_667(_e: &str) -> Result<i32, &str> { return Ok(667i32); }
 

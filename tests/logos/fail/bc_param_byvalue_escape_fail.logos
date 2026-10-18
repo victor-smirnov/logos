@@ -17,6 +17,6 @@
 // so returning a borrow derived from it must keep compiling.
 package bc_param_byvalue_escape_fail;
 
-fn arg_item(x: i64) -> &i64 { return &x; }
+fn arg_item(x: i64) -> &'static i64 { return &x; }
 
 fn main() -> i32 { let r: &i64 = arg_item(3i64); return *r as i32; }

@@ -16,7 +16,7 @@ package fatret_customdst_ref_returned;
 
 struct Buf { hdr: i32, tail: [u8] }
 
-unsafe fn mk(raw: *const u8) -> &Buf {
+unsafe fn mk<'a>(raw: *const u8) -> &'a Buf {
     return dst_from_raw_parts::<Buf>(raw, 4 as i64);
 }
 

@@ -7,7 +7,7 @@
 package test;
 #[zone_mut] struct Box2 { v: i64 }
 fn take(r: &mut Box2) -> i64 { return r.v; }
-unsafe fn mk(p: *mut Box2) -> (&mut Box2, i64) {
+unsafe fn mk<'a>(p: *mut Box2) -> (&'a mut Box2, i64) {
     return (p, 1i64);                      // ERROR: thin ptr as the fat element
 }
 unsafe fn main() -> i32 {

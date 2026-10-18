@@ -1,0 +1,10 @@
+// A raw pointer is no lifetime position: `unsafe fn f(p: *const i32) -> &i32` has
+// no input lifetime, so rustc 1.98.1 refuses it with E0106 (write `<'a>` ... `&'a i32`).
+package elided_return_raw_ptr_input_refused;
+
+unsafe fn f(p: *const i32) -> &i32 { return &*p; }
+
+unsafe fn main() -> i32 {
+    let x: i32 = 0i32;
+    return *f(&x as *const i32);
+}

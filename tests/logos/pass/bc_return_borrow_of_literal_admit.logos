@@ -12,7 +12,7 @@ package bc_return_borrow_of_literal_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 
-fn f() -> &i64 { return &5i64; }
+fn f() -> &'static i64 { return &5i64; }
 fn stomp(n: i64) -> i64 {
     let a: i64 = n; let b: i64 = n; let c: i64 = n;
     let d: i64 = n; let e: i64 = n; let g: i64 = n;

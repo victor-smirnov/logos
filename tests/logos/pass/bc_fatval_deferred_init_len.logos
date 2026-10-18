@@ -39,7 +39,7 @@ pub struct W { pub s: &'static str, pub n: i64 }
 
 #[zone_mut] struct Box2 { v: i64 }
 
-pub fn mk() -> &str { return "abcde"; }
+pub fn mk() -> &'static str { return "abcde"; }
 
 unsafe fn main() -> i32 {
     // ── 1-6: the SHAPE axis, repr held at `str`, the answer is 5 everywhere ──

@@ -7,6 +7,6 @@ package bc_const_item_return_ref_promoted_admit;
 
 const K: i64 = 5i64;
 
-fn f() -> &i64 { return &K; }
+fn f() -> &'static i64 { return &K; }
 
 fn main() -> i64 { let r: &i64 = f(); return *r; }

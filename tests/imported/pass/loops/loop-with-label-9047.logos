@@ -4,7 +4,7 @@
 // labelled break works in Logos.
 package loop_with_label_9047;
 
-fn decode() -> &str {
+fn decode() -> &'static str {
     'outer: loop {
         let _ch_start: usize = 0usize;
         break 'outer;
