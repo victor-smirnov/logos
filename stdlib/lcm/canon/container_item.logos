@@ -467,7 +467,6 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
     } else {
         quote_block! { ck.cells.push(key as u64); }
     };
-    let klen: ExprBlob = if kstr { quote_expr! { (key.len() as u32) } } else { quote_expr! { 8u32 } };
     let kvle: ExprBlob = parse_expr(if kstr { "true" } else { "false" });
     let kord: ExprBlob = parse_expr(if kstr { "false" } else { "true" });
 
@@ -537,10 +536,8 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
                     }
                 }
                 pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
-                    let vlen: u32 = val.len() as u32;
-                    if #(klen) + vlen > 1024u32 {
-                        return false;
-                    }
+                    // No size cap here: the handle refuses an entry over the
+                    // frame limit before it reaches a leaf (ADR 0039 M1w).
                     unsafe {
                         let pos: u32 = self.lower_bound(key);
                         let hit: bool = pos < self.count() && self.key_at(pos) == key;
@@ -721,6 +718,17 @@ fn emit_leaf_node(name: &str, kty: &str, vty: &str, policy: &str, cow: bool) {
                     }
                 }
                 pub fn node_bytes(self: &#nm) -> u32 { return unsafe { #nd::block_size(self.mem) }; }
+                // The FRAME LIMIT: the largest entry (key + value bytes) this
+                // family admits. C = the free space of an empty standard leaf;
+                // with every entry <= C/4 a volume-half split leaves the target
+                // side <= C/2 + C/4, so the retried insert always lands. 64 bytes
+                // per entry are kept for the columns' encoding overhead.
+                pub static fn frame_limit() -> u32 {
+                    let lf: #nm = #nm::new_in(0u64);
+                    let c: u32 = unsafe { (*lf.a()).free_space() };
+                    lf.free();
+                    return c / 4u32 - 64u32;
+                }
                 pub static fn adopt(mem: *mut u8) -> #nm { 
                     return #nm { 
                         mem: mem, 
@@ -941,6 +949,7 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
             use logos.lang.str;
             use logos.lang.slice;
             use logos.lang.result;
+            use logos.mem.collections.vec;    // the reserve pad (can_insert_child)
             impl #nm {
                 pub fn sep_at<'a>(self: &#nm, i: u32) -> &'a str {
                     let b: &[u8] = unsafe { btss_row_bytes(self.a(), 0u32, i) };
@@ -973,11 +982,19 @@ fn emit_branch_node(name: &str, kty: &str, cow: bool) {
                         zb.set(0u32, i as u64, sz);
                     }
                 }
-                // Priced for the longest key a leaf admits, so an update that
-                // lengthens any separator always fits as well.
+                // Every row is priced at the longest key a leaf admits: a new row
+                // is admitted only if ALL rows would still fit with every
+                // separator STR_KEY_RESERVE bytes long, so any later update that
+                // lengthens any separator fits (an update replaces a subtree's
+                // max key, which may grow on every insert and remove).
                 pub fn can_insert_child(self: &#nm) -> bool {
-                    let pad: [u8; 512] = [0u8; 512];
-                    return unsafe { btss_fits_row_span(self.a(), 3u32, slice_from_raw::<u8>(&pad as *const u8, STR_KEY_RESERVE)) };
+                    unsafe {
+                        let n: i64 = self.child_count() as i64;
+                        let held: i64 = btss_key_weight(self.a(), n as u32) as i64;
+                        let mut pad: Vec<u8> = Vec::new();
+                        pad.resize((n + 1i64) * STR_KEY_RESERVE - held, 0u8);
+                        return btss_fits_row_span(self.a(), 3u32, pad.as_slice());
+                    }
                 }
             }
         };
@@ -1337,6 +1354,18 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
     } else { quote_block! { } };
     let vi: ExprBlob = parse_type(if str_eq(vty, "str") { "&str" } else { vty });
     let vo: ExprBlob = if vol { parse_type("&[u8]") } else { parse_type(vty) };
+    // An entry over the frame limit is refused BEFORE any mutation (ADR 0039
+    // M1w): `insert` asserts, `try_insert` returns `InsertError::FrameLimit`.
+    // Only a family with a VLE column has entries that can exceed it.
+    let framed: bool = vol || kstr;
+    let mut lb_u: String = fmt_display_to_string(&scfg.leaf_bytes());
+    lb_u.push_str("u32");
+    let lbs: ExprBlob = parse_expr(lb_u.as_str());
+    let kbytes: ExprBlob = if kstr { quote_expr! { key.len() as u64 } } else { quote_expr! { 8u64 } };
+    let vbytes: ExprBlob = if vol { quote_expr! { val.len() as u64 } } else { quote_expr! { 8u64 } };
+    let fguard: ExprBlob = if framed {
+        quote_block! { assert(self.entry_fits(key, val), "ordered_map: an entry over the container's frame limit (frame_limit())"); }
+    } else { quote_block! { } };
 
     // {N} — the Ctr handle. `insert` forwards into bt_cow_insert and keeps the
     // root repoint (identity change under CoW → release the old root's tree) +
@@ -1386,6 +1415,7 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
             // family plane up to it.
             pub fn insert(self: &mut #nm, key: #(kid), val: #(vi)) {
                 #(kguard);
+                #(fguard);
                 unsafe {
                     // root_of_mut privatizes this snapshot's directory path to
                     // the container FIRST (acquiring ownership of the roots on
@@ -1491,6 +1521,43 @@ fn emit_cow_map(name: &str, lname: &str, bname: &str, kty: &str, vty: &str, vol:
         }
     };
     unsafe { logos_emit_item_blob_subst(&handle); }
+    if framed {
+        let fr: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.btss;
+            impl #nm {
+                /// The largest entry (key + value bytes) this container admits.
+                pub fn frame_limit(self: &#nm) -> u64 { return #lid::frame_limit() as u64; }
+                /// Does an entry of `key` and `val` fit the frame limit? Entries
+                /// under a sixteenth of a leaf answer without pricing.
+                pub fn entry_fits(self: &#nm, key: #(kid), val: #(vi)) -> bool {
+                    let b: u64 = #(kbytes) + #(vbytes);
+                    if b <= (#(lbs) as u64) / 16u64 { return true; }
+                    return b <= self.frame_limit();
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&fr); }
+        // A DView map has its own typed `try_insert` (which checks the frame too).
+        if cfg_value_pos(cfg_src, "\"dview\"") < 0i64 {
+            let ti: QuoteItemBlob = quote_item! {
+                use logos.lang.result;
+                use logos.lcm.canon.metaclass;    // InsertError
+                use logos.mem.bt.btss;            // STR_KEY_RESERVE (kguard)
+                use logos.lang.panic;
+                impl #nm {
+                    /// Insert or replace; an entry over the frame limit is refused
+                    /// and the container is left unchanged.
+                    pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vi)) -> Result<(), InsertError> {
+                        #(kguard);
+                        if !self.entry_fits(key, val) { return Result::Err(InsertError::FrameLimit); }
+                        self.insert(key, val);
+                        return Result::Ok(());
+                    }
+                }
+            };
+            unsafe { logos_emit_item_blob_subst(&ti); }
+        }
+    }
 
     // get_or on the handle — reads the snapshot's current root for this
     // container, then forwards into bt_descend_get (read path, never copies).
@@ -4175,6 +4242,13 @@ fn emit_dview_surface(name: &str) {
             /// Insert or replace. Refused when the key's or the value's type is
             /// not the map's (the first insert into an empty map fixes both).
             pub fn try_insert(self: &mut #nm, k: DView, v: DView) -> Result<(), InsertError> {
+                // The frame check comes first: a refused insert fixes no types.
+                let mut kb: Vec<u8> = Vec::new();
+                dv_key_bytes(&k, &mut kb);
+                let ks: &str = unsafe { str_from_raw(kb.as_ptr(), kb.len()) };
+                let vb: &[u8] = dv_obj_slice(&v);
+                let vs: &str = unsafe { str_from_raw(vb.as_ptr(), vb.len()) };
+                if !self.entry_fits(ks, vs) { return Result::Err(InsertError::FrameLimit); }
                 match self.dv_tags() {
                     Option::Some(t) => {
                         if k.type_code() != t.ktag || k.meta_word() != t.kmeta { return Result::Err(InsertError::KeyType); }
@@ -4186,11 +4260,6 @@ fn emit_dview_surface(name: &str) {
                         self.dv_set_tags(&t);
                     }
                 }
-                let mut kb: Vec<u8> = Vec::new();
-                dv_key_bytes(&k, &mut kb);
-                let ks: &str = unsafe { str_from_raw(kb.as_ptr(), kb.len()) };
-                let vb: &[u8] = dv_obj_slice(&v);
-                let vs: &str = unsafe { str_from_raw(vb.as_ptr(), vb.len()) };
                 self.insert(ks, vs);
                 return Result::Ok(());
             }

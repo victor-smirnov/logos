@@ -1,0 +1,140 @@
+// ctr_frame_limit — ADR 0039 M1w: a container's frame limit. An entry of at
+// most `frame_limit()` bytes always lands (random order, mixed with small
+// entries, in a u64-keyed and a str-keyed family); one byte more is refused
+// at INSERT (`try_insert` -> Err(FrameLimit), DView maps too) and leaves the
+// container as it was.
+//
+// The str-keyed run also holds two leaf/branch laws the limit rests on: a
+// split gives the moving rows' bytes back to the leaf (two VLE columns), and
+// a branch keeps room for every separator to grow to STR_KEY_RESERVE.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.lcm.canon.dvmap;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.mem.string;
+use logos.lang.arith;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.writ.dview;
+use logos.std.io;
+
+container Vals { kind ordered_map; entry { key: u64, val: str } measure max(key); }
+container Keys { kind ordered_map; entry { key: str, val: str } measure max(key); }
+container Dyn { kind ordered_map; entry { key: DView, val: DView } measure max(key); }
+
+struct Lcg { s: u64 }
+impl Lcg {
+    fn next(self: &mut Lcg) -> u64 { self.s = self.s.wrapping_mul(6364136223846793005u64).wrapping_add(1442695040888963407u64); return self.s >> 33u64; }
+}
+
+fn filled(n: u64, c: u64) -> String {
+    let mut v: String = String::new();
+    let mut i: u64 = 0u64;
+    while i < n { v.push_u8((97u64 + (c + i) % 26u64) as u8); i = i + 1u64; }
+    return v;
+}
+
+// "k" + six digits + `tail` bytes of '~' (sorts right after the bare key).
+fn key_of(n: u64, tail: u64) -> String {
+    let mut k: String = String::new();
+    k.push_str("k");
+    let mut d: u64 = 100000u64;
+    while d > 0u64 { k.push_u8((48u64 + (n / d) % 10u64) as u8); d = d / 10u64; }
+    let mut i: u64 = 0u64;
+    while i < tail { k.push_str("~"); i = i + 1u64; }
+    return k;
+}
+
+fn run_all() -> i32 {
+    let mut rng: Lcg = Lcg { s: 7u64 };
+    let mut st: Arc<MemoryStore> = store_new();
+    let s: Arc<dyn Snapshot> = store_fork_arc(&mut st);
+
+    // u64 key: entries of the limit, half the limit and a few bytes, random keys
+    let mut m = create_ctr::<typeof(Vals)>(&s, 1u64);
+    let lim: u64 = m.frame_limit();
+    if lim < 512u64 { return 1i32; }
+    let mut i: u64 = 0u64;
+    while i < 2000u64 {
+        let k: u64 = rng.next() % 100000u64;
+        let r: u64 = rng.next() % 4u64;
+        let n: u64 = if r == 0u64 { rng.next() % 40u64 } else if r == 1u64 { lim / 2u64 } else { lim - 8u64 };
+        let v: String = filled(n, k);
+        m.insert(k, v.as_str());
+        i = i + 1u64;
+    }
+    let before: u64 = m.size();
+    let over: String = filled(lim - 7u64, 0u64);
+    match m.try_insert(123456789u64, over.as_str()) {
+        Result::Ok(_) => { return 2i32; }
+        Result::Err(e) => { match e { InsertError::FrameLimit => {} _ => { return 3i32; } } }
+    }
+    if m.size() != before { return 4i32; }
+    let at: String = filled(lim - 8u64, 0u64);
+    match m.try_insert(123456789u64, at.as_str()) { Result::Ok(_) => {} Result::Err(_) => { return 5i32; } }
+    if m.size() != before + 1u64 { return 6i32; }
+
+    // str key: keys up to STR_KEY_RESERVE bytes, values up to the rest of the limit
+    let mut q = create_ctr::<typeof(Keys)>(&s, 2u64);
+    let ql: u64 = q.frame_limit();
+    i = 0u64;
+    while i < 2000u64 {
+        let kn: u64 = 1u64 + rng.next() % 255u64;
+        let key: String = filled(kn, rng.next());
+        let r: u64 = rng.next() % 3u64;
+        let vn: u64 = if r == 0u64 { ql - kn } else if r == 1u64 { 300u64 } else { rng.next() % 30u64 };
+        let v: String = filled(vn, kn);
+        q.insert(key.as_str(), v.as_str());
+        i = i + 1u64;
+    }
+    let qb: u64 = q.size();
+    let k255: String = filled(255u64, 3u64);
+    let qover: String = filled(ql - 254u64, 0u64);
+    match q.try_insert(k255.as_str(), qover.as_str()) {
+        Result::Ok(_) => { return 10i32; }
+        Result::Err(e) => { match e { InsertError::FrameLimit => {} _ => { return 11i32; } } }
+    }
+    if q.size() != qb { return 12i32; }
+
+    // str key, separators that grow: short keys fill the branches, then keys
+    // of ~250 bytes land between them, so splits replace short separators
+    // with long ones (a branch that reserved for one row ran out here)
+    let mut b = create_ctr::<typeof(Keys)>(&s, 4u64);
+    let mut n: u64 = 0u64;
+    while n < 30000u64 { let k: String = key_of(n, 0u64); b.insert(k.as_str(), ""); n = n + 1u64; }
+    i = 0u64;
+    while i < 30000u64 {
+        let k: String = key_of(rng.next() % 30000u64, 200u64 + rng.next() % 48u64);
+        b.insert(k.as_str(), "");
+        i = i + 1u64;
+    }
+    if b.size() < 30000u64 { return 15i32; }
+
+    // DView map: the frame check runs before the map's types are fixed
+    let mut d = create_ctr::<typeof(Dyn)>(&s, 3u64);
+    let dl: u64 = d.frame_limit();
+    let big: String = filled(dl, 1u64);
+    let k1: u64 = 1u64;
+    match d.try_insert(DView::from(&k1), DView::from_str(big.as_str())) {
+        Result::Ok(_) => { return 20i32; }
+        Result::Err(e) => { match e { InsertError::FrameLimit => {} _ => { return 21i32; } } }
+    }
+    if d.len() != 0u64 { return 22i32; }
+    let v1: u64 = 9u64;
+    match d.try_insert(DView::from(&k1), DView::from(&v1)) { Result::Ok(_) => {} Result::Err(_) => { return 23i32; } }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_frame_limit: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

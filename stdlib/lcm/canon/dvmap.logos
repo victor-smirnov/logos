@@ -7,7 +7,7 @@
 //
 //   * TAGS. The map is homogeneous: the first insert fixes the key's and the
 //     value's (tag, meta); a later insert of another type is refused
-//     (InsertError::KeyType / ValueType). The four words live in the
+//     (InsertError::KeyType / ValueType, in metaclass). The four words live in the
 //     container's user-metadata slot, which rides every root change; a map
 //     emptied (clear / the last remove) loses them and accepts any type again.
 //
@@ -32,13 +32,6 @@ use logos.lang.writ.anyval;      // W_I64 / W_STRING
 use logos.mem.collections.vec;
 use logos.lang.slice;
 use logos.lang.ptr;              // read_unaligned
-
-/// Why a DView insert was refused: the key or the value has another (tag,
-/// meta) than the map's first insert fixed.
-pub enum InsertError {
-    KeyType,
-    ValueType,
-}
 
 /// The map's element types: the key's and the value's (tag, meta).
 pub struct DvTags {
