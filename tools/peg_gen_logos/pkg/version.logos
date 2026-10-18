@@ -2,6 +2,6 @@
 
 package peg_gen_logos.version;
 
-pub fn peg_gen_logos_version() -> &str {
+pub fn peg_gen_logos_version() -> &'static str {
     return "peg_gen_logos 0.1.0";
 }

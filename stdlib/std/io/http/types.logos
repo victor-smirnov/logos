@@ -387,7 +387,7 @@ pub enum HttpError {
 }
 
 /// Returns the standard reason phrase for `status`; unknown codes yield `""`.
-pub fn http_reason_phrase(status: i32) -> &str {
+pub fn http_reason_phrase(status: i32) -> &'static str {
     if status == 200 { return "OK"; }
     if status == 201 { return "Created"; }
     if status == 204 { return "No Content"; }

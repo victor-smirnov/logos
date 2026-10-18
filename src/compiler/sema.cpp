@@ -3461,18 +3461,9 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
     if (name == "void") return prim(LogosType::Kind::Void);
     if (name == "!")    return prim(LogosType::Kind::Never);
     if (name == "str") {
-        // Phase 1B-3: `str` keyword. Default meaning is the existing
-        // fat-pointer form Slice<u8> (Rust's `&str` shape). When the
-        // surrounding context explicitly permits an unsized result
-        // (e.g. turbofish for a `T: ?Sized` parameter), produce the
-        // unsized form so the substitution canonicalisation can route
-        // `&T` to the same Slice<u8> ABI without double-wrapping.
-        if (unsized_ok_) return make_unsized_slice_type(str_unit_t());
-        // squeue str_by_value_admitted: LOGOS_STR_UNSIZED=1 resolves bare `str` as Rust's
-        // unsized str (by value refused); the migration's enumeration mode until it is the default.
-        static const bool str_unsized = [] { const char* e = std::getenv("LOGOS_STR_UNSIZED"); return e && *e == '1'; }();
-        if (str_unsized) return make_unsized_slice_type(str_unit_t());
-        return make_str_type();
+        // Rust's `str`: the unsized string slice. `&str` is the value; `str` by
+        // value is refused (E0277).
+        return make_unsized_slice_type(str_unit_t());
     }
     auto tvit = current_type_params_.find(std::string(name));
     if (tvit != current_type_params_.end()) return tvit->second;
