@@ -2555,3 +2555,11 @@ fn str_is_pointee(ty: &str, i: i64) -> bool {
 fn col_ty_word_byte(c: u8) -> bool {
     return (c >= 97u8 && c <= 122u8) || (c >= 65u8 && c <= 90u8) || (c >= 48u8 && c <= 57u8) || c == 95u8 || c == 46u8 || c == 58u8;
 }
+
+/// The address an `Option<&V>` lends, null for `None` — the bridge for emitted
+/// code that keeps a probed bucket as a raw pointer across its row loop (the
+/// map is not written while the loop runs) while reading the map through the
+/// safe `HashMap::get`.
+pub fn opt_ptr<V>(o: Option<&V>) -> *const V {
+    match o { Option::Some(v) => { return v as *const V; } Option::None => { return 0i64 as *const V; } }
+}

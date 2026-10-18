@@ -195,10 +195,8 @@ fn ts_row(out: &mut RowSet, parent: WAny, key: &str, idx: i64, child: WAny, ord:
 fn ts_descend(child: WAny, out: &mut RowSet, seen: &mut HashMap<u64, i64>) {
     if !ts_is_container(child) { return; }
     let hw: u64 = child.raw() as u64;
-    let sp: *mut HashMap<u64, i64> = seen;
-    let hit: *const i64 = unsafe { (*sp).get_ptr(&hw) };
-    if (hit as i64) != 0i64 { return; }        // already expanded (DAG/cycle)
-    unsafe { let _s: *mut i64 = (*sp).get_or_insert_ptr(hw, 1i64); }
+    if seen.contains_key(&hw) { return; }     // already expanded (DAG/cycle)
+    seen.insert(hw, 1i64);
     ts_walk(child, out, seen);
 }
 
@@ -287,8 +285,7 @@ fn ts_scan<'d>(var: &'d str, root_w: i64, scratch: &Writ) -> RowSet<'d> {
     // #[derive_graph_source] materializer and gp_build's `parent ==` anchor.
     ts_edge_row(&mut out, WG_ROOT_PARENT, WG_ROOT_KEY, WG_ROOT_IDX, root, WG_ROOT_ORD);
     let mut seen: HashMap<u64, i64> = hashmap_new::<u64, i64>();
-    let sp: *mut HashMap<u64, i64> = &mut seen;
-    unsafe { let _r: *mut i64 = (*sp).get_or_insert_ptr(root.raw() as u64, 1i64); }
+    seen.insert(root.raw() as u64, 1i64);
     ts_walk(root, &mut out, &mut seen);
     return out;
 }

@@ -3977,15 +3977,13 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
         if streams {
             ins = quote_block! {
                 unsafe {
-                    let #n_vp: *mut Vec<#(p1)> = (*#n_mp).get_or_insert_ptr(#n_k, Vec::<#(p2)>::new());
-                    (&mut *#n_vp).push(#n_br);
+                    (*#n_mp).entry(#n_k).or_insert(Vec::<#(p2)>::new()).push(#n_br);
                 }
             };
         } else {
             ins = quote_block! {
                 unsafe {
-                    let #n_vp: *mut Vec<#(p1)> = (*#n_mp).get_or_insert_ptr(#n_k, Vec::<#(p2)>::new());
-                    (&mut *#n_vp).push(#n_b);
+                    (*#n_mp).entry(#n_k).or_insert(Vec::<#(p2)>::new()).push(#n_b);
                 }
             };
         }
@@ -3997,7 +3995,7 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
         if streams {
             ins = quote_block! {
                 unsafe {
-                    let #n_vp: *mut Vec<#(p1)> = (*#n_tp).get_mut_ptr(&#n_k);
+                    let #n_vp: *mut Vec<#(p1)> = (*#n_tp).get_mut(&#n_k);
                     if #n_vp == (0i64 as *mut Vec<#(p2)>) {
                         let mut #n_nv: Vec<#(p3)> = Vec::<#(p4)>::new();
                         #n_nv.push(#n_br);
@@ -4010,7 +4008,7 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
         } else {
             ins = quote_block! {
                 unsafe {
-                    let #n_vp: *mut Vec<#(p1)> = (*#n_tp).get_mut_ptr(&#n_k);
+                    let #n_vp: *mut Vec<#(p1)> = (*#n_tp).get_mut(&#n_k);
                     if #n_vp == (0i64 as *mut Vec<#(p2)>) {
                         let mut #n_nv: Vec<#(p3)> = Vec::<#(p4)>::new();
                         #n_nv.push(#n_b);
@@ -4162,10 +4160,10 @@ fn bucket_lookup_frag(s: i64, strat: i32, streams: bool, ty: &str) -> ExprBlob {
     let s_tp: String = nk_str("__tp", s);   let n_tp: Ident = Ident::new(string_as_str(&s_tp));
     let s_pk: String = nk_str("__pk", s);   let n_pk: Ident = Ident::new(string_as_str(&s_pk));
     if strat == JS_HASH() {
-        return quote_block! { unsafe { #n_bp = (*#n_mp).get_ptr(&#n_pk); } };
+        return quote_block! { unsafe { #n_bp = opt_ptr((*#n_mp).get(&#n_pk)); } };
     }
     let p1: ExprBlob = payload_ty_frag(streams, ty);
-    return quote_block! { unsafe { #n_bp = (*#n_tp).get_mut_ptr(&#n_pk) as *const Vec<#(p1)>; } };
+    return quote_block! { unsafe { #n_bp = (*#n_tp).get_mut(&#n_pk) as *const Vec<#(p1)>; } };
 }
 
 // ── ADR 0026 F9 — the MERGE step ─────────────────────────────────────────────
@@ -4498,7 +4496,7 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
                 // — which is exactly what that toggle exists to catch.
                 let p1: ExprBlob = payload_ty_frag(streams, ty);
                 matched = quote_block! {
-                    unsafe { #n_m = (*#n_tp).get_mut_ptr(&#n_pk) != (0i64 as *mut Vec<#(p1)>); }
+                    unsafe { #n_m = (*#n_tp).get_mut(&#n_pk) != (0i64 as *mut Vec<#(p1)>); }
                 };
             }
         } else {
@@ -4618,7 +4616,7 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
         return quote_block! {
             #(pk_decl);
             let mut #n_bp: *const #(q1) = 0i64 as *const #(q2);
-            unsafe { #n_bp = (*#n_mp).get_ptr(&#n_pk); }
+            unsafe { #n_bp = opt_ptr((*#n_mp).get(&#n_pk)); }
             if #(ucond) {
                 #(ubind);
                 #(uguard);
@@ -5011,8 +5009,7 @@ fn group_fold_frag(keyt_f: ExprBlob, key_f: ExprBlob, key_ty: &str, cnt_seed: Ex
         let __k: #(keyt_f) = (#(key_f));
         let mut __gi: i64 = -1i64;
         if __g_hon {
-            let __gp: *const i64 = unsafe { __g_idx.get_ptr(&__k) };
-            if __gp != (0i64 as *const i64) { __gi = unsafe { *__gp }; }
+            match __g_idx.get(&__k) { Option::Some(__gp) => { __gi = *__gp; } Option::None => {} }
         } else {
             let mut __s: i64 = 0i64;
             while __s < __g_key.len() && __gi < 0i64 { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
@@ -7516,7 +7513,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // `&mut self` — `__mc` (the `*const` the iterator needs) cannot
             // lend one. Same map, no mutation, and the key came from
             // that map's own live keys, so the pointer is never null here.
-            let vok_e: ExprBlob = parse_expr(if is_fl { "f64_from_bits(unsafe { (*((*__mp).get_ptr(__kp))).1 })" } else { "*__kp" });
+            let vok_e: ExprBlob = parse_expr(if is_fl { "f64_from_bits(unsafe { (*opt_ptr((*__mp).get(__kp))).1 })" } else { "*__kp" });
             let ko_e:  ExprBlob = parse_expr(if is_fl { "f64_data_key(__kv)" } else { "__kv" });
             let impr:  ExprBlob = parse_expr(if fnid == AGG_MIN() { "__vo < __bo" }  else { "__vo > __bo" });
             let rcmp:  ExprBlob = parse_expr(if fnid == AGG_MIN() { "__ko < __nbo" } else { "__ko > __nbo" });
@@ -7534,7 +7531,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     let __b: #(vt0) = __h.#n_ga.get(__gi);
                     let __bk: #(mkty) = (#(kb_e));
                     let __mp: #(pmap) = unsafe { __h.#n_gm.at(__gi) };
-                    let __cp: *const #(mvty) = unsafe { (*__mp).get_ptr(&__mk) };
+                    let __cp: *const #(mvty) = unsafe { opt_ptr((*__mp).get(&__mk)) };
                     let __cur: i64 = if (__cp as i64) == 0i64 { 0i64 } else { unsafe { #(cnt_e) } };
                     let __nc: i64 = __cur + __w;
                     // ⚠ STRICTLY `< 0`, AND THE STRICTNESS IS THE WHOLE CONTENT.
@@ -10235,7 +10232,7 @@ fn rel_push_agg_frag(ri: i64, prm: &MacroParams,
         // wave that improves nothing still shows the work it did.
         unsafe { *__wcp = *__wcp + 1i64; }
         unsafe {
-            let __cp: *const #(vty2) = (*#n_bp).get_ptr(&__ak);
+            let __cp: *const #(vty2) = opt_ptr((*#n_bp).get(&__ak));
             let mut __imp: bool = false;
             if __cp == (0i64 as *const #(vty2)) { __imp = true; #n_ks.push(__ak); }
             else { if #(cmp) { __imp = true; } }
@@ -11589,7 +11586,7 @@ fn emit_scc_fn(c: i64, fn_name: &str,
                     while __mk < #n_ks.len() {
                         let __kk: #(ktyt) = #n_ks[__mk];
                         unsafe {
-                            let __vp: *const #(vtyt) = (*#n_bp).get_ptr(&__kk);
+                            let __vp: *const #(vtyt) = opt_ptr((*#n_bp).get(&__kk));
                             #n_tt.push(#(rowt));
                         }
                         __mk = __mk + 1i64;

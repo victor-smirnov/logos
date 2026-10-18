@@ -2776,17 +2776,16 @@ fn emit_rule(cg: &mut Codegen, w: &mut CodeWriter, ridx: i64) {
         mk.push_str("    let mk: i64 = lex.save_pos() * 1024i64 + "); mk.push_i64(ridx); mk.push_str("i64;");
         w.line(mk.as_str());
         w.line("    let mut hok: bool = false; let mut hr: *const u8 = NULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;");
-        w.line("    unsafe {");
-        w.line("        let mp: *mut HashMap<i64, MemoCell> = &mut lex.memo;");
-        w.line("        let hp: *const MemoCell = (*mp).get_ptr(&mk);");
-        w.line("        if hp != (0i64 as *const MemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }");
+        w.line("    match lex.memo.get(&mk) {");
+        w.line("        Option::Some(c) => { hok = true; hr = c.res; hep = c.endpos; hel = c.endline; }");
+        w.line("        Option::None => {}");
         w.line("    }");
         w.line("    if hok { lex.reset(hep, hel); return hr; }");
         let mut cl: String = String::new();
         cl.push_str("    let r: *const u8 = rule_"); cl.push_str(rname.as_str()); cl.push_str("_impl(lex, doc);");
         w.line(cl.as_str());
         w.line("    let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();");
-        w.line("    unsafe { let mp: *mut HashMap<i64, MemoCell> = &mut lex.memo; (*mp).insert(mk, MemoCell { res: r, endpos: ep, endline: el }); }");
+        w.line("    lex.memo.insert(mk, MemoCell { res: r, endpos: ep, endline: el });");
         w.line("    return r;");
         w.line("}");
     }
